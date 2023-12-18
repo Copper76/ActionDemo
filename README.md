@@ -2,7 +2,7 @@
 
 This project is a demo project using Unreal Engine. The project is a practice project where all the functions are implemented using C++.
 
-#Functions implemented
+## Functions implemented
 - [x] Walking(Present)
 - [x] Jumping(Present)
 - [x] Double Jump(Present)
@@ -16,7 +16,7 @@ This project is a demo project using Unreal Engine. The project is a practice pr
 - [ ] Portal gun
 - [ ] Map toggle
 
-#Tools
+## Tools
 -Unreal 5.2
 
 ## Necessary Software
