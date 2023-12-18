@@ -17,22 +17,22 @@ This project is a demo project using Unreal Engine. The project is a practice pr
 - [ ] Map toggle
 
 ## Controls
--WSAD to move around
--PRESS SPACE to jump and double jump
--HOLD SHIFT to sprint
--HOLD L-CTRL to crouch or slide in high speed
--Sprint into wall at an angle to wallrun
--Go into wall with upwards momentum to climb
--LMB without gun to grapple
--RMB without gun to flash forward
--PRESS L-CTRL while grappling to cancel grapple
--B to swap weapon when the gun is collected
--LMB with gun to fire blue portal(not implemented yet)
--RMB with gun to fire orange portal(not implemented yet)
--PRESS E to toggle map(not implemented yet)
+- WSAD to move around
+- PRESS SPACE to jump and double jump
+- HOLD SHIFT to sprint
+- HOLD L-CTRL to crouch or slide in high speed
+- Sprint into wall at an angle to wallrun
+- Go into wall with upwards momentum to climb
+- LMB without gun to grapple
+- RMB without gun to flash forward
+- PRESS L-CTRL while grappling to cancel grapple
+- B to swap weapon when the gun is collected
+- LMB with gun to fire blue portal(not implemented yet)
+- RMB with gun to fire orange portal(not implemented yet)
+- PRESS E to toggle map(not implemented yet)
 
 ## Tools
--Unreal 5.2
+- Unreal 5.2
 
 ## Necessary Software
 - [Epic Games Launcher, Unreal Engine 5.2](https://www.unrealengine.com/en-US/blog)
