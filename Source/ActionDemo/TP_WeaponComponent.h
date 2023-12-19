@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "APortal.h"
 #include "TP_WeaponComponent.generated.h"
 
 class AActionDemoCharacter;
@@ -89,6 +90,6 @@ private:
 	float Portal_CamOffset = 60.0f;
 	float Portal_Width = 100.0f;
 	float Portal_Height = 200.0f;
-	AActor OrangePortal;
-	AActor BluePortal;
+	APortal* OrangePortal;
+	APortal* BluePortal;
 };
