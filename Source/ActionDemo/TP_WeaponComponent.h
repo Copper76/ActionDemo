@@ -4,7 +4,6 @@
 
 #include "CoreMinimal.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "APortal.h"
 #include "TP_WeaponComponent.generated.h"
 
 class AActionDemoCharacter;
@@ -55,6 +54,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	class UInputAction* BluePortalAction;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
+	TSubclassOf<AActor> BluePortalBP;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
+	TSubclassOf<AActor> OrangePortalBP;
+
 	/** Sets default values for this component's properties */
 	UTP_WeaponComponent();
 
@@ -90,6 +95,5 @@ private:
 	float Portal_CamOffset = 60.0f;
 	float Portal_Width = 100.0f;
 	float Portal_Height = 200.0f;
-	APortal* OrangePortal;
-	APortal* BluePortal;
+	float Portal_EdgeCheckDelta = 5.0f;
 };

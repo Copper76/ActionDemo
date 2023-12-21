@@ -90,26 +90,71 @@ void UTP_WeaponComponent::AttachWeapon(AActionDemoCharacter* TargetCharacter)
 		if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerController->InputComponent))
 		{
 			// Fire
-			EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Fire);
+			//EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Fire);
 
 			// Fire Blue Portal
-			//EnhancedInputComponent->BindAction(BluePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::BluePortalFire);
+			EnhancedInputComponent->BindAction(BluePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::BluePortalFire);
 
 			// Fire Orange Portal
-			//EnhancedInputComponent->BindAction(OrangePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::OrangePortalFire);
+			EnhancedInputComponent->BindAction(OrangePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::OrangePortalFire);
 		}
 	}
 }
 
+void UTP_WeaponComponent::BluePortalFire()
+{
+	FHitResult PortalHit;
+	if (!CheckValidLoc(PortalHit))
+	{
+		return;
+	}
+	if (Character->BluePortal == nullptr)
+	{
+		FActorSpawnParameters SpawnInfo;
+		SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		Character->BluePortal = GetWorld()->SpawnActor<APortal>(BluePortalBP, PortalHit.ImpactPoint, PortalHit.ImpactNormal.Rotation() + FRotator(0.0f, -90.0f, 0.0f), SpawnInfo);
+		if (Character->OrangePortal == nullptr)
+		{
+			Character->BluePortal->SetUp(Character, true);
+		}
+		else
+		{
+			Character->BluePortal->SetUp(Character, true, Character->OrangePortal);
+		}
+	}
+	else
+	{
+		Character->BluePortal->GetRootComponent()->SetWorldLocation(PortalHit.ImpactPoint);
+		Character->BluePortal->GetRootComponent()->SetWorldRotation(PortalHit.ImpactNormal.Rotation() + FRotator(0.0f, -90.0f, 0.0f));
+	}
+}
 
 void UTP_WeaponComponent::OrangePortalFire()
 {
-
-}
-
-void UTP_WeaponComponent::BluePortalFire()
-{
-
+	FHitResult PortalHit;
+	if (!CheckValidLoc(PortalHit))
+	{
+		return;
+	}
+	if (Character->OrangePortal == nullptr)
+	{
+		FActorSpawnParameters SpawnInfo;
+		SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		Character->OrangePortal = GetWorld()->SpawnActor<APortal>(OrangePortalBP, PortalHit.ImpactPoint, PortalHit.ImpactNormal.Rotation() + FRotator(0.0f, -90.0f, 0.0f), SpawnInfo);
+		if (Character->BluePortal == nullptr)
+		{
+			Character->OrangePortal->SetUp(Character, false);
+		}
+		else
+		{
+			Character->OrangePortal->SetUp(Character, false, Character->BluePortal);
+		}
+	}
+	else
+	{
+		Character->OrangePortal->GetRootComponent()->SetWorldLocation(PortalHit.ImpactPoint);
+		Character->OrangePortal->GetRootComponent()->SetWorldRotation(PortalHit.ImpactNormal.Rotation() + FRotator(0.0f, -90.0f, 0.0f));
+	}
 }
 
 bool UTP_WeaponComponent::CheckValidLoc(FHitResult& PortalHit)
@@ -126,6 +171,9 @@ bool UTP_WeaponComponent::CheckValidLoc(FHitResult& PortalHit)
 		return false;
 	}
 
+	UE_LOG(LogTemp, Warning, TEXT("PASSED"))
+	return true;
+
 	//The target is not a valid surface
 	//if (!PortalHit.GetActor()->ActorHasTag("CanPortal"))
 	//{
@@ -136,8 +184,34 @@ bool UTP_WeaponComponent::CheckValidLoc(FHitResult& PortalHit)
 	FVector PortalSurface = PortalHit.ImpactNormal;
 
 	FHitResult EdgeHit;
-	GetWorld()->LineTraceSingleByProfile(PortalHit, PortalCentre, PortalCentre + Fwd * Portal_Range, "BlockAll", Character->GetIgnoreCharacterParams());
-	return false;
+	FVector RightEdge = PortalCentre + FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::RightVector), PortalSurface).GetSafeNormal() * Portal_Width / 2;
+	GetWorld()->LineTraceSingleByProfile(PortalHit, RightEdge - Portal_EdgeCheckDelta, RightEdge + Portal_EdgeCheckDelta, "BlockAll", Character->GetIgnoreCharacterParams());
+	if (!EdgeHit.IsValidBlockingHit())
+	{
+		return false;
+	}
+
+	FVector LeftEdge = PortalCentre + FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::LeftVector), PortalSurface).GetSafeNormal() * Portal_Width / 2;
+	GetWorld()->LineTraceSingleByProfile(PortalHit, LeftEdge - Portal_EdgeCheckDelta, LeftEdge + Portal_EdgeCheckDelta, "BlockAll", Character->GetIgnoreCharacterParams());
+	if (!EdgeHit.IsValidBlockingHit())
+	{
+		return false;
+	}
+
+	FVector UpEdge = PortalCentre + FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::UpVector), PortalSurface).GetSafeNormal() * Portal_Width / 2;
+	GetWorld()->LineTraceSingleByProfile(PortalHit, UpEdge - Portal_EdgeCheckDelta, UpEdge + Portal_EdgeCheckDelta, "BlockAll", Character->GetIgnoreCharacterParams());
+	if (!EdgeHit.IsValidBlockingHit())
+	{
+		return false;
+	}
+
+	FVector DownEdge = PortalCentre + FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::DownVector), PortalSurface).GetSafeNormal() * Portal_Width / 2;
+	GetWorld()->LineTraceSingleByProfile(PortalHit, DownEdge - Portal_EdgeCheckDelta, DownEdge + Portal_EdgeCheckDelta, "BlockAll", Character->GetIgnoreCharacterParams());
+	if (!EdgeHit.IsValidBlockingHit())
+	{
+		return false;
+	}
+	return true;
 }
 
 void UTP_WeaponComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)

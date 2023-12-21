@@ -6,6 +6,7 @@
 #include "GameFramework/Character.h"
 #include "InputActionValue.h"
 #include "CableComponent.h"
+#include "Public/Portal.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "ActionDemoCharacter.generated.h"
 
@@ -181,5 +182,9 @@ public:
 	AActor* bWeapon;
 	UPROPERTY(BlueprintReadOnly) float TargetRoll;
 	UPROPERTY(BlueprintReadOnly) TEnumAsByte<EGrapplingStage> GrappleStage;
+
+	//Portal
+	APortal* BluePortal;
+	APortal* OrangePortal;
 };
 
