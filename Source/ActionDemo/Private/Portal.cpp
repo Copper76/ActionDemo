@@ -21,16 +21,16 @@ APortal::APortal()
 	AddOwnedComponent(CaptureComponent);
 	CaptureComponent->SetupAttachment(SceneRoot);
 	//CaptureComponent->AttachToComponent(SceneRoot, FAttachmentTransformRules::KeepRelativeTransform);
-	CameraOffset = FVector(0.f, 10.f, 0.0f);
+	CameraOffset = FVector(10.f, 0.f, 0.0f);
 	CaptureComponent->SetRelativeLocation(CameraOffset); // Position the camera
-	CameraRotation = FRotator(0.0f, 90.0f, 0.0f);
+	CameraRotation = FRotator(0.0f, -90.0f, 90.0f);
 	CaptureComponent->SetRelativeRotation(CameraRotation);
 
 	BoxCollider = CreateDefaultSubobject<UBoxComponent>(TEXT("EnterCollider"));
 	AddOwnedComponent(BoxCollider);
 	BoxCollider->SetupAttachment(SceneRoot);
 	//BoxCollider->AttachToComponent(SceneRoot, FAttachmentTransformRules::KeepRelativeTransform);
-	BoxCollider->SetRelativeLocation(FVector(0.f, 10.f, 0.0f)); // Position the camera
+	BoxCollider->SetRelativeLocation(FVector(10.0f, 0.f, 0.0f)); // Position the camera
 	BoxCollider->SetRelativeScale3D(FVector(0.25f, 1.5f, 3.25f));
 
 	Plane = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Plane"));
@@ -50,24 +50,21 @@ void APortal::BeginPlay()
 	//These are set in setup later
 	Character = Cast<AActionDemoCharacter>(UGameplayStatics::GetPlayerCharacter(GetWorld(), 0));
 	PlayerController = GetWorld()->GetFirstPlayerController();
-	RotateFactor = FRotator(0.0f, 180.0f, 0.0f) - GetActorRotation();
 }
 
 //Setup when there is no other portal
-void APortal::SetUp(AActionDemoCharacter* Player, bool Blue)
+void APortal::SetUp(AActionDemoCharacter* Player)
 {
 	Character = Player;
 	PlayerController = Cast<APlayerController>(Character->GetController());
-	isBlue = Blue;
 	Plane->SetMaterial(0,EmptyMaterial);
 }
 
 //Setup when there is an existing portal
-void APortal::SetUp(AActionDemoCharacter* Player, bool Blue, APortal* Portal)
+void APortal::SetUp(AActionDemoCharacter* Player, APortal* Portal)
 {
 	Character = Player;
 	PlayerController = Cast<APlayerController>(Character->GetController());
-	isBlue = Blue;
 
 	//link to the other portal and have the other portal link to this
 	this->OtherPortal = Portal;
@@ -89,11 +86,25 @@ void APortal::Tick(float DeltaTime)
 	if (!(OtherPortal == nullptr || PlayerController == nullptr || Character == nullptr))
 	{
 		CaptureComponent->HiddenActors.Empty();
-		FVector PlayerOffset = PlayerController->PlayerCameraManager->GetCameraLocation() - Plane->GetComponentLocation();
-		PlayerOffset = RotateFactor.UnrotateVector(PlayerOffset);
+		FVector PlayerOffset = Plane->GetComponentLocation() - PlayerController->PlayerCameraManager->GetCameraLocation();
+		PlayerOffset = GetActorRotation().UnrotateVector(PlayerOffset);
 		PlayerOffset.Y = FMath::Clamp(PlayerOffset.Y, PlayerOffset.Y, 0.0f);
-		OtherPortal->CaptureComponent->SetRelativeLocation(CameraOffset + PlayerOffset);
-		OtherPortal->CaptureComponent->SetRelativeRotation(PlayerController->PlayerCameraManager->GetCameraRotation() + RotateFactor);
+		FRotator CamRotation = PlayerController->PlayerCameraManager->GetCameraRotation();
+		float VertComponent = GetActorRotation().Pitch / 90.0f;
+		//OtherPortal->CaptureComponent->SetRelativeRotation(FRotator(FRotator(0.0f, 180.0f, 0.0f) - GetActorRotation(), CamRotation.Yaw * VertComponent));
+		if (VertComponent == 1.0f || VertComponent == -1.0f)
+		{
+			OtherPortal->CaptureComponent->SetRelativeLocation(CameraOffset + PlayerOffset);
+			OtherPortal->CaptureComponent->SetRelativeRotation(FRotator(CamRotation.Pitch - GetActorRotation().Pitch + 180.0f, 0.0f, 0.0f));
+			UE_LOG(LogTemp, Warning, TEXT("Cam Rot: %f"), CamRotation.Yaw);
+			UE_LOG(LogTemp, Warning, TEXT("Portal Rot: %f"), GetActorRotation().Yaw);
+		}
+		else
+		{
+			PlayerOffset.Z = -PlayerOffset.Z;
+			OtherPortal->CaptureComponent->SetRelativeLocation(CameraOffset + PlayerOffset);
+			OtherPortal->CaptureComponent->SetRelativeRotation(FRotator(GetActorRotation().Pitch + CamRotation.Pitch, 180.0f - GetActorRotation().Yaw + CamRotation.Yaw, 0.0f));//not the best on slope
+		}
 		
 		TArray<FHitResult> ObstacleHits;
 		//GetWorld()->LineTraceMultiByProfile(ObstacleHits, Plane->GetComponentLocation(), CaptureComponent->GetComponentLocation(), "OverlapAll", Character->GetIgnoreCharacterParams());

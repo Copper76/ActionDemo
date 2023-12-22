@@ -10,6 +10,8 @@
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 
+#define POINT(x, c) DrawDebugPoint(GetWorld(), x, 10, c, !5.0f, 5.0f);
+
 // Sets default values for this component's properties
 UTP_WeaponComponent::UTP_WeaponComponent()
 {
@@ -42,23 +44,6 @@ void UTP_WeaponComponent::Fire()
 	
 			// Spawn the projectile at the muzzle
 			World->SpawnActor<AActionDemoProjectile>(ProjectileClass, SpawnLocation, SpawnRotation, ActorSpawnParams);
-		}
-	}
-	
-	// Try and play the sound if specified
-	if (FireSound != nullptr)
-	{
-		UGameplayStatics::PlaySoundAtLocation(this, FireSound, Character->GetActorLocation());
-	}
-	
-	// Try and play a firing animation if specified
-	if (FireAnimation != nullptr)
-	{
-		// Get the animation object for the arms mesh
-		UAnimInstance* AnimInstance = Character->GetMesh1P()->GetAnimInstance();
-		if (AnimInstance != nullptr)
-		{
-			AnimInstance->Montage_Play(FireAnimation, 1.f);
 		}
 	}
 }
@@ -103,8 +88,31 @@ void UTP_WeaponComponent::AttachWeapon(AActionDemoCharacter* TargetCharacter)
 
 void UTP_WeaponComponent::BluePortalFire()
 {
+	if (Character == nullptr || Character->GetController() == nullptr)
+	{
+		return;
+	}
+
+	// Try and play the sound if specified
+	if (FireSound != nullptr)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, FireSound, Character->GetActorLocation());
+	}
+
+	// Try and play a firing animation if specified
+	if (FireAnimation != nullptr)
+	{
+		// Get the animation object for the arms mesh
+		UAnimInstance* AnimInstance = Character->GetMesh1P()->GetAnimInstance();
+		if (AnimInstance != nullptr)
+		{
+			AnimInstance->Montage_Play(FireAnimation, 1.f);
+		}
+	}
+
 	FHitResult PortalHit;
-	if (!CheckValidLoc(PortalHit))
+	FRotator PortalRotation;
+	if (!CheckValidLoc(PortalHit, PortalRotation))
 	{
 		return;
 	}
@@ -112,27 +120,52 @@ void UTP_WeaponComponent::BluePortalFire()
 	{
 		FActorSpawnParameters SpawnInfo;
 		SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		Character->BluePortal = GetWorld()->SpawnActor<APortal>(BluePortalBP, PortalHit.ImpactPoint, PortalHit.ImpactNormal.Rotation() + FRotator(0.0f, -90.0f, 0.0f), SpawnInfo);
+		FRotator NewPortalRotation = PortalHit.ImpactNormal.Rotation();
+		Character->BluePortal = GetWorld()->SpawnActor<APortal>(BluePortalBP, PortalHit.ImpactPoint, PortalRotation, SpawnInfo);
 		if (Character->OrangePortal == nullptr)
 		{
-			Character->BluePortal->SetUp(Character, true);
+			Character->BluePortal->SetUp(Character);
 		}
 		else
 		{
-			Character->BluePortal->SetUp(Character, true, Character->OrangePortal);
+			Character->BluePortal->SetUp(Character, Character->OrangePortal);
 		}
 	}
 	else
 	{
+		FRotator NewPortalRotation = PortalHit.ImpactNormal.Rotation();
 		Character->BluePortal->GetRootComponent()->SetWorldLocation(PortalHit.ImpactPoint);
-		Character->BluePortal->GetRootComponent()->SetWorldRotation(PortalHit.ImpactNormal.Rotation() + FRotator(0.0f, -90.0f, 0.0f));
+		Character->BluePortal->GetRootComponent()->SetWorldRotation(PortalRotation);
 	}
 }
 
 void UTP_WeaponComponent::OrangePortalFire()
 {
+	if (Character == nullptr || Character->GetController() == nullptr)
+	{
+		return;
+	}
+
+	// Try and play the sound if specified
+	if (FireSound != nullptr)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, FireSound, Character->GetActorLocation());
+	}
+
+	// Try and play a firing animation if specified
+	if (FireAnimation != nullptr)
+	{
+		// Get the animation object for the arms mesh
+		UAnimInstance* AnimInstance = Character->GetMesh1P()->GetAnimInstance();
+		if (AnimInstance != nullptr)
+		{
+			AnimInstance->Montage_Play(FireAnimation, 1.f);
+		}
+	}
+
 	FHitResult PortalHit;
-	if (!CheckValidLoc(PortalHit))
+	FRotator PortalRotation;
+	if (!CheckValidLoc(PortalHit, PortalRotation))
 	{
 		return;
 	}
@@ -140,28 +173,29 @@ void UTP_WeaponComponent::OrangePortalFire()
 	{
 		FActorSpawnParameters SpawnInfo;
 		SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		Character->OrangePortal = GetWorld()->SpawnActor<APortal>(OrangePortalBP, PortalHit.ImpactPoint, PortalHit.ImpactNormal.Rotation() + FRotator(0.0f, -90.0f, 0.0f), SpawnInfo);
+		Character->OrangePortal = GetWorld()->SpawnActor<APortal>(OrangePortalBP, PortalHit.ImpactPoint, PortalRotation, SpawnInfo);
 		if (Character->BluePortal == nullptr)
 		{
-			Character->OrangePortal->SetUp(Character, false);
+			Character->OrangePortal->SetUp(Character);
 		}
 		else
 		{
-			Character->OrangePortal->SetUp(Character, false, Character->BluePortal);
+			Character->OrangePortal->SetUp(Character, Character->BluePortal);
 		}
 	}
 	else
 	{
 		Character->OrangePortal->GetRootComponent()->SetWorldLocation(PortalHit.ImpactPoint);
-		Character->OrangePortal->GetRootComponent()->SetWorldRotation(PortalHit.ImpactNormal.Rotation() + FRotator(0.0f, -90.0f, 0.0f));
+		Character->OrangePortal->GetRootComponent()->SetWorldRotation(PortalRotation);
 	}
 }
 
-bool UTP_WeaponComponent::CheckValidLoc(FHitResult& PortalHit)
+bool UTP_WeaponComponent::CheckValidLoc(FHitResult& PortalHit, FRotator& PortalRotation)
 {
 	APlayerController* PlayerController = Cast<APlayerController>(Character->GetController());
-	FVector Start = GetOwner()->GetActorLocation() + FVector::UpVector * Portal_CamOffset;
+	FVector Start = PlayerController->PlayerCameraManager->GetCameraLocation();
 	FVector Fwd = PlayerController->PlayerCameraManager->GetCameraRotation().Vector();
+	float HorizontalRotation = PlayerController->PlayerCameraManager->GetCameraRotation().Yaw;
 
 	GetWorld()->LineTraceSingleByProfile(PortalHit, Start, Start + Fwd * Portal_Range, "BlockAll", Character->GetIgnoreCharacterParams());
 
@@ -171,8 +205,18 @@ bool UTP_WeaponComponent::CheckValidLoc(FHitResult& PortalHit)
 		return false;
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("PASSED"))
-	return true;
+	float VertComponent = PortalHit.ImpactNormal.Rotation().Pitch / 90.0f;
+	VertComponent = FMath::Abs(FMath::RoundHalfToZero(1000.0f * VertComponent) / 1000.0f);
+
+	if (VertComponent == 1.0f)
+	{
+		PortalRotation = FRotator(PortalHit.ImpactNormal.Rotation().Pitch, HorizontalRotation, 0);
+	}
+	else
+	{
+		PortalRotation = FRotator(PortalHit.ImpactNormal.Rotation().Pitch, PortalHit.ImpactNormal.Rotation().Yaw, 0.0f);
+	}
+	
 
 	//The target is not a valid surface
 	//if (!PortalHit.GetActor()->ActorHasTag("CanPortal"))
@@ -184,29 +228,30 @@ bool UTP_WeaponComponent::CheckValidLoc(FHitResult& PortalHit)
 	FVector PortalSurface = PortalHit.ImpactNormal;
 
 	FHitResult EdgeHit;
+
 	FVector RightEdge = PortalCentre + FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::RightVector), PortalSurface).GetSafeNormal() * Portal_Width / 2;
-	GetWorld()->LineTraceSingleByProfile(PortalHit, RightEdge - Portal_EdgeCheckDelta, RightEdge + Portal_EdgeCheckDelta, "BlockAll", Character->GetIgnoreCharacterParams());
+	GetWorld()->LineTraceSingleByProfile(EdgeHit, RightEdge + PortalSurface * Portal_EdgeCheckDelta, RightEdge - PortalSurface * Portal_EdgeCheckDelta, "BlockAll", Character->GetIgnoreCharacterParams());
 	if (!EdgeHit.IsValidBlockingHit())
 	{
 		return false;
 	}
 
 	FVector LeftEdge = PortalCentre + FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::LeftVector), PortalSurface).GetSafeNormal() * Portal_Width / 2;
-	GetWorld()->LineTraceSingleByProfile(PortalHit, LeftEdge - Portal_EdgeCheckDelta, LeftEdge + Portal_EdgeCheckDelta, "BlockAll", Character->GetIgnoreCharacterParams());
+	GetWorld()->LineTraceSingleByProfile(EdgeHit, LeftEdge + PortalSurface * Portal_EdgeCheckDelta, LeftEdge - PortalSurface * Portal_EdgeCheckDelta, "BlockAll", Character->GetIgnoreCharacterParams());
 	if (!EdgeHit.IsValidBlockingHit())
 	{
 		return false;
 	}
 
-	FVector UpEdge = PortalCentre + FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::UpVector), PortalSurface).GetSafeNormal() * Portal_Width / 2;
-	GetWorld()->LineTraceSingleByProfile(PortalHit, UpEdge - Portal_EdgeCheckDelta, UpEdge + Portal_EdgeCheckDelta, "BlockAll", Character->GetIgnoreCharacterParams());
+	FVector UpEdge = PortalCentre + FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::UpVector), PortalSurface).GetSafeNormal() * Portal_Height / 2;
+	GetWorld()->LineTraceSingleByProfile(EdgeHit, UpEdge + PortalSurface * Portal_EdgeCheckDelta, UpEdge - PortalSurface * Portal_EdgeCheckDelta, "BlockAll", Character->GetIgnoreCharacterParams());
 	if (!EdgeHit.IsValidBlockingHit())
 	{
 		return false;
 	}
 
-	FVector DownEdge = PortalCentre + FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::DownVector), PortalSurface).GetSafeNormal() * Portal_Width / 2;
-	GetWorld()->LineTraceSingleByProfile(PortalHit, DownEdge - Portal_EdgeCheckDelta, DownEdge + Portal_EdgeCheckDelta, "BlockAll", Character->GetIgnoreCharacterParams());
+	FVector DownEdge = PortalCentre + FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::DownVector), PortalSurface).GetSafeNormal() * Portal_Height / 2;
+	GetWorld()->LineTraceSingleByProfile(EdgeHit, DownEdge + PortalSurface * Portal_EdgeCheckDelta, DownEdge - PortalSurface * Portal_EdgeCheckDelta, "BlockAll", Character->GetIgnoreCharacterParams());
 	if (!EdgeHit.IsValidBlockingHit())
 	{
 		return false;

@@ -47,14 +47,13 @@ protected:
 private:
 	FVector CameraOffset;
 	FRotator CameraRotation;
-	FRotator RotateFactor;
 
 public:	
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
-	void SetUp(AActionDemoCharacter* Player, bool Blue);
-	void SetUp(AActionDemoCharacter* Player, bool Blue, APortal* OtherPortal);
+	void SetUp(AActionDemoCharacter* Player);
+	void SetUp(AActionDemoCharacter* Player, APortal* OtherPortal);
 
 	void Link(APortal* Portal);
 
@@ -64,7 +63,4 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
 	APortal* OtherPortal; //set it on spawn if there is another
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
-	bool isBlue;
 };
