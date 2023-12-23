@@ -91,20 +91,35 @@ void APortal::Tick(float DeltaTime)
 		PlayerOffset.Y = FMath::Clamp(PlayerOffset.Y, PlayerOffset.Y, 0.0f);
 		FRotator CamRotation = PlayerController->PlayerCameraManager->GetCameraRotation();
 		float VertComponent = GetActorRotation().Pitch / 90.0f;
+		float VertAbsComponent = FMath::Abs(VertComponent);
 		//OtherPortal->CaptureComponent->SetRelativeRotation(FRotator(FRotator(0.0f, 180.0f, 0.0f) - GetActorRotation(), CamRotation.Yaw * VertComponent));
-		if (VertComponent == 1.0f || VertComponent == -1.0f)
+		if (VertAbsComponent == 1.0f)
 		{
-			OtherPortal->CaptureComponent->SetRelativeLocation(CameraOffset + PlayerOffset);
-			OtherPortal->CaptureComponent->SetRelativeRotation(FRotator(CamRotation.Pitch - GetActorRotation().Pitch + 180.0f, 0.0f, 0.0f));
-			UE_LOG(LogTemp, Warning, TEXT("Cam Rot: %f"), CamRotation.Yaw);
-			UE_LOG(LogTemp, Warning, TEXT("Portal Rot: %f"), GetActorRotation().Yaw);
+			float RollRotation = (-GetActorRotation().Yaw + CamRotation.Yaw)* VertComponent + GetActorRotation().Roll;
+			float PitchFactor = FMath::Cos(RollRotation * PI / 180.0f);
+			float YawFactor = FMath::Sin(RollRotation * PI / 180.0f);
+			float PitchRotation = (GetActorRotation().Pitch + CamRotation.Pitch) * PitchFactor;
+			float YawRotation = (GetActorRotation().Pitch + CamRotation.Pitch) * YawFactor;
+			OtherPortal->CaptureComponent->SetRelativeRotation(FRotator(FMath::Clamp(PitchRotation, -90.0f, 90.0f), YawRotation, RollRotation));
 		}
 		else
 		{
 			PlayerOffset.Z = -PlayerOffset.Z;
-			OtherPortal->CaptureComponent->SetRelativeLocation(CameraOffset + PlayerOffset);
-			OtherPortal->CaptureComponent->SetRelativeRotation(FRotator(GetActorRotation().Pitch + CamRotation.Pitch, 180.0f - GetActorRotation().Yaw + CamRotation.Yaw, 0.0f));//not the best on slope
+			//OtherPortal->CaptureComponent->SetRelativeRotation(FRotator(GetActorRotation().Pitch + CamRotation.Pitch + FMath::Abs(CamRotation.Yaw) * VertComponent, 180.0f - GetActorRotation().Yaw + CamRotation.Yaw * (1 - VertComponent), VertComponent == 0 ? 0.0f : 180.0f + GetActorRotation().Yaw - CamRotation.Yaw));//not the best on slope
+			float YawRotation = -180.0f - GetActorRotation().Yaw + CamRotation.Yaw;
+			if (YawRotation < -180.0f)
+			{
+				YawRotation += 360.0f;
+			}
+			float YawRemainder = FMath::Abs(YawRotation) - 90.0f;
+			float PitchRotation = GetActorRotation().Pitch + CamRotation.Pitch;
+			if (YawRemainder > 0.0f)
+			{
+				PitchRotation -= YawRemainder * VertComponent;
+			}
+			OtherPortal->CaptureComponent->SetRelativeRotation(FRotator(FMath::Clamp(PitchRotation, -90.0f, 90.0f), YawRotation, VertComponent == 0 ? 0.0f : FMath::Abs(CamRotation.Yaw + 180.0f + GetActorRotation().Yaw) * VertComponent / VertAbsComponent));
 		}
+		OtherPortal->CaptureComponent->SetRelativeLocation(CameraOffset + PlayerOffset);
 		
 		TArray<FHitResult> ObstacleHits;
 		//GetWorld()->LineTraceMultiByProfile(ObstacleHits, Plane->GetComponentLocation(), CaptureComponent->GetComponentLocation(), "OverlapAll", Character->GetIgnoreCharacterParams());
@@ -119,9 +134,5 @@ void APortal::Tick(float DeltaTime)
 				CaptureComponent->HiddenActors.Add(hit.GetActor());
 			}
 		}
-		//UE_LOG(LogTemp, Warning, TEXT("%s HIT COUNT: %i"), isBlue ? TEXT("BLUE") : TEXT("ORANGE"), ObstacleHits.Num())
-		//UE_LOG(LogTemp, Warning, TEXT("%s ROTATION: %s"), isBlue ? TEXT("BLUE") : TEXT("ORANGE"), *(PlayerController->PlayerCameraManager->GetCameraRotation() + CameraRotation + RotateFactor).ToString())
-		//UE_LOG(LogTemp, Warning, TEXT("PLAYER ROTATION: %s"), *PlayerController->PlayerCameraManager->GetCameraRotation().ToString())
 	}
 }
-

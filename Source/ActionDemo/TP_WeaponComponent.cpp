@@ -210,16 +210,18 @@ bool UTP_WeaponComponent::CheckValidLoc(FHitResult& PortalHit, FRotator& PortalR
 
 	if (VertComponent == 1.0f)
 	{
-		PortalRotation = FRotator(PortalHit.ImpactNormal.Rotation().Pitch, HorizontalRotation, 0);
+		PortalRotation = FRotator(PortalHit.ImpactNormal.Rotation().Pitch, HorizontalRotation, 0.0f);
+		//PortalRotation = FRotator(PortalHit.ImpactNormal.Rotation().Pitch, 0.0f, -HorizontalRotation * VertComponent);
 	}
 	else
 	{
+		//PortalRotation = FRotator(PortalHit.ImpactNormal.Rotation().Pitch, PortalHit.ImpactNormal.Rotation().Yaw, -HorizontalRotation + PortalHit.ImpactNormal.Rotation().Yaw);
 		PortalRotation = FRotator(PortalHit.ImpactNormal.Rotation().Pitch, PortalHit.ImpactNormal.Rotation().Yaw, 0.0f);
 	}
 	
 
 	//The target is not a valid surface
-	//if (!PortalHit.GetActor()->ActorHasTag("CanPortal"))
+	//if (PortalHit.GetActor()->ActorHasTag("CanNotPortal"))
 	//{
 	//	return false;
 	//}
