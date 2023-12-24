@@ -137,6 +137,8 @@ void AActionDemoCharacter::Look(const FInputActionValue& Value)
 		// add yaw and pitch input to controller
 		AddControllerYawInput(LookAxisVector.X);
 		AddControllerPitchInput(LookAxisVector.Y);
+		//MuzzlePointDir = Cast<APlayerController>(GetController())->RotationInput.GetNormalized() * MuzzleMaxTilt;
+		//UE_LOG(LogTemp, Warning, TEXT("%s"), *MuzzlePointDir.ToString())
 	}
 }
 
@@ -192,6 +194,11 @@ void AActionDemoCharacter::Flash()
 		//DemoMyCharacterMovementComponent->AddForce(GetActorForwardVector() * 1000.0f);
 		FlashCoolDown = FlashMaxCoolDown;
 	}
+}
+
+void AActionDemoCharacter::AlignMovement(FRotator NewRotation)
+{
+	DemoMyCharacterMovementComponent->AlignMovement(NewRotation);
 }
 
 void AActionDemoCharacter::Grapple()

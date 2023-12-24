@@ -222,6 +222,8 @@ public:
 
 	UFUNCTION(BlueprintCallable) bool IsCustomMovementMode(ECustomMovementMode InCustomMovementMode) const;
 
+	void AlignMovement(FRotator NewRotation);
+
 //private:
 	//UFUNCTION() void OnRep_ShortMantle();
 	//UFUNCTION() void OnRep_TallMantle();

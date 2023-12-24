@@ -39,7 +39,7 @@ void UDemoMyCharacterMovementComponent::OnMovementUpdated(float DeltaSeconds, co
 	
 	if (MovementMode == MOVE_Walking)
 	{
-		if (Safe_bWantsToSprint)
+		if (Safe_bWantsToSprint && (GetLastInputVector() | UpdatedComponent->GetForwardVector()) > 0.5f)
 		{
 			MaxWalkSpeed = Sprint_MaxWalkSpeed;
 		}
@@ -329,8 +329,6 @@ FSavedMovePtr UDemoMyCharacterMovementComponent::FNetworkPredictionData_Client_D
 
 float UDemoMyCharacterMovementComponent::GetMaxSpeed() const
 {
-	if (IsMovementMode(MOVE_Walking) && Safe_bWantsToSprint && !IsCrouching()) return Sprint_MaxWalkSpeed;
-
 	if (MovementMode != MOVE_Custom) return Super::GetMaxSpeed();
 
 	switch (CustomMovementMode)
@@ -400,6 +398,17 @@ bool UDemoMyCharacterMovementComponent::DoJump(bool bReplayingMoves)
 		return true;
 	}
 	return false;
+}
+
+void UDemoMyCharacterMovementComponent::AlignMovement(FRotator NewRotation)
+{
+	UE_LOG(LogTemp, Warning, TEXT("ROTATOR: %s"), *NewRotation.ToString());
+	UE_LOG(LogTemp, Warning, TEXT("PRE-VELOCITY: %s"), *Velocity.ToString());
+	Velocity = NewRotation.RotateVector(Velocity);
+	Acceleration = NewRotation.RotateVector(Acceleration);
+	//Velocity = NewRotation * Velocity;
+	//Acceleration = NewRotation * Acceleration;
+	UE_LOG(LogTemp, Warning, TEXT("After-VELOCITY: %s"), *Velocity.ToString());
 }
 
 #pragma region Slide
@@ -903,7 +912,7 @@ bool UDemoMyCharacterMovementComponent::TryClimb()
 	}
 
 	if (bFellOff) return false;
-	if ((Acceleration | UpdatedComponent->GetForwardVector().GetSafeNormal2D()) <= 0.0f) return false;//Don't enter if the player is not actively moving forward
+	if ((GetLastInputVector() | UpdatedComponent->GetForwardVector().GetSafeNormal2D()) <= 0.5f) return false;//Don't enter if the player is not actively moving forward
 	float CosWallSteepnessAngle = WallHit.Normal | FVector::UpVector;
 	if (FMath::Abs(CosWallSteepnessAngle) > CosMMWSA || (Fwd | -WallHit.Normal) < CosMMAA) return false;
 
@@ -962,12 +971,9 @@ void UDemoMyCharacterMovementComponent::PhysClimb(float DeltaTime, int32 Iterati
 		Acceleration = Acceleration.RotateAngleAxis(90.0f, -UpdatedComponent->GetRightVector());
 		Acceleration.X = 0.0f;
 		Acceleration.Y = 0.0f;
-		//Acceleration.Z += GetGravityZ() * Climb_GravityScaleCurve->GetFloatValue(bClimbTime);
 		AddImpulse(FVector::DownVector * Climb_GravityForce * Climb_GravityScaleCurve->GetFloatValue(bClimbTime));
-		//UE_LOG(LogTemp, Warning, TEXT("Acceleration: %s"), *Acceleration.ToString())
 		// Apply acceleration
 		CalcVelocity(timeTick, 1.0f, false, GetMaxBrakingDeceleration());
-		//UE_LOG(LogTemp, Warning, TEXT("Velocity: %s"), *Velocity.ToString())
 		Velocity = FVector::VectorPlaneProject(Velocity, WallHit.Normal);
 		if (Velocity.Z <= -Climb_MinSpeed)
 		{

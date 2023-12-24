@@ -15,7 +15,7 @@ APortal::APortal()
 
 	SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("Scene Root"));
 	AddOwnedComponent(SceneRoot);
-	//SetRootComponent(SceneRoot);
+	SetRootComponent(SceneRoot);
 
 	CaptureComponent = CreateDefaultSubobject<USceneCaptureComponent2D>(TEXT("OtherPortalView"));
 	AddOwnedComponent(CaptureComponent);
@@ -32,6 +32,7 @@ APortal::APortal()
 	//BoxCollider->AttachToComponent(SceneRoot, FAttachmentTransformRules::KeepRelativeTransform);
 	BoxCollider->SetRelativeLocation(FVector(10.0f, 0.f, 0.0f)); // Position the camera
 	BoxCollider->SetRelativeScale3D(FVector(0.25f, 1.5f, 3.25f));
+	BoxCollider->SetGenerateOverlapEvents(true);
 
 	Plane = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Plane"));
 	AddOwnedComponent(Plane);
@@ -40,7 +41,6 @@ APortal::APortal()
 	Plane->SetRelativeScale3D(FVector(1.25f, 2.25f, 1.0f));
 	Plane->SetRelativeRotation(FRotator(0.0f, 0.0f, 90.0f));
 
-	//RotateFactor = FRotator(0.0f, 180.0f, 0.0f) - GetActorRotation();
 }
 
 // Called when the game starts or when spawned
@@ -50,6 +50,8 @@ void APortal::BeginPlay()
 	//These are set in setup later
 	Character = Cast<AActionDemoCharacter>(UGameplayStatics::GetPlayerCharacter(GetWorld(), 0));
 	PlayerController = GetWorld()->GetFirstPlayerController();
+	BoxCollider->OnComponentBeginOverlap.AddDynamic(this, &APortal::OnOverlapBegin);
+	BoxCollider->OnComponentEndOverlap.AddDynamic(this, &APortal::OnOverlapEnd);
 }
 
 //Setup when there is no other portal
@@ -67,8 +69,7 @@ void APortal::SetUp(AActionDemoCharacter* Player, APortal* Portal)
 	PlayerController = Cast<APlayerController>(Character->GetController());
 
 	//link to the other portal and have the other portal link to this
-	this->OtherPortal = Portal;
-	Plane->SetMaterial(0, LinkedMaterial);
+	Link(Portal);
 	OtherPortal->Link(this);
 }
 
@@ -76,6 +77,7 @@ void APortal::Link(APortal* Portal)
 {
 	OtherPortal = Portal;
 	Plane->SetMaterial(0, LinkedMaterial);
+	CanTeleport = true;
 }
 
 // Called every frame
@@ -89,8 +91,10 @@ void APortal::Tick(float DeltaTime)
 		FVector PlayerOffset = Plane->GetComponentLocation() - PlayerController->PlayerCameraManager->GetCameraLocation();
 		PlayerOffset = GetActorRotation().UnrotateVector(PlayerOffset);
 		PlayerOffset.Y = FMath::Clamp(PlayerOffset.Y, PlayerOffset.Y, 0.0f);
+
 		FRotator CamRotation = PlayerController->PlayerCameraManager->GetCameraRotation();
 		float VertComponent = GetActorRotation().Pitch / 90.0f;
+		VertComponent = FMath::RoundHalfToZero(1000.0f * VertComponent) / 1000.0f;
 		float VertAbsComponent = FMath::Abs(VertComponent);
 		//OtherPortal->CaptureComponent->SetRelativeRotation(FRotator(FRotator(0.0f, 180.0f, 0.0f) - GetActorRotation(), CamRotation.Yaw * VertComponent));
 		if (VertAbsComponent == 1.0f)
@@ -106,18 +110,14 @@ void APortal::Tick(float DeltaTime)
 		{
 			PlayerOffset.Z = -PlayerOffset.Z;
 			//OtherPortal->CaptureComponent->SetRelativeRotation(FRotator(GetActorRotation().Pitch + CamRotation.Pitch + FMath::Abs(CamRotation.Yaw) * VertComponent, 180.0f - GetActorRotation().Yaw + CamRotation.Yaw * (1 - VertComponent), VertComponent == 0 ? 0.0f : 180.0f + GetActorRotation().Yaw - CamRotation.Yaw));//not the best on slope
-			float YawRotation = -180.0f - GetActorRotation().Yaw + CamRotation.Yaw;
-			if (YawRotation < -180.0f)
+			float YawRotation = 180.0f-GetActorRotation().Yaw + CamRotation.Yaw;
+			float YawAdjustment = YawRotation;
+			if (YawAdjustment > 180.0f)
 			{
-				YawRotation += 360.0f;
+				YawAdjustment -= 360.0f;
 			}
-			float YawRemainder = FMath::Abs(YawRotation) - 90.0f;
-			float PitchRotation = GetActorRotation().Pitch + CamRotation.Pitch;
-			if (YawRemainder > 0.0f)
-			{
-				PitchRotation -= YawRemainder * VertComponent;
-			}
-			OtherPortal->CaptureComponent->SetRelativeRotation(FRotator(FMath::Clamp(PitchRotation, -90.0f, 90.0f), YawRotation, VertComponent == 0 ? 0.0f : FMath::Abs(CamRotation.Yaw + 180.0f + GetActorRotation().Yaw) * VertComponent / VertAbsComponent));
+			float PitchRotation = GetActorRotation().Pitch + CamRotation.Pitch - FMath::Abs(YawAdjustment) * VertComponent;
+			OtherPortal->CaptureComponent->SetRelativeRotation(FRotator(FMath::Clamp(PitchRotation, -90.0f, 90.0f), YawRotation, YawAdjustment * VertComponent));
 		}
 		OtherPortal->CaptureComponent->SetRelativeLocation(CameraOffset + PlayerOffset);
 		
@@ -134,5 +134,30 @@ void APortal::Tick(float DeltaTime)
 				CaptureComponent->HiddenActors.Add(hit.GetActor());
 			}
 		}
+	}
+}
+
+void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+{
+	AActionDemoCharacter* OverlappedActor = Cast<AActionDemoCharacter>(OtherActor);
+	UE_LOG(LogTemp, Warning, TEXT("Activated: %s"), CanTeleport ? TEXT("YES") : TEXT("NO"));
+	if (OverlappedActor != nullptr && CanTeleport && OtherPortal != nullptr)
+	{
+		OtherPortal->CanTeleport = false;
+		FVector RelativeEnterPoint = GetActorRotation().RotateVector(GetActorLocation() - Character->GetActorLocation());
+		RelativeEnterPoint.X = 0;
+		PlayerController->SetControlRotation(OtherPortal->GetActorRotation() + OtherPortal->CaptureComponent->GetRelativeRotation());
+		OverlappedActor->SetActorLocation(OtherPortal->GetActorLocation() - RelativeEnterPoint + OtherPortal->GetActorRotation().RotateVector(FVector::ForwardVector) * 100.0f, false, nullptr, ETeleportType::TeleportPhysics);
+		Character->AlignMovement(GetActorRotation()-OtherPortal->GetActorRotation());
+	}
+}
+
+void APortal::OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
+{
+	UE_LOG(LogTemp, Warning, TEXT("Ended"));
+	AActionDemoCharacter* OverlappedActor = Cast<AActionDemoCharacter>(OtherActor);
+	if (OverlappedActor != nullptr && OtherPortal != nullptr)
+	{
+		CanTeleport = true;
 	}
 }

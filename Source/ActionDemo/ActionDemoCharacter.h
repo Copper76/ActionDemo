@@ -147,6 +147,8 @@ public:
 
 	void UnGrapple();
 
+	void AlignMovement(FRotator NewRotation);
+
 protected:
 	// APawn interface
 	virtual void SetupPlayerInputComponent(UInputComponent* InputComponent) override;
@@ -176,10 +178,15 @@ protected:
 	//Tilt
 	UPROPERTY(BlueprintReadOnly) float TiltSpeed = 50.0f;
 
+	//MuzzlePointSpeed
+	UPROPERTY(BlueprintReadOnly) float MuzzlePointSpeed = 50.0f;
+	UPROPERTY(BlueprintReadOnly) FRotator MuzzlePointDir;
+	UPROPERTY(BlueprintReadOnly) float MuzzleMaxTilt = 15.0f;
+
 public:
 	bool bPressedDemoJump;
 	bool bOwnsRifle;
-	AActor* bWeapon;
+	UPROPERTY(BlueprintReadOnly) AActor* bWeapon;
 	UPROPERTY(BlueprintReadOnly) float TargetRoll;
 	UPROPERTY(BlueprintReadOnly) TEnumAsByte<EGrapplingStage> GrappleStage;
 
