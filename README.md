@@ -27,8 +27,8 @@ This project is a demo project using Unreal Engine. The project is a practice pr
 - RMB without gun to flash forward
 - PRESS L-CTRL while grappling to cancel grapple
 - B to swap weapon when the gun is collected
-- LMB with gun to fire blue portal(not implemented yet)
-- RMB with gun to fire orange portal(not implemented yet)
+- LMB with gun to fire blue portal
+- RMB with gun to fire orange portal
 - PRESS E to toggle map(not implemented yet)
 
 ## Tools
