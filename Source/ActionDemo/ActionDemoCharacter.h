@@ -92,6 +92,8 @@ public:
 
 	FCollisionQueryParams GetIgnoreCharacterParams() const;
 
+	FCollisionQueryParams GetIgnorePortalParams(bool isBlue) const;
+
 protected:
 	virtual void BeginPlay();
 

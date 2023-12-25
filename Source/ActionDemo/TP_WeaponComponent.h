@@ -79,7 +79,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void BluePortalFire();
 
-	bool CheckValidLoc(FHitResult& OutHit, FRotator& OutRotation);
+	bool CheckValidLoc(FVector& PortalCentre, FRotator& OutRotation, bool isBlue);
 
 protected:
 	/** Ends gameplay for this component. */
@@ -95,5 +95,5 @@ private:
 	float Portal_CamOffset = 60.0f;
 	float Portal_Width = 125.0f;
 	float Portal_Height = 225.0f;
-	float Portal_EdgeCheckDelta = 10.0f;
+	float Portal_EdgeCheckDelta = 20.0f;
 };

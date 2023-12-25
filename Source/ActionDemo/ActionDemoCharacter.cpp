@@ -387,3 +387,28 @@ FCollisionQueryParams AActionDemoCharacter::GetIgnoreCharacterParams() const
 
 	return Params;
 }
+
+FCollisionQueryParams AActionDemoCharacter::GetIgnorePortalParams(bool isBlue) const
+{
+	FCollisionQueryParams Params;
+
+	TArray<AActor*> CharacterChildren;
+	GetAllChildActors(CharacterChildren);
+	Params.AddIgnoredActors(CharacterChildren);
+	Params.AddIgnoredActor(this);
+	if (isBlue)
+	{
+		if (BluePortal != nullptr)
+		{
+			Params.AddIgnoredActor(BluePortal);
+		}
+	}
+	else
+	{
+		if (OrangePortal != nullptr)
+		{
+			Params.AddIgnoredActor(OrangePortal);
+		}
+	}
+	return Params;
+}
