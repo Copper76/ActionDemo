@@ -14,7 +14,15 @@ This project is a demo project using Unreal Engine. The project is a practice pr
 - [x] Flash(Overwatch Tracer style)
 - [x] Weapon swap
 - [ ] Portal gun
+- [ ] Assault Rifle
 - [ ] Map toggle
+
+## TODO
+- [ ] Portal Gun motion rotation
+- [ ] Smooth Portal Teleportation rather than a sudden teleport
+- [ ] Map Swap
+- [ ] Assault Rifle Implementation
+- [ ] Extend Weapon Swap to accomodate Assault Rifle
 
 ## Controls
 - WSAD to move around
