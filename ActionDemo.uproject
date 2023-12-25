@@ -16,13 +16,16 @@
 	"Plugins": [
 		{
 			"Name": "ModelingToolsEditorMode",
+			"Enabled": true
+		},
+		{
+			"Name": "CollisionDisabler",
 			"Enabled": true,
-			"TargetAllowList": [
-				"Editor"
-			]
+			"MarketplaceURL": "com.epicgames.launcher://ue/marketplace/content/e579072e212d444bb08bd5fb84481388"
 		}
 	],
 	"TargetPlatforms": [
-		"Windows"
+		"Windows",
+		"HoloLens"
 	]
 }

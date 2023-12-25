@@ -25,6 +25,12 @@ protected:
 	virtual void BeginPlay() override;
 
 	UFUNCTION()
+	void OnTeleportBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+
+	UFUNCTION()
+	void OnTeleportEnd(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
+
+	UFUNCTION()
 	void OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
 	UFUNCTION()
@@ -41,6 +47,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Collider, meta = (AllowPrivateAccess = "true"))
 	UBoxComponent* BoxCollider;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Collider, meta = (AllowPrivateAccess = "true"))
+	UBoxComponent* ReverseCollider;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Plane, meta = (AllowPrivateAccess = "true"))
 	UStaticMeshComponent* Plane;
 
@@ -50,6 +59,9 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Material, meta = (AllowPrivateAccess = "true"))
 	UMaterial* LinkedMaterial;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Surface, meta = (AllowPrivateAccess = "true"))
+	UPrimitiveComponent* Target;
+
 private:
 	FVector CameraOffset;
 	FRotator CameraRotation;
@@ -58,8 +70,8 @@ public:
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
-	void SetUp(AActionDemoCharacter* Player);
-	void SetUp(AActionDemoCharacter* Player, APortal* OtherPortal);
+	void SetUp(AActionDemoCharacter* Player, UPrimitiveComponent* TargetSurface);
+	void SetUp(AActionDemoCharacter* Player, UPrimitiveComponent* TargetSurface, APortal* OtherPortal);
 
 	void Link(APortal* Portal);
 

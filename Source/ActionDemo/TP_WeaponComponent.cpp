@@ -112,7 +112,8 @@ void UTP_WeaponComponent::BluePortalFire()
 
 	FVector PortalCentre;
 	FRotator PortalRotation;
-	if (!CheckValidLoc(PortalCentre, PortalRotation, true))
+	UPrimitiveComponent* TargetSurface = nullptr;
+	if (!CheckValidLoc(PortalCentre, PortalRotation, TargetSurface, true))
 	{
 		return;
 	}
@@ -123,11 +124,11 @@ void UTP_WeaponComponent::BluePortalFire()
 		Character->BluePortal = GetWorld()->SpawnActor<APortal>(BluePortalBP, PortalCentre, PortalRotation, SpawnInfo);
 		if (Character->OrangePortal == nullptr)
 		{
-			Character->BluePortal->SetUp(Character);
+			Character->BluePortal->SetUp(Character, TargetSurface);
 		}
 		else
 		{
-			Character->BluePortal->SetUp(Character, Character->OrangePortal);
+			Character->BluePortal->SetUp(Character, TargetSurface, Character->OrangePortal);
 		}
 	}
 	else
@@ -163,7 +164,8 @@ void UTP_WeaponComponent::OrangePortalFire()
 
 	FRotator PortalRotation;
 	FVector PortalCentre;
-	if (!CheckValidLoc(PortalCentre, PortalRotation, false))
+	UPrimitiveComponent* TargetSurface = nullptr;
+	if (!CheckValidLoc(PortalCentre, PortalRotation, TargetSurface, false))
 	{
 		return;
 	}
@@ -174,11 +176,11 @@ void UTP_WeaponComponent::OrangePortalFire()
 		Character->OrangePortal = GetWorld()->SpawnActor<APortal>(OrangePortalBP, PortalCentre, PortalRotation, SpawnInfo);
 		if (Character->BluePortal == nullptr)
 		{
-			Character->OrangePortal->SetUp(Character);
+			Character->OrangePortal->SetUp(Character, TargetSurface);
 		}
 		else
 		{
-			Character->OrangePortal->SetUp(Character, Character->BluePortal);
+			Character->OrangePortal->SetUp(Character, TargetSurface, Character->BluePortal);
 		}
 	}
 	else
@@ -188,7 +190,7 @@ void UTP_WeaponComponent::OrangePortalFire()
 	}
 }
 
-bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalRotation, bool isBlue)
+bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalRotation, UPrimitiveComponent* TargetSurface, bool isBlue)
 {
 	FCollisionQueryParams QueryParams = Character->GetIgnorePortalParams(isBlue);
 	APlayerController* PlayerController = Cast<APlayerController>(Character->GetController());
@@ -197,13 +199,14 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalR
 	float HorizontalRotation = PlayerController->PlayerCameraManager->GetCameraRotation().Yaw;
 
 	FHitResult PortalHit;
-	GetWorld()->LineTraceSingleByProfile(PortalHit, Start, Start + Fwd * Portal_Range, "BlockAll", QueryParams);
+	GetWorld()->LineTraceSingleByChannel(PortalHit, Start, Start + Fwd * Portal_Range, ECC_Visibility, QueryParams);
 
 	//There is nothing in range
 	if (!PortalHit.IsValidBlockingHit() || PortalHit.GetActor()->IsA<APortal>())
 	{
 		return false;
 	}
+	TargetSurface = PortalHit.GetComponent();
 	UE_LOG(LogTemp, Warning, TEXT("TARGET ACTOR: %s"), *PortalHit.GetActor()->GetName());
 
 	//The target is not a valid surface
@@ -215,40 +218,39 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalR
 	PortalCentre = PortalHit.ImpactPoint;
 	FVector PortalSurface = PortalHit.ImpactNormal;
 
+	//Calculate the correct rotation now that the checks are passed
+	float VertComponent = FMath::Abs(FMath::RoundHalfToZero(1000.0f * PortalHit.ImpactNormal.Rotation().Pitch / 90.0f) / 1000.0f);
+	PortalRotation = FRotator(PortalHit.ImpactNormal.Rotation().Pitch, VertComponent == 1.0f? HorizontalRotation + 180.0f : PortalHit.ImpactNormal.Rotation().Yaw, 0.0f);
+
+	FVector SurfaceRight = FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::RightVector), PortalSurface).GetSafeNormal();
+
+	FVector SurfaceUp = PortalRotation.RotateVector(FVector::UpVector).GetSafeNormal();
+
 	AActor* TargetActor = PortalHit.GetActor();
 
 	TArray<FHitResult> FaceHitResults;
 
 	//check if enough horizontal space
 	FHitResult LeftFaceHit;
-	FVector LeftFace = PortalCentre - PortalSurface * Portal_EdgeCheckDelta + FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::LeftVector), PortalSurface).GetSafeNormal() * Portal_Width;
-	POINT(LeftFace, FColor::Red);
+	FVector LeftFace = PortalCentre - PortalSurface * Portal_EdgeCheckDelta - SurfaceRight * Portal_Width;
 	GetWorld()->LineTraceMultiByProfile(FaceHitResults, LeftFace, PortalCentre - PortalSurface * Portal_EdgeCheckDelta, "OverlapAll", QueryParams);
-    DrawDebugLine(GetWorld(), LeftFace, PortalCentre - PortalSurface * Portal_EdgeCheckDelta, FColor::Red, !5.0f, 5.0f);
 
-	for(FHitResult hit : FaceHitResults)
+	if (!FaceHitResults.IsEmpty())
 	{
-		if (hit.GetActor() == TargetActor)
-		{
-			LeftFaceHit = hit;
-			LeftFaceHit.bBlockingHit = true;
-			break;
-		}
+		LeftFaceHit = FaceHitResults.Last();
+		LeftFaceHit.bBlockingHit = true;
 	}
+	FaceHitResults.Empty();
 
 	FHitResult RightFaceHit;
-	FVector RightFace = PortalCentre - PortalSurface * Portal_EdgeCheckDelta + FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::RightVector), PortalSurface).GetSafeNormal() * Portal_Width;
-	POINT(RightFace, FColor::Red);
+	FVector RightFace = PortalCentre - PortalSurface * Portal_EdgeCheckDelta + SurfaceRight * Portal_Width;
 	GetWorld()->LineTraceMultiByProfile(FaceHitResults, RightFace, PortalCentre - PortalSurface * Portal_EdgeCheckDelta, "OverlapAll", QueryParams);
-	for (FHitResult hit : FaceHitResults)
+	if (!FaceHitResults.IsEmpty())
 	{
-		if (hit.GetActor() == TargetActor)
-		{
-			RightFaceHit = hit;
-			RightFaceHit.bBlockingHit = true;
-			break;
-		}
+		RightFaceHit = FaceHitResults.Last();
+		RightFaceHit.bBlockingHit = true;
 	}
+	FaceHitResults.Empty();
 
 	if (LeftFaceHit.bBlockingHit && RightFaceHit.bBlockingHit && FVector::Dist(LeftFaceHit.ImpactPoint, RightFaceHit.ImpactPoint) < Portal_Width)
 	{
@@ -257,34 +259,24 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalR
 
 	//check if enough vertical space
 	FHitResult TopFaceHit;
-	FVector TopFace = PortalCentre - PortalSurface * Portal_EdgeCheckDelta + FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::UpVector), PortalSurface).GetSafeNormal() * Portal_Height;
-	POINT(TopFace, FColor::Red);
-	DrawDebugLine(GetWorld(), TopFace, PortalCentre - PortalSurface * Portal_EdgeCheckDelta, FColor::Red, !5.0f, 5.0f);
+	FVector TopFace = PortalCentre - PortalSurface * Portal_EdgeCheckDelta + SurfaceUp * Portal_Height;
 	GetWorld()->LineTraceMultiByProfile(FaceHitResults, TopFace, PortalCentre - PortalSurface * Portal_EdgeCheckDelta, "OverlapAll", QueryParams);
-	for (FHitResult hit : FaceHitResults)
+	if (!FaceHitResults.IsEmpty())
 	{
-		if (hit.GetActor() == TargetActor)
-		{
-			TopFaceHit = hit;
-			TopFaceHit.bBlockingHit = true;
-			break;
-		}
+		TopFaceHit = FaceHitResults.Last();
+		TopFaceHit.bBlockingHit = true;
 	}
+	FaceHitResults.Empty();
 
 	FHitResult BottomFaceHit;
-	FVector BottomFace = PortalCentre - PortalSurface * Portal_EdgeCheckDelta + FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::DownVector), PortalSurface).GetSafeNormal() * Portal_Height;
-	POINT(BottomFace, FColor::Red);
-	DrawDebugLine(GetWorld(), BottomFace, PortalCentre - PortalSurface * Portal_EdgeCheckDelta, FColor::Red, !5.0f, 5.0f);
+	FVector BottomFace = PortalCentre - PortalSurface * Portal_EdgeCheckDelta - SurfaceUp * Portal_Height;
 	GetWorld()->LineTraceMultiByProfile(FaceHitResults, BottomFace, PortalCentre - PortalSurface * Portal_EdgeCheckDelta, "OverlapAll", QueryParams);
-	for (FHitResult hit : FaceHitResults)
+	if (!FaceHitResults.IsEmpty())
 	{
-		if (hit.GetActor() == TargetActor)
-		{
-			BottomFaceHit = hit;
-			BottomFaceHit.bBlockingHit = true;
-			break;
-		}
+		BottomFaceHit = FaceHitResults.Last();
+		BottomFaceHit.bBlockingHit = true;
 	}
+	FaceHitResults.Empty();
 
 	if (TopFaceHit.bBlockingHit && BottomFaceHit.bBlockingHit && FVector::Dist(TopFaceHit.ImpactPoint, BottomFaceHit.ImpactPoint) < Portal_Height)
 	{
@@ -293,78 +285,90 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalR
 
 	FHitResult EdgeHit;
 
-	FVector RightEdge = PortalCentre + FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::RightVector), PortalSurface).GetSafeNormal() * (Portal_Width / 2 + 10.0f);
-	GetWorld()->LineTraceSingleByProfile(EdgeHit, RightEdge + PortalSurface * Portal_EdgeCheckDelta, RightEdge - PortalSurface * Portal_EdgeCheckDelta, "BlockAll", QueryParams);
+	FVector RightEdge = PortalCentre + SurfaceRight * (Portal_Width / 2 + 10.0f);
+	GetWorld()->LineTraceSingleByChannel(EdgeHit, RightEdge + PortalSurface * Portal_EdgeCheckDelta, RightEdge - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
 	if (!EdgeHit.IsValidBlockingHit())
 	{
 		PortalCentre += FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::LeftVector), PortalSurface).GetSafeNormal() * (RightFaceHit.Distance - Portal_Width / 2);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Warning, TEXT("TARGET ACTOR: %s"), *EdgeHit.GetActor()->GetName());
 		if (EdgeHit.GetActor()->IsA<APortal>())
 		{
 			return false;
 		}
 	}
 
-	FVector LeftEdge = PortalCentre + FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::LeftVector), PortalSurface).GetSafeNormal() * (Portal_Width / 2 + 10.0f);
-	GetWorld()->LineTraceSingleByProfile(EdgeHit, LeftEdge + PortalSurface * Portal_EdgeCheckDelta, LeftEdge - PortalSurface * Portal_EdgeCheckDelta, "BlockAll", QueryParams);
+	FVector LeftEdge = PortalCentre - SurfaceRight * (Portal_Width / 2 + 10.0f);
+	GetWorld()->LineTraceSingleByChannel(EdgeHit, LeftEdge + PortalSurface * Portal_EdgeCheckDelta, LeftEdge - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
 	if (!EdgeHit.IsValidBlockingHit())
 	{
 		PortalCentre += FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::RightVector), PortalSurface).GetSafeNormal() * (LeftFaceHit.Distance - Portal_Width / 2);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Warning, TEXT("TARGET ACTOR: %s"), *EdgeHit.GetActor()->GetName());
 		if (EdgeHit.GetActor()->IsA<APortal>())
 		{
 			return false;
 		}
 	}
 
-	FVector UpEdge = PortalCentre + FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::UpVector), PortalSurface).GetSafeNormal() * (Portal_Height / 2 + 10.0f);
-	GetWorld()->LineTraceSingleByProfile(EdgeHit, UpEdge + PortalSurface * Portal_EdgeCheckDelta, UpEdge - PortalSurface * Portal_EdgeCheckDelta, "BlockAll", QueryParams);
+	FVector UpEdge = PortalCentre + SurfaceUp * (Portal_Height / 2 + 10.0f);
+	GetWorld()->LineTraceSingleByChannel(EdgeHit, UpEdge + PortalSurface * Portal_EdgeCheckDelta, UpEdge - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
 	if (!EdgeHit.IsValidBlockingHit())
 	{
 		PortalCentre += FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::DownVector), PortalSurface).GetSafeNormal() * (TopFaceHit.Distance - Portal_Height / 2);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Warning, TEXT("TARGET ACTOR: %s"), *EdgeHit.GetActor()->GetName());
 		if (EdgeHit.GetActor()->IsA<APortal>())
 		{
 			return false;
 		}
 	}
 
-	FVector DownEdge = PortalCentre + FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::DownVector), PortalSurface).GetSafeNormal() * (Portal_Height / 2.0f + 10.0f);
-	GetWorld()->LineTraceSingleByProfile(EdgeHit, DownEdge + PortalSurface * Portal_EdgeCheckDelta, DownEdge - PortalSurface * Portal_EdgeCheckDelta, "BlockAll", QueryParams);
+	FVector DownEdge = PortalCentre - SurfaceUp * (Portal_Height / 2.0f + 10.0f);
+	GetWorld()->LineTraceSingleByChannel(EdgeHit, DownEdge + PortalSurface * Portal_EdgeCheckDelta, DownEdge - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
 	if (!EdgeHit.IsValidBlockingHit())
 	{
 		PortalCentre += FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::UpVector), PortalSurface).GetSafeNormal() * (BottomFaceHit.Distance - Portal_Height / 2);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Warning, TEXT("LAST ACTOR: %s"), *EdgeHit.GetActor()->GetName());
 		if (EdgeHit.GetActor()->IsA<APortal>())
 		{
 			return false;
 		}
 	}
 
-	//Calculate rotation now that the checks are passed
-	float VertComponent = FMath::Abs(FMath::RoundHalfToZero(1000.0f * PortalHit.ImpactNormal.Rotation().Pitch / 90.0f) / 1000.0f);
-	if (VertComponent == 1.0f)
+	FVector TopRightCorner = PortalCentre + SurfaceUp * (Portal_Height / 2 + 10.0f) + SurfaceRight * (Portal_Width/2 + 10.0f);
+	GetWorld()->LineTraceSingleByChannel(EdgeHit, TopRightCorner + PortalSurface * Portal_EdgeCheckDelta, TopRightCorner - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
+	if (EdgeHit.IsValidBlockingHit() && EdgeHit.GetActor()->IsA<APortal>())
 	{
-		PortalRotation = FRotator(PortalHit.ImpactNormal.Rotation().Pitch, HorizontalRotation, 0.0f);
-		//PortalRotation = FRotator(PortalHit.ImpactNormal.Rotation().Pitch, 0.0f, -HorizontalRotation * VertComponent);
+		return false;
 	}
-	else
+
+	FVector BottomRightCorner = PortalCentre - SurfaceUp * (Portal_Height / 2 + 10.0f) + SurfaceRight * (Portal_Width / 2 + 10.0f);
+	GetWorld()->LineTraceSingleByChannel(EdgeHit, BottomRightCorner + PortalSurface * Portal_EdgeCheckDelta, BottomRightCorner - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
+	if (EdgeHit.IsValidBlockingHit() && EdgeHit.GetActor()->IsA<APortal>())
 	{
-		//PortalRotation = FRotator(PortalHit.ImpactNormal.Rotation().Pitch, PortalHit.ImpactNormal.Rotation().Yaw, -HorizontalRotation + PortalHit.ImpactNormal.Rotation().Yaw);
-		PortalRotation = FRotator(PortalHit.ImpactNormal.Rotation().Pitch, PortalHit.ImpactNormal.Rotation().Yaw, 0.0f);
+		return false;
 	}
+
+	FVector TopLeftCorner = PortalCentre + SurfaceUp * (Portal_Height / 2 + 10.0f) - SurfaceRight * (Portal_Width / 2 + 10.0f);
+	GetWorld()->LineTraceSingleByChannel(EdgeHit, TopLeftCorner + PortalSurface * Portal_EdgeCheckDelta, TopLeftCorner - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
+	if (EdgeHit.IsValidBlockingHit() && EdgeHit.GetActor()->IsA<APortal>())
+	{
+		return false;
+	}
+
+	FVector BottomLeftCorner = PortalCentre - SurfaceUp * (Portal_Height / 2 + 10.0f) - SurfaceRight * (Portal_Width / 2 + 10.0f);
+	GetWorld()->LineTraceSingleByChannel(EdgeHit, BottomLeftCorner + PortalSurface * Portal_EdgeCheckDelta, BottomLeftCorner - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
+	if (EdgeHit.IsValidBlockingHit() && EdgeHit.GetActor()->IsA<APortal>())
+	{
+		return false;
+	}
+
 	return true;
 }
 

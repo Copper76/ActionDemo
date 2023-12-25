@@ -1015,9 +1015,9 @@ float UDemoMyCharacterMovementComponent::TryGrapple()
 	FVector Fwd = GetWorld()->GetFirstPlayerController()->PlayerCameraManager->GetCameraRotation().Vector();
 	FHitResult PivotHit;
 
-	GetWorld()->LineTraceSingleByProfile(PivotHit, Start, Start + Fwd * Grapple_Range, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
+	GetWorld()->LineTraceSingleByChannel(PivotHit, Start, Start + Fwd * Grapple_Range, ECC_Visibility, DemoCharacterOwner->GetIgnoreCharacterParams());
 
-	if (!PivotHit.IsValidBlockingHit())
+	if (!PivotHit.IsValidBlockingHit() || PivotHit.GetActor()->IsA<APortal>())
 	{
 		Grapple_Target = nullptr;
 		Grapple_Pivot = Start + Fwd * Grapple_Range;
