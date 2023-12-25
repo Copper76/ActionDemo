@@ -14,7 +14,15 @@ This project is a demo project using Unreal Engine. The project is a practice pr
 - [x] Flash(Overwatch Tracer style)
 - [x] Weapon swap
 - [ ] Portal gun
+- [ ] Assault Rifle
 - [ ] Map toggle
+
+## TODO
+- [ ] Portal Gun motion rotation
+- [ ] Smooth Portal Teleportation rather than a sudden teleport
+- [ ] Map Swap
+- [ ] Assault Rifle Implementation
+- [ ] Extend Weapon Swap to accomodate Assault Rifle
 
 ## Controls
 - WSAD to move around
@@ -27,8 +35,8 @@ This project is a demo project using Unreal Engine. The project is a practice pr
 - RMB without gun to flash forward
 - PRESS L-CTRL while grappling to cancel grapple
 - B to swap weapon when the gun is collected
-- LMB with gun to fire blue portal(not implemented yet)
-- RMB with gun to fire orange portal(not implemented yet)
+- LMB with gun to fire blue portal
+- RMB with gun to fire orange portal
 - PRESS E to toggle map(not implemented yet)
 
 ## Tools
