@@ -79,7 +79,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void BluePortalFire();
 
-	bool CheckValidLoc(FVector& PortalCentre, FRotator& OutRotation, UPrimitiveComponent* TargetSurface, bool isBlue);
+	bool CheckValidLoc(FVector& PortalCentre, FRotator& OutRotation, UPrimitiveComponent*& TargetSurface, bool isBlue);
 
 protected:
 	/** Ends gameplay for this component. */

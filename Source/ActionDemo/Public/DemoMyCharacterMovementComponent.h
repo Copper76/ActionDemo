@@ -121,6 +121,9 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 	UPrimitiveComponent* Grapple_Target;
 	bool Grapple_TargetMovable;
 
+	//Portal
+	float Portal_MaxTravelSpeed = 1000.0f;
+
 public:
 	UPROPERTY(EditDefaultsOnly) float Grapple_Range = 1250.0f;
 

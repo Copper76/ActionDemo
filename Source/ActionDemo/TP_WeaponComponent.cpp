@@ -117,7 +117,7 @@ void UTP_WeaponComponent::BluePortalFire()
 	{
 		return;
 	}
-	if (Character->BluePortal == nullptr)
+	if (Character->BluePortal == NULL)
 	{
 		FActorSpawnParameters SpawnInfo;
 		SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
@@ -164,10 +164,14 @@ void UTP_WeaponComponent::OrangePortalFire()
 
 	FRotator PortalRotation;
 	FVector PortalCentre;
-	UPrimitiveComponent* TargetSurface = nullptr;
+	UPrimitiveComponent* TargetSurface = NULL;
 	if (!CheckValidLoc(PortalCentre, PortalRotation, TargetSurface, false))
 	{
 		return;
+	}
+	if (TargetSurface == nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("DIDN'T REGISTER"));
 	}
 	if (Character->OrangePortal == nullptr)
 	{
@@ -190,7 +194,7 @@ void UTP_WeaponComponent::OrangePortalFire()
 	}
 }
 
-bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalRotation, UPrimitiveComponent* TargetSurface, bool isBlue)
+bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalRotation, UPrimitiveComponent*& TargetSurface, bool isBlue)
 {
 	FCollisionQueryParams QueryParams = Character->GetIgnorePortalParams(isBlue);
 	APlayerController* PlayerController = Cast<APlayerController>(Character->GetController());
@@ -207,7 +211,7 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalR
 		return false;
 	}
 	TargetSurface = PortalHit.GetComponent();
-	UE_LOG(LogTemp, Warning, TEXT("TARGET ACTOR: %s"), *PortalHit.GetActor()->GetName());
+	UE_LOG(LogTemp, Warning, TEXT("TARGET ACTOR: %s"), *PortalHit.GetComponent()->GetName());
 
 	//The target is not a valid surface
 	//if (PortalHit.GetActor()->ActorHasTag("CanNotPortal"))
