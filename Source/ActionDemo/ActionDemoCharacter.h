@@ -162,6 +162,8 @@ public:
 	/** Returns PlayerCamera subobject **/
 	UCameraComponent* GetFirstPersonCameraComponent() const { return PlayerCamera; }
 
+	APortal* GetPortal(bool isBlue);
+
 protected:
 	//Flash
 	float FlashReach = 1000.0f;
@@ -195,5 +197,6 @@ public:
 	//Portal
 	APortal* BluePortal;
 	APortal* OrangePortal;
+	FVector CameraOffset;
 };
 

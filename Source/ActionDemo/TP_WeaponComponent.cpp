@@ -112,10 +112,18 @@ void UTP_WeaponComponent::BluePortalFire()
 
 	FVector PortalCentre;
 	FRotator PortalRotation;
-	UPrimitiveComponent* TargetSurface = nullptr;
+	AActor* TargetSurface = nullptr;
 	if (!CheckValidLoc(PortalCentre, PortalRotation, TargetSurface, true))
 	{
 		return;
+	}
+	if (TargetSurface == nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("DIDN'T REGISTER"));
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("TARGET: %s"), *TargetSurface->GetName());
 	}
 	if (Character->BluePortal == NULL)
 	{
@@ -135,6 +143,7 @@ void UTP_WeaponComponent::BluePortalFire()
 	{
 		Character->BluePortal->GetRootComponent()->SetWorldLocation(PortalCentre);
 		Character->BluePortal->GetRootComponent()->SetWorldRotation(PortalRotation);
+		Character->BluePortal->SetUpCollision(TargetSurface);
 	}
 }
 
@@ -164,7 +173,7 @@ void UTP_WeaponComponent::OrangePortalFire()
 
 	FRotator PortalRotation;
 	FVector PortalCentre;
-	UPrimitiveComponent* TargetSurface = NULL;
+	AActor* TargetSurface = NULL;
 	if (!CheckValidLoc(PortalCentre, PortalRotation, TargetSurface, false))
 	{
 		return;
@@ -172,6 +181,10 @@ void UTP_WeaponComponent::OrangePortalFire()
 	if (TargetSurface == nullptr)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("DIDN'T REGISTER"));
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("TARGET: %s"), *TargetSurface->GetName());
 	}
 	if (Character->OrangePortal == nullptr)
 	{
@@ -191,10 +204,11 @@ void UTP_WeaponComponent::OrangePortalFire()
 	{
 		Character->OrangePortal->GetRootComponent()->SetWorldLocation(PortalCentre);
 		Character->OrangePortal->GetRootComponent()->SetWorldRotation(PortalRotation);
+		Character->OrangePortal->SetUpCollision(TargetSurface);
 	}
 }
 
-bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalRotation, UPrimitiveComponent*& TargetSurface, bool isBlue)
+bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalRotation, AActor*& TargetSurface, bool isBlue)
 {
 	FCollisionQueryParams QueryParams = Character->GetIgnorePortalParams(isBlue);
 	APlayerController* PlayerController = Cast<APlayerController>(Character->GetController());
@@ -210,8 +224,12 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalR
 	{
 		return false;
 	}
-	TargetSurface = PortalHit.GetComponent();
-	UE_LOG(LogTemp, Warning, TEXT("TARGET ACTOR: %s"), *PortalHit.GetComponent()->GetName());
+	//reset the portal collision if it exists
+	if (Character->GetPortal(isBlue))
+	{
+		Character->GetPortal(isBlue)->ResetChannel();
+	}
+	TargetSurface = PortalHit.GetActor();
 
 	//The target is not a valid surface
 	//if (PortalHit.GetActor()->ActorHasTag("CanNotPortal"))

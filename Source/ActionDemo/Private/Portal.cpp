@@ -7,6 +7,7 @@
 
 #define POINT(x, c) DrawDebugPoint(GetWorld(), x, 10, c, !5.0f, 5.0f);
 #define LINE(x1, x2, c) DrawDebugLine(GetWorld(), x1, x2, c, !5.0f, 5.0f);
+#define PortalChannel ECC_GameTraceChannel2
 
 // Sets default values
 APortal::APortal()
@@ -58,38 +59,59 @@ void APortal::BeginPlay()
 	//These are set in setup later
 	Character = Cast<AActionDemoCharacter>(UGameplayStatics::GetPlayerCharacter(GetWorld(), 0));
 	PlayerController = GetWorld()->GetFirstPlayerController();
-	BoxCollider->OnComponentBeginOverlap.AddDynamic(this, &APortal::OnTeleportBegin);
 	BoxCollider->OnComponentEndOverlap.AddDynamic(this, &APortal::OnTeleportEnd);
 	ReverseCollider->OnComponentBeginOverlap.AddDynamic(this, &APortal::OnOverlapBegin);
 	ReverseCollider->OnComponentEndOverlap.AddDynamic(this, &APortal::OnOverlapEnd);
 }
 
 //Setup when there is no other portal
-void APortal::SetUp(AActionDemoCharacter* Player, UPrimitiveComponent* TargetSurface)
+void APortal::SetUp(AActionDemoCharacter* Player, AActor* TargetSurface)
 {
 	Character = Player;
-	this->Target = TargetSurface;
+	SetUpCollision(TargetSurface);
 	PlayerController = Cast<APlayerController>(Character->GetController());
 	Plane->SetMaterial(0,EmptyMaterial);
 }
 
 //Setup when there is an existing portal
-void APortal::SetUp(AActionDemoCharacter* Player, UPrimitiveComponent* TargetSurface, APortal* Portal)
+void APortal::SetUp(AActionDemoCharacter* Player, AActor* TargetSurface, APortal* Portal)
 {
-	Character = Player;
-	this->Target = TargetSurface;
-	PlayerController = Cast<APlayerController>(Character->GetController());
+	SetUp(Player, TargetSurface);
 
 	//link to the other portal and have the other portal link to this
 	Link(Portal);
 	OtherPortal->Link(this);
 }
 
+void APortal::SetUpCollision(AActor* TargetSurface)
+{
+	VertComponent = GetActorRotation().Pitch / 90.0f;
+	VertComponent = FMath::RoundHalfToZero(1000.0f * VertComponent) / 1000.0f;
+	if (VertComponent == 1.0f || VertComponent == -1.0f)
+	{
+		ReverseCollider->SetRelativeScale3D(FVector(1.96f, 1.5f, 3.25f));
+	}
+	else
+	{
+		ReverseCollider->SetRelativeScale3D(FVector(1.1f, 1.5f, 3.25f));
+	}
+	TargetSurface->GetComponents<UStaticMeshComponent>(TargetComponents);
+	TargetComponentsChannels.Empty();
+	for (int32 i = 0; i < TargetComponents.Num(); i++)
+	{
+		TargetComponentsChannels.Add(TargetComponents[i]->GetCollisionObjectType());
+	}
+}
+
 void APortal::Link(APortal* Portal)
 {
 	OtherPortal = Portal;
 	Plane->SetMaterial(0, LinkedMaterial);
-	CanTeleport = true;
+	if (ReverseCollider->IsOverlappingActor(Character) && OtherPortal != nullptr)
+	{
+		bPlayerCanTeleport = true;
+		SetToNoCollide();
+	}
 }
 
 // Called every frame
@@ -102,11 +124,8 @@ void APortal::Tick(float DeltaTime)
 		CaptureComponent->HiddenActors.Empty();
 		FVector PlayerOffset = Plane->GetComponentLocation() - PlayerController->PlayerCameraManager->GetCameraLocation();
 		PlayerOffset = GetActorRotation().UnrotateVector(PlayerOffset);
-		PlayerOffset.Y = FMath::Clamp(PlayerOffset.Y, PlayerOffset.Y, 0.0f);
 
 		FRotator CamRotation = PlayerController->PlayerCameraManager->GetCameraRotation();
-		float VertComponent = GetActorRotation().Pitch / 90.0f;
-		VertComponent = FMath::RoundHalfToZero(1000.0f * VertComponent) / 1000.0f;
 		//OtherPortal->CaptureComponent->SetRelativeRotation(FRotator(FRotator(0.0f, 180.0f, 0.0f) - GetActorRotation(), CamRotation.Yaw * VertComponent));
 		if (VertComponent == 1.0f || VertComponent == -1.0f)
 		{
@@ -145,54 +164,84 @@ void APortal::Tick(float DeltaTime)
 				CaptureComponent->HiddenActors.Add(hit.GetActor());
 			}
 		}
+
+		if (bPlayerCanTeleport && !bJustTeleported && OtherPortal->CaptureComponent->GetRelativeLocation().X > 0.0f)
+		{
+			Teleport();
+		}
 	}
 }
 
-void APortal::OnTeleportBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+void APortal::Teleport()
+{
+	OtherPortal->bJustTeleported = true;
+	float OtherVertComponent = FMath::Abs(OtherPortal->VertComponent);
+
+	PlayerController->SetControlRotation(FRotator(OtherPortal->CaptureComponent->GetComponentRotation().Pitch, (OtherPortal->CaptureComponent->GetComponentRotation().Yaw + OtherPortal->CaptureComponent->GetComponentRotation().Roll), 0.0f));
+
+	Character->SetActorLocation(OtherPortal->CaptureComponent->GetComponentLocation() + OtherPortal->GetActorRotation().RotateVector(-Character->CameraOffset), false, nullptr, ETeleportType::TeleportPhysics);
+
+	FRotator OtherRotation = FRotator(OtherVertComponent == 1.0f ? -OtherPortal->GetActorRotation().Pitch : OtherPortal->GetActorRotation().Pitch, OtherVertComponent == 1.0f ? 180.0f : OtherPortal->GetActorRotation().Yaw, 0.0f);
+	if (VertComponent == 1.0f || VertComponent == -1.0f)
+	{
+		//Character->SetActorLocation(OtherPortal->GetActorLocation() + OtherPortal->GetActorRotation().RotateVector(-Character->CameraOffset), false, nullptr, ETeleportType::TeleportPhysics);//TP to centre to avoid premature loop break
+		Character->AlignMovement(OtherRotation - FRotator(GetActorRotation().Pitch, 180.0f, 0.0f));
+	}
+	else
+	{
+		Character->AlignMovement(OtherRotation + FRotator(-FMath::Abs(GetActorRotation().Pitch), 180.0f - GetActorRotation().Yaw, 0.0f));
+	}
+	//Character->SetActorLocation(OtherPortal->GetActorLocation() + OtherPortal->GetActorRotation().RotateVector(-Character->CameraOffset), false, nullptr, ETeleportType::TeleportPhysics);
+}
+
+void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
 	AActionDemoCharacter* OverlappedActor = Cast<AActionDemoCharacter>(OtherActor);
-	UE_LOG(LogTemp, Warning, TEXT("Activated: %s"), CanTeleport ? TEXT("YES") : TEXT("NO"));
-	if (OverlappedActor != nullptr && CanTeleport && OtherPortal != nullptr)
+	if (OtherPortal != nullptr)
 	{
-		CanTeleport = false;
-		FRotator RelativeRotation = OtherPortal->GetActorRotation() + OtherPortal->CaptureComponent->GetRelativeRotation();
-		RelativeRotation.Roll = 0.0f;
-		PlayerController->SetControlRotation(RelativeRotation);
-
-		float VertComponent = GetActorRotation().Pitch / 90.0f;
-		VertComponent = FMath::Abs(FMath::RoundHalfToZero(1000.0f * VertComponent) / 1000.0f);
-		float OtherVertComponent = OtherPortal->GetActorRotation().Pitch / 90.0f;
-		OtherVertComponent = FMath::Abs(FMath::RoundHalfToZero(1000.0f * OtherVertComponent) / 1000.0f);
-		if (VertComponent == 1.0f)
+		SetToNoCollide();
+		if (OverlappedActor == nullptr)
 		{
-			OverlappedActor->SetActorLocation(OtherPortal->GetActorLocation() + OtherPortal->GetActorRotation().RotateVector(FVector::ForwardVector) * 116.0f, false, nullptr, ETeleportType::TeleportPhysics);//just outside the trigger
-			Character->AlignMovement(FRotator(OtherVertComponent == 1.0f ? -OtherPortal->GetActorRotation().Pitch : OtherPortal->GetActorRotation().Pitch, OtherVertComponent == 1.0f? 180.0f : OtherPortal->GetActorRotation().Yaw, 0.0f) - FRotator(GetActorRotation().Pitch, 180.0f, 0.0f));
+			return;
 		}
 		else
 		{
-			OverlappedActor->SetActorLocation(OtherPortal->GetActorLocation() + OtherPortal->CaptureComponent->GetRelativeLocation() + OtherPortal->GetActorRotation().RotateVector(FVector::ForwardVector) * 75.0f, false, nullptr, ETeleportType::TeleportPhysics);//just outside the trigger
-			Character->AlignMovement(FRotator(OtherVertComponent == 1.0f ? -OtherPortal->GetActorRotation().Pitch : OtherPortal->GetActorRotation().Pitch, OtherVertComponent == 1.0f ? 180.0f : OtherPortal->GetActorRotation().Yaw, 0.0f) + FRotator(GetActorRotation().Pitch, 180.0f - GetActorRotation().Yaw, 0.0f));
+			bPlayerCanTeleport = true;
 		}
+	}
+}
+
+void APortal::OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
+{
+	AActionDemoCharacter* OverlappedActor = Cast<AActionDemoCharacter>(OtherActor);
+	bPlayerCanTeleport = false;
+	if (OtherPortal != nullptr)
+	{
+		ResetChannel();
+		bPlayerCanTeleport = false;
 	}
 }
 
 void APortal::OnTeleportEnd(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
 	AActionDemoCharacter* OverlappedActor = Cast<AActionDemoCharacter>(OtherActor);
-	if (OverlappedActor != nullptr && OtherPortal != nullptr)
+	if (OtherPortal != nullptr)
 	{
-		CanTeleport = true;
+		bJustTeleported = false;
 	}
 }
 
-void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+void APortal::SetToNoCollide()
 {
-	//UE_LOG(LogTemp, Warning, TEXT("ENTERED"));
-	//OverlappedComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Ignore);
+	for (int32 i = 0; i < TargetComponents.Num(); i++)
+	{
+		TargetComponents[i]->SetCollisionObjectType(PortalChannel);
+	}
 }
-
-void APortal::OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
+void APortal::ResetChannel()
 {
-	//UE_LOG(LogTemp, Warning, TEXT("Ended"));
-	//OverlappedComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+	for (int32 i = 0; i < TargetComponents.Num(); i++)
+	{
+		TargetComponents[i]->SetCollisionObjectType(TargetComponentsChannels[i]);
+	}
 }

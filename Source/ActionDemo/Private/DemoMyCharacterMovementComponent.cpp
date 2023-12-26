@@ -406,8 +406,6 @@ void UDemoMyCharacterMovementComponent::AlignMovement(FRotator NewRotation)
 	UE_LOG(LogTemp, Warning, TEXT("PRE-VELOCITY: %s"), *Velocity.ToString());
 	Velocity = NewRotation.RotateVector(Velocity).GetClampedToMaxSize(Portal_MaxTravelSpeed);
 	Acceleration = NewRotation.RotateVector(Acceleration);
-	//Velocity = NewRotation * Velocity;
-	//Acceleration = NewRotation * Acceleration;
 	UE_LOG(LogTemp, Warning, TEXT("After-VELOCITY: %s"), *Velocity.ToString());
 }
 

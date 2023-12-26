@@ -25,16 +25,13 @@ protected:
 	virtual void BeginPlay() override;
 
 	UFUNCTION()
-	void OnTeleportBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
-
-	UFUNCTION()
-	void OnTeleportEnd(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
-
-	UFUNCTION()
 	void OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
 	UFUNCTION()
 	void OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
+
+	UFUNCTION()
+	void OnTeleportEnd(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
 
 protected:
 
@@ -59,28 +56,41 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Material, meta = (AllowPrivateAccess = "true"))
 	UMaterial* LinkedMaterial;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Surface, meta = (AllowPrivateAccess = "true"))
-	UPrimitiveComponent* Target;
+	TArray<UStaticMeshComponent*> TargetComponents;
+
+	TArray<ECollisionChannel> TargetComponentsChannels;
+
+	void Teleport();
 
 private:
 	FVector CameraOffset;
 	FRotator CameraRotation;
+	bool bPlayerCanTeleport;
+	bool bJustTeleported;
 
 public:	
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
-	void SetUp(AActionDemoCharacter* Player, UPrimitiveComponent* TargetSurface);
-	void SetUp(AActionDemoCharacter* Player, UPrimitiveComponent* TargetSurface, APortal* OtherPortal);
+	void SetUp(AActionDemoCharacter* Player, AActor* TargetSurface);
+
+	void SetUp(AActionDemoCharacter* Player, AActor* TargetSurface, APortal* OtherPortal);
+
+	void SetUpCollision(AActor* TargetSurface);
 
 	void Link(APortal* Portal);
 
+	void SetToNoCollide();
+
+	void ResetChannel();
+
 public:
 	AActionDemoCharacter* Character;
+
 	APlayerController* PlayerController;//set it on spawn
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
 	APortal* OtherPortal; //set it on spawn if there is another
 
-	bool CanTeleport;
+	float VertComponent;
 };

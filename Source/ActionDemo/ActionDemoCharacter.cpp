@@ -27,7 +27,8 @@ AActionDemoCharacter::AActionDemoCharacter(const FObjectInitializer& ObjectIniti
 	// Create a CameraComponent	
 	PlayerCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
 	PlayerCamera->SetupAttachment(GetCapsuleComponent());
-	PlayerCamera->SetRelativeLocation(FVector(-10.f, 0.f, 60.f)); // Position the camera
+	CameraOffset = FVector(-10.f, 0.f, 60.f);
+	PlayerCamera->SetRelativeLocation(CameraOffset); // Position the camera
 	PlayerCamera->bUsePawnControlRotation = true;
 
 	// Create a mesh component that will be used when being viewed from a '1st person' view (when controlling this pawn)
@@ -374,6 +375,11 @@ void AActionDemoCharacter::SetHasRifle(bool bNewHasRifle, AActor* Weapon)
 bool AActionDemoCharacter::GetHasRifle()
 {
 	return bHasRifle;
+}
+
+APortal* AActionDemoCharacter::GetPortal(bool isBlue)
+{
+	return isBlue ? BluePortal : OrangePortal;
 }
 
 FCollisionQueryParams AActionDemoCharacter::GetIgnoreCharacterParams() const
