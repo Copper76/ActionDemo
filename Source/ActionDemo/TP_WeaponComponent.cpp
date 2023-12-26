@@ -224,11 +224,6 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalR
 	{
 		return false;
 	}
-	//reset the portal collision if it exists
-	if (Character->GetPortal(isBlue))
-	{
-		Character->GetPortal(isBlue)->ResetChannel();
-	}
 	TargetSurface = PortalHit.GetActor();
 
 	//The target is not a valid surface

@@ -40,7 +40,7 @@ APortal::APortal()
 	ReverseCollider->SetupAttachment(SceneRoot);
 	//BoxCollider->AttachToComponent(SceneRoot, FAttachmentTransformRules::KeepRelativeTransform);
 	ReverseCollider->SetRelativeLocation(FVector(0.0f, 0.f, 0.0f));
-	ReverseCollider->SetRelativeScale3D(FVector(2.0f, 1.5f, 3.25f));
+	ReverseCollider->SetRelativeScale3D(FVector(0.1f, 1.5f, 3.25f));
 	ReverseCollider->SetGenerateOverlapEvents(true);
 
 	Plane = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Plane"));
@@ -87,6 +87,7 @@ void APortal::SetUpCollision(AActor* TargetSurface)
 {
 	VertComponent = GetActorRotation().Pitch / 90.0f;
 	VertComponent = FMath::RoundHalfToZero(1000.0f * VertComponent) / 1000.0f;
+	/**
 	if (VertComponent == 1.0f || VertComponent == -1.0f)
 	{
 		ReverseCollider->SetRelativeScale3D(FVector(1.96f, 1.5f, 3.25f));
@@ -94,6 +95,11 @@ void APortal::SetUpCollision(AActor* TargetSurface)
 	else
 	{
 		ReverseCollider->SetRelativeScale3D(FVector(1.1f, 1.5f, 3.25f));
+	}
+	**/
+	if (!TargetComponents.IsEmpty())
+	{
+		ResetChannel();
 	}
 	TargetSurface->GetComponents<UStaticMeshComponent>(TargetComponents);
 	TargetComponentsChannels.Empty();
@@ -181,17 +187,27 @@ void APortal::Teleport()
 
 	Character->SetActorLocation(OtherPortal->CaptureComponent->GetComponentLocation() + OtherPortal->GetActorRotation().RotateVector(-Character->CameraOffset), false, nullptr, ETeleportType::TeleportPhysics);
 
-	FRotator OtherRotation = FRotator(OtherVertComponent == 1.0f ? -OtherPortal->GetActorRotation().Pitch : OtherPortal->GetActorRotation().Pitch, OtherVertComponent == 1.0f ? 180.0f : OtherPortal->GetActorRotation().Yaw, 0.0f);
 	if (VertComponent == 1.0f || VertComponent == -1.0f)
 	{
-		//Character->SetActorLocation(OtherPortal->GetActorLocation() + OtherPortal->GetActorRotation().RotateVector(-Character->CameraOffset), false, nullptr, ETeleportType::TeleportPhysics);//TP to centre to avoid premature loop break
-		Character->AlignMovement(OtherRotation - FRotator(GetActorRotation().Pitch, 180.0f, 0.0f));
+		Character->AlignMovement(FRotator(OtherVertComponent == 1.0f ? OtherPortal->GetActorRotation().Pitch : OtherPortal->GetActorRotation().Pitch, OtherVertComponent == 1.0f ? 0.0f : OtherPortal->GetActorRotation().Yaw, 0.0f) + FRotator(GetActorRotation().Pitch, 0.0f, 0.0f));
 	}
 	else
 	{
-		Character->AlignMovement(OtherRotation + FRotator(-FMath::Abs(GetActorRotation().Pitch), 180.0f - GetActorRotation().Yaw, 0.0f));
+		float YawAdjustment = 180.0f - GetActorRotation().Yaw;
+		if (YawAdjustment > 180.0f)
+		{
+			YawAdjustment -= 360.0f;
+		}
+		Character->AlignMovement(FRotator(OtherVertComponent == 1.0f ? -OtherPortal->GetActorRotation().Pitch : -OtherPortal->GetActorRotation().Pitch, OtherVertComponent == 1.0f ? 0.0f : OtherPortal->GetActorRotation().Yaw, 0.0f) + FRotator(-GetActorRotation().Pitch, YawAdjustment, 0.0f));
+		//Character->AlignMovement(FRotator(-GetActorRotation().Pitch, YawAdjustment, 0.0f));
 	}
-	//Character->SetActorLocation(OtherPortal->GetActorLocation() + OtherPortal->GetActorRotation().RotateVector(-Character->CameraOffset), false, nullptr, ETeleportType::TeleportPhysics);
+	if (OtherVertComponent == 1.0f)
+	{
+		//TP to centre to avoid premature loop break
+		//Character->SetActorLocation(OtherPortal->GetActorLocation() + OtherPortal->GetActorRotation().RotateVector(-Character->CameraOffset), false, nullptr, ETeleportType::TeleportPhysics);
+	}
+	OtherPortal->SetToNoCollide();
+	OtherPortal->bPlayerCanTeleport = true;
 }
 
 void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
@@ -214,7 +230,6 @@ void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherA
 void APortal::OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
 	AActionDemoCharacter* OverlappedActor = Cast<AActionDemoCharacter>(OtherActor);
-	bPlayerCanTeleport = false;
 	if (OtherPortal != nullptr)
 	{
 		ResetChannel();
