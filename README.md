@@ -13,13 +13,12 @@ This project is a demo project using Unreal Engine. The project is a practice pr
 - [x] Grappling(Apex Legends Pathfinder style)
 - [x] Flash(Overwatch Tracer style)
 - [x] Weapon swap
-- [ ] Portal gun
+- [X] Portal gun
 - [ ] Assault Rifle
 - [ ] Map toggle
 
 ## TODO
-- [ ] Portal Gun motion rotation
-- [ ] Smooth Portal Teleportation rather than a sudden teleport
+- [ ] Smooth Portal Teleportation rather than a sudden teleport, also a good way to tackle the stack overflow
 - [ ] Map Swap
 - [ ] Assault Rifle Implementation
 - [ ] Extend Weapon Swap to accomodate Assault Rifle

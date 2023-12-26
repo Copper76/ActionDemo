@@ -154,7 +154,7 @@ void APortal::OnTeleportBegin(UPrimitiveComponent* OverlappedComp, AActor* Other
 	UE_LOG(LogTemp, Warning, TEXT("Activated: %s"), CanTeleport ? TEXT("YES") : TEXT("NO"));
 	if (OverlappedActor != nullptr && CanTeleport && OtherPortal != nullptr)
 	{
-		OtherPortal->CanTeleport = false;
+		CanTeleport = false;
 		FRotator RelativeRotation = OtherPortal->GetActorRotation() + OtherPortal->CaptureComponent->GetRelativeRotation();
 		RelativeRotation.Roll = 0.0f;
 		PlayerController->SetControlRotation(RelativeRotation);
@@ -165,12 +165,12 @@ void APortal::OnTeleportBegin(UPrimitiveComponent* OverlappedComp, AActor* Other
 		OtherVertComponent = FMath::Abs(FMath::RoundHalfToZero(1000.0f * OtherVertComponent) / 1000.0f);
 		if (VertComponent == 1.0f)
 		{
-			OverlappedActor->SetActorLocation(OtherPortal->GetActorLocation() + OtherPortal->GetActorRotation().RotateVector(FVector::ForwardVector) * 55.0f, false, nullptr, ETeleportType::TeleportPhysics);
+			OverlappedActor->SetActorLocation(OtherPortal->GetActorLocation() + OtherPortal->GetActorRotation().RotateVector(FVector::ForwardVector) * 116.0f, false, nullptr, ETeleportType::TeleportPhysics);//just outside the trigger
 			Character->AlignMovement(FRotator(OtherVertComponent == 1.0f ? -OtherPortal->GetActorRotation().Pitch : OtherPortal->GetActorRotation().Pitch, OtherVertComponent == 1.0f? 180.0f : OtherPortal->GetActorRotation().Yaw, 0.0f) - FRotator(GetActorRotation().Pitch, 180.0f, 0.0f));
 		}
 		else
 		{
-			OverlappedActor->SetActorLocation(OtherPortal->GetActorLocation() + OtherPortal->CaptureComponent->GetRelativeLocation() + OtherPortal->GetActorRotation().RotateVector(FVector::ForwardVector) * 55.0f, false, nullptr, ETeleportType::TeleportPhysics);
+			OverlappedActor->SetActorLocation(OtherPortal->GetActorLocation() + OtherPortal->CaptureComponent->GetRelativeLocation() + OtherPortal->GetActorRotation().RotateVector(FVector::ForwardVector) * 75.0f, false, nullptr, ETeleportType::TeleportPhysics);//just outside the trigger
 			Character->AlignMovement(FRotator(OtherVertComponent == 1.0f ? -OtherPortal->GetActorRotation().Pitch : OtherPortal->GetActorRotation().Pitch, OtherVertComponent == 1.0f ? 180.0f : OtherPortal->GetActorRotation().Yaw, 0.0f) + FRotator(GetActorRotation().Pitch, 180.0f - GetActorRotation().Yaw, 0.0f));
 		}
 	}
