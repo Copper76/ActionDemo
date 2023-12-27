@@ -18,7 +18,6 @@ This project is a demo project using Unreal Engine. The project is a practice pr
 - [ ] Map toggle
 
 ## TODO
-- [ ] Smooth Portal Teleportation rather than a sudden teleport, also a good way to tackle the stack overflow
 - [ ] Map Swap
 - [ ] Assault Rifle Implementation
 - [ ] Extend Weapon Swap to accomodate Assault Rifle
