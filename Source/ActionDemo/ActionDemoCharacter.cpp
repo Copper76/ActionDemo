@@ -39,6 +39,8 @@ AActionDemoCharacter::AActionDemoCharacter(const FObjectInitializer& ObjectIniti
 	Mesh1P->CastShadow = false;
 	//Mesh1P->SetRelativeRotation(FRotator(0.9f, -19.19f, 5.2f));
 	Mesh1P->SetRelativeLocation(FVector(-30.f, 0.f, -150.f));
+	AimingPoseLoc = Mesh1P->GetRelativeLocation();
+	AimingPoseRotation = Mesh1P->GetRelativeRotation();
 
 	FlashCoolDown = FlashMaxCoolDown;
 
@@ -163,6 +165,10 @@ void AActionDemoCharacter::SwapControl()
 
 				// Stops the Actor from ticking
 				bWeapon->SetActorTickEnabled(false);
+
+				AimingPoseLoc = FVector(-30.0f, 0.0f, -150.0f);
+
+				AimingPoseRotation = FRotator(0.0f, 0.0f, 0.0f);
 			}
 		}
 		else

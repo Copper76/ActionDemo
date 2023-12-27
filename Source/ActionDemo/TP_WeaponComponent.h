@@ -22,29 +22,38 @@ class ACTIONDEMO_API UTP_WeaponComponent : public USkeletalMeshComponent
 	GENERATED_BODY()
 
 public:
+
 	/** Projectile class to spawn */
-	UPROPERTY(EditDefaultsOnly, Category=Projectile)
+	UPROPERTY(EditDefaultsOnly, Category = Projectile)
 	TSubclassOf<class AActionDemoProjectile> ProjectileClass;
 
 	/** Sound to play each time we fire */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Gameplay)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Gameplay)
 	USoundBase* FireSound;
-	
+
 	/** AnimMontage to play each time we fire */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Gameplay)
 	UAnimMontage* FireAnimation;
 
 	/** Gun muzzle's offset from the characters location */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Gameplay)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Gameplay)
 	FVector MuzzleOffset;
 
 	/** MappingContext */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess = "true"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	class UInputMappingContext* FireMappingContext;
 
+	/** MappingContext */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	class UInputMappingContext* PortalMappingContext;
+
 	/** Fire Input Action */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess = "true"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	class UInputAction* FireAction;
+
+	/** Fire Input Action */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	class UInputAction* AimAction;
 
 	/** Fire Input Action */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
@@ -54,22 +63,35 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	class UInputAction* BluePortalAction;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	class UInputAction* ToggleARAction;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	class UInputAction* TogglePortalAction;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
 	TSubclassOf<AActor> BluePortalBP;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
 	TSubclassOf<AActor> OrangePortalBP;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
+	TSubclassOf<AActor> BulletBP;
+
 	/** Sets default values for this component's properties */
 	UTP_WeaponComponent();
 
 	/** Attaches the actor to a FirstPersonCharacter */
-	UFUNCTION(BlueprintCallable, Category="Weapon")
+	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void AttachWeapon(AActionDemoCharacter* TargetCharacter);
 
 	/** Make the weapon Fire a Projectile */
-	UFUNCTION(BlueprintCallable, Category="Weapon")
+	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void Fire();
+
+	/** Make the weapon Fire a Projectile */
+	UFUNCTION(BlueprintCallable, Category = "Weapon")
+	void Aim(const FInputActionValue& Value);
 
 	/** Make the weapon Fire a Projectile */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
@@ -78,6 +100,14 @@ public:
 	/** Make the weapon Fire a Projectile */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void BluePortalFire();
+
+	/** Make the weapon Fire a Projectile */
+	UFUNCTION(BlueprintCallable, Category = "Weapon")
+	void ToggleAR();
+
+	/** Make the weapon Fire a Projectile */
+	UFUNCTION(BlueprintCallable, Category = "Weapon")
+	void TogglePortal();
 
 	bool CheckValidLoc(FVector& PortalCentre, FRotator& OutRotation, AActor*& TargetSurface, bool isBlue);
 
@@ -89,6 +119,7 @@ protected:
 private:
 	/** The Character holding this weapon*/
 	AActionDemoCharacter* Character;
+	APlayerController* PlayerController;
 
 	//Portal
 	float Portal_Range = 5000.0f;
@@ -96,4 +127,12 @@ private:
 	float Portal_Width = 125.0f;
 	float Portal_Height = 225.0f;
 	float Portal_EdgeCheckDelta = 20.0f;
+
+	//Assault Rifle
+	bool isReloading = false;
+	float HipFireSpread = 3.0f;
+	float FireRange = 100000.0f;
+	float BulletVertKick = 0.5f;
+	float BulletSideKick = 0.3f;
+	float BulletForce = 1000.0f;
 };

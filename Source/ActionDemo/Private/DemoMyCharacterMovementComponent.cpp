@@ -903,7 +903,7 @@ bool UDemoMyCharacterMovementComponent::TryClimb()
 		if (GetWorld()->LineTraceSingleByProfile(WallHit, Start, Start + Fwd * CapR() * 2, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) break;
 		Start += FVector::UpVector * (1.5f * CapHH() - (MaxStepHeight - 1)) / 4;
 	}
-	if (!WallHit.IsValidBlockingHit())
+	if (!WallHit.IsValidBlockingHit() || WallHit.GetActor()->IsA<APortal>())
 	{
 		bFellOff = false;
 		return false;
@@ -965,6 +965,14 @@ void UDemoMyCharacterMovementComponent::PhysClimb(float DeltaTime, int32 Iterati
 			StartNewPhysics(remainingTime, Iterations);
 			return;
 		}
+
+		if (WallHit.GetActor()->IsA<APortal>())
+		{
+			SetMovementMode(MOVE_Falling);
+			StartNewPhysics(remainingTime, Iterations);
+			return;
+		}
+
 		// Clamp Acceleration
 		Acceleration = Acceleration.RotateAngleAxis(90.0f, -UpdatedComponent->GetRightVector());
 		Acceleration.X = 0.0f;
@@ -1020,6 +1028,11 @@ float UDemoMyCharacterMovementComponent::TryGrapple()
 		Grapple_Target = nullptr;
 		Grapple_Pivot = Start + Fwd * Grapple_Range;
 		return -1.0f;
+	}
+
+	if (PivotHit.GetActor()->IsA<APortal>())
+	{
+		//Portal interaction stuff
 	}
 
 	//Grapple_Target = PivotHit.GetActor();

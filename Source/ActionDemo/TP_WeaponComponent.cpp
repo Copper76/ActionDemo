@@ -19,32 +19,59 @@ UTP_WeaponComponent::UTP_WeaponComponent()
 	MuzzleOffset = FVector(100.0f, 0.0f, 10.0f);
 }
 
-
 void UTP_WeaponComponent::Fire()
 {
-	if (Character == nullptr || Character->GetController() == nullptr)
+	if (Character == nullptr || PlayerController == nullptr || isReloading)
 	{
 		return;
 	}
 
-	// Try and fire a projectile
-	if (ProjectileClass != nullptr)
+	// Try and play the sound if specified
+	if (FireSound != nullptr)
 	{
-		UWorld* const World = GetWorld();
-		if (World != nullptr)
+		UGameplayStatics::PlaySoundAtLocation(this, FireSound, Character->GetActorLocation());
+	}
+
+	FHitResult BulletHit;
+	FVector Start = PlayerController->PlayerCameraManager->GetCameraLocation();
+	FRotator Fwd = PlayerController->PlayerCameraManager->GetCameraRotation();
+
+	if (Character->AimingPoseLoc == FVector(-15.0f, 0.0f, -155.0f))
+	{
+		Character->AddControllerYawInput(FMath::RandRange(-BulletSideKick, BulletSideKick));
+		if (Fwd.Pitch < 45.0f)
 		{
-			APlayerController* PlayerController = Cast<APlayerController>(Character->GetController());
-			const FRotator SpawnRotation = PlayerController->PlayerCameraManager->GetCameraRotation();
-			// MuzzleOffset is in camera space, so transform it to world space before offsetting from the character location to find the final muzzle position
-			const FVector SpawnLocation = GetOwner()->GetActorLocation() + SpawnRotation.RotateVector(MuzzleOffset);
-	
-			//Set Spawn Collision Handling Override
-			FActorSpawnParameters ActorSpawnParams;
-			ActorSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButDontSpawnIfColliding;
-	
-			// Spawn the projectile at the muzzle
-			World->SpawnActor<AActionDemoProjectile>(ProjectileClass, SpawnLocation, SpawnRotation, ActorSpawnParams);
+			Character->AddControllerPitchInput(-BulletVertKick);
 		}
+	}
+	else
+	{
+		Fwd = (Fwd + FRotator(FMath::FRandRange(-HipFireSpread, HipFireSpread), FMath::FRandRange(-HipFireSpread, HipFireSpread), 0.0f));
+	}
+
+	GetWorld()->LineTraceSingleByChannel(BulletHit, Start, Start + Fwd.Vector() * FireRange, ECC_Visibility, Character->GetIgnoreCharacterParams());
+
+	if (BulletHit.IsValidBlockingHit() && !BulletHit.GetActor()->IsA<APortal>())
+	{
+		FActorSpawnParameters SpawnInfo;
+		SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		AActor* BulletHole = GetWorld()->SpawnActor<AActor>(BulletBP, BulletHit.ImpactPoint, BulletHit.ImpactNormal.Rotation(), SpawnInfo);
+		BulletHole->AttachToActor(BulletHit.GetActor(), FAttachmentTransformRules::KeepWorldTransform);
+		BulletHit.GetComponent()->AddImpulse(Fwd.Vector() * BulletForce);
+	}
+}
+
+void UTP_WeaponComponent::Aim(const FInputActionValue& Value)
+{
+	if (Value.Get<bool>())
+	{
+		Character->AimingPoseLoc = FVector(-15.0f,0.0f,-155.0f);
+		Character->AimingPoseRotation = FRotator(0.0f, -20.0f, 0.0f);
+	}
+	else
+	{
+		Character->AimingPoseLoc = FVector(-30.0f, 0.0f, -150.0f);
+		Character->AimingPoseRotation = FRotator(0.0f, 0.0f, 0.0f);
 	}
 }
 
@@ -55,6 +82,7 @@ void UTP_WeaponComponent::AttachWeapon(AActionDemoCharacter* TargetCharacter)
 	{
 		return;
 	}
+	PlayerController = Cast<APlayerController>(Character->GetController());
 
 	// Attach the weapon to the First Person Character
 	FAttachmentTransformRules AttachmentRules(EAttachmentRule::SnapToTarget, true);
@@ -64,24 +92,38 @@ void UTP_WeaponComponent::AttachWeapon(AActionDemoCharacter* TargetCharacter)
 	Character->SetHasRifle(true, GetOwner());
 
 	// Set up action bindings
-	if (APlayerController* PlayerController = Cast<APlayerController>(Character->GetController()))
+	if (PlayerController)
 	{
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
 		{
 			// Set the priority of the mapping to 1, so that it overrides the Jump action with the Fire action when using touch input
+			Subsystem->AddMappingContext(PortalMappingContext, 0);
 			Subsystem->AddMappingContext(FireMappingContext, 1);
 		}
 
 		if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerController->InputComponent))
 		{
-			// Fire
-			//EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Fire);
+			// Fire Bullet
+			EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Fire);
+			UInputTriggerPulse* FirePulse = NewObject<UInputTriggerPulse>(this, TEXT("TriggerImpulse"));
+			FirePulse->bTriggerOnStart = true;
+			FirePulse->Interval = 0.1f;
+			FireAction->Triggers.Add(FirePulse);
+
+			// Aim Down Sight
+			EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Aim);
 
 			// Fire Blue Portal
 			EnhancedInputComponent->BindAction(BluePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::BluePortalFire);
 
 			// Fire Orange Portal
 			EnhancedInputComponent->BindAction(OrangePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::OrangePortalFire);
+
+			//Toggle Fire Mode
+			EnhancedInputComponent->BindAction(ToggleARAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::ToggleAR);
+
+			//Toggle Fire Mode
+			EnhancedInputComponent->BindAction(TogglePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::TogglePortal);
 		}
 	}
 }
@@ -208,10 +250,37 @@ void UTP_WeaponComponent::OrangePortalFire()
 	}
 }
 
+void UTP_WeaponComponent::ToggleAR()
+{
+	if (PlayerController)
+	{
+		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
+		{
+			// Set the priority of the mapping to 1, so that it overrides the Jump action with the Fire action when using touch input
+			UE_LOG(LogTemp, Warning, TEXT("TOGGLING TO 1"));
+			Subsystem->AddMappingContext(FireMappingContext, 1);
+			Subsystem->AddMappingContext(PortalMappingContext, 0);
+		}
+	}
+}
+
+void UTP_WeaponComponent::TogglePortal()
+{
+	if (PlayerController)
+	{
+		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
+		{
+			// Set the priority of the mapping to 1, so that it overrides the Jump action with the Fire action when using touch input
+			UE_LOG(LogTemp, Warning, TEXT("TOGGLING TO 2"));
+			Subsystem->AddMappingContext(FireMappingContext, 0);
+			Subsystem->AddMappingContext(PortalMappingContext, 1);
+		}
+	}
+}
+
 bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalRotation, AActor*& TargetSurface, bool isBlue)
 {
 	FCollisionQueryParams QueryParams = Character->GetIgnorePortalParams(isBlue);
-	APlayerController* PlayerController = Cast<APlayerController>(Character->GetController());
 	FVector Start = PlayerController->PlayerCameraManager->GetCameraLocation();
 	FVector Fwd = PlayerController->PlayerCameraManager->GetCameraRotation().Vector();
 	float HorizontalRotation = PlayerController->PlayerCameraManager->GetCameraRotation().Yaw;
@@ -396,7 +465,7 @@ void UTP_WeaponComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		return;
 	}
 
-	if (APlayerController* PlayerController = Cast<APlayerController>(Character->GetController()))
+	if (PlayerController)
 	{
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
 		{

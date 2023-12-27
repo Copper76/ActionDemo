@@ -36,7 +36,7 @@ class AActionDemoCharacter : public ACharacter
 
 private:
 	/** Pawn mesh: 1st person view (arms; seen only by self) */
-	UPROPERTY(VisibleDefaultsOnly, Category=Mesh)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Mesh, meta = (AllowPrivateAccess = "true"))
 	USkeletalMeshComponent* Mesh1P;
 
 	/** First person camera */
@@ -198,5 +198,11 @@ public:
 	APortal* BluePortal;
 	APortal* OrangePortal;
 	FVector CameraOffset;
+
+	//AimingAPlayerController
+	UPROPERTY(BlueprintReadOnly) FVector AimingPoseLoc;
+	UPROPERTY(BlueprintReadOnly) FRotator AimingPoseRotation;
+	UPROPERTY(BlueprintReadOnly) float ADSSpeed = 100.0f;
+	bool isAiming = false;
 };
 
