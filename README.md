@@ -1,8 +1,9 @@
-# unreal Engine Action Demo
+# Unreal Engine Portal Demo
 
 This project is a demo project using Unreal Engine. The project is a practice project where all the functions are implemented using C++.
 
 ## Functions implemented
+- [X] Portal gun
 - [x] Walking(Present)
 - [x] Jumping(Present)
 - [x] Double Jump(Present)
@@ -13,7 +14,6 @@ This project is a demo project using Unreal Engine. The project is a practice pr
 - [x] Grappling(Apex Legends Pathfinder style)
 - [x] Flash(Overwatch Tracer style)
 - [x] Weapon swap
-- [X] Portal gun
 - [X] Assault Rifle
 - [ ] Map toggle
 
