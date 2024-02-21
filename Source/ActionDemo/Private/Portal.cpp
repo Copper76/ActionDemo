@@ -4,6 +4,7 @@
 #include "Portal.h"
 #include "../ActionDemoCharacter.h"
 #include "Kismet/GameplayStatics.h"
+#include "ActionDemo/Public/Teleportor.h"
 
 #define POINT(x, c) DrawDebugPoint(GetWorld(), x, 10, c, !5.0f, 5.0f);
 #define LINE(x1, x2, c) DrawDebugLine(GetWorld(), x1, x2, c, !5.0f, 5.0f);
@@ -87,26 +88,18 @@ void APortal::SetUpCollision(AActor* TargetSurface)
 {
 	VertComponent = GetActorRotation().Pitch / 90.0f;
 	VertComponent = FMath::RoundHalfToZero(1000.0f * VertComponent) / 1000.0f;
-	/**
-	if (VertComponent == 1.0f || VertComponent == -1.0f)
-	{
-		ReverseCollider->SetRelativeScale3D(FVector(1.96f, 1.5f, 3.25f));
-	}
-	else
-	{
-		ReverseCollider->SetRelativeScale3D(FVector(1.1f, 1.5f, 3.25f));
-	}
-	**/
 	if (!TargetComponents.IsEmpty())
 	{
 		ResetChannel();
 	}
+	TargetComponents.Empty();
 	TargetSurface->GetComponents<UStaticMeshComponent>(TargetComponents);
 	TargetComponentsChannels.Empty();
 	for (int32 i = 0; i < TargetComponents.Num(); i++)
 	{
 		TargetComponentsChannels.Add(TargetComponents[i]->GetCollisionObjectType());
 	}
+	SetToNoCollide();
 }
 
 void APortal::Link(APortal* Portal)
@@ -116,7 +109,6 @@ void APortal::Link(APortal* Portal)
 	if (ReverseCollider->IsOverlappingActor(Character) && OtherPortal != nullptr)
 	{
 		bPlayerCanTeleport = true;
-		SetToNoCollide();
 	}
 }
 
@@ -175,6 +167,36 @@ void APortal::Tick(float DeltaTime)
 		{
 			Teleport();
 		}
+		/**
+		for (int32 i = TeleportingObjects.Num() - 1; i >= 0; i--)
+		{
+			FVector Location = GetActorRotation().UnrotateVector(Plane->GetComponentLocation() - TeleportingObjects[i]->GetActorLocation());
+			UTeleportor* ActorTeleportor = Cast<UTeleportor>(TeleportingObjects[i]->GetComponentByClass(UTeleportor::StaticClass()));
+			if (Location.X > 0.0f)
+			{
+				FVector NewLoc = ActorTeleportor->Clone->GetActorLocation();
+				FRotator NewRot = ActorTeleportor->Clone->GetActorRotation();
+				VDestroy(ActorTeleportor->Clone);
+				ActorTeleportor->Clone = NULL;
+				TeleportingObjects.RemoveAt(i);
+				TeleportingObjects[i]->SetActorLocationAndRotation(NewLoc, NewRot);
+			}
+			else
+			{
+				FRotator Rotation = TeleportingObjects[i]->GetActorRotation() - GetActorRotation() + OtherPortal->GetActorRotation();
+				if (VertComponent == 1.0f || VertComponent == -1.0f)
+				{
+				}
+				else
+				{
+					Location.Z = -Location.Z;
+				}
+				Location += OtherPortal->GetActorLocation();
+				Location = OtherPortal->GetActorRotation().RotateVector(Location);
+				ActorTeleportor->Clone->SetActorLocationAndRotation(Location, Rotation);
+			}
+		}
+		**/
 	}
 }
 
@@ -206,19 +228,63 @@ void APortal::Teleport()
 		//TP to centre to avoid premature loop break
 		//Character->SetActorLocation(OtherPortal->GetActorLocation() + OtherPortal->GetActorRotation().RotateVector(-Character->CameraOffset), false, nullptr, ETeleportType::TeleportPhysics);
 	}
-	OtherPortal->SetToNoCollide();
-	OtherPortal->bPlayerCanTeleport = true;
 }
 
 void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
-	AActionDemoCharacter* OverlappedActor = Cast<AActionDemoCharacter>(OtherActor);
 	if (OtherPortal != nullptr)
 	{
-		SetToNoCollide();
+		OtherComp->SetCollisionResponseToChannel(PortalChannel, ECollisionResponse::ECR_Ignore);
+		AActionDemoCharacter* OverlappedActor = Cast<AActionDemoCharacter>(OtherActor);
+		UE_LOG(LogTemp, Warning, TEXT("%s"), *OtherActor->GetActorLabel())
 		if (OverlappedActor == nullptr)
 		{
-			return;
+			UTeleportor* ActorTeleportor = Cast<UTeleportor>(OtherActor->GetComponentByClass(UTeleportor::StaticClass()));
+			if (ActorTeleportor == nullptr)
+			{
+				ActorTeleportor = Cast<UTeleportor>(OtherActor->AddComponentByClass(UTeleportor::StaticClass(), false, FTransform::Identity, false));
+				ActorTeleportor->Cloned = false;
+				ActorTeleportor->RegisterComponent();
+			}
+			UE_LOG(LogTemp, Warning, TEXT("Cloned? %s"), ActorTeleportor->Cloned ? TEXT("TRUE") : TEXT("FALSE"))
+
+			if (ActorTeleportor->Cloned == false)
+			{
+				FVector Location = GetActorRotation().UnrotateVector(Plane->GetComponentLocation() - OtherActor->GetActorLocation());
+				FRotator Rotation = OtherActor->GetActorRotation() - GetActorRotation() + OtherPortal->GetActorRotation();
+				if (VertComponent == 1.0f || VertComponent == -1.0f)
+				{
+				}
+				else
+				{
+					Location.Z = -Location.Z;
+				}
+				Location = OtherPortal->GetActorRotation().RotateVector(Location);
+				Location += OtherPortal->GetActorLocation();
+
+				//Creating the cloned actor
+				Location = OtherActor->GetActorLocation() + FVector(0.0f, 0.0f, 1000.0f);
+				FTransform NewTrans = FTransform(Rotation, Location);
+				//AActor* ClonedActor = Cast<AActor>(StaticDuplicateObject(OtherActor, OtherActor->GetOuter()));
+				FActorSpawnParameters params;
+				params.Template = OtherActor;
+				AActor* ClonedActor = GetWorld()->SpawnActor<AActor>(OtherActor->GetClass(),params);
+				if (ClonedActor)
+				{
+					ClonedActor->SetActorTransform(NewTrans);
+					ClonedActor->AttachToActor(OtherActor->GetAttachParentActor(), FAttachmentTransformRules::KeepWorldTransform);
+					ClonedActor->FinishSpawning(NewTrans);
+					UE_LOG(LogTemp, Warning, TEXT("%s"), *ClonedActor->GetWorld()->GetName())
+					//UE_LOG(LogTemp, Warning, TEXT("PORTAL LOC? %s"), *OtherPortal->GetActorLocation().ToString())
+				}
+				//UTeleportor* ClonedTeleportor = Cast<UTeleportor>(ClonedActor->AddComponentByClass(UTeleportor::StaticClass(), false, FTransform::Identity, false));
+				//ClonedTeleportor->RegisterComponent();
+
+				//ActorTeleportor->Clone = ClonedActor;
+				//ClonedActor->SetActorLocationAndRotation(Location, Rotation);
+				//UE_LOG(LogTemp, Warning, TEXT("%s"), *ClonedActor->GetActorLabel())
+				//TeleportingObjects.Add(OtherActor);
+			}
 		}
 		else
 		{
@@ -229,11 +295,29 @@ void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherA
 
 void APortal::OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
-	AActionDemoCharacter* OverlappedActor = Cast<AActionDemoCharacter>(OtherActor);
 	if (OtherPortal != nullptr)
 	{
-		ResetChannel();
-		bPlayerCanTeleport = false;
+		OtherComp->SetCollisionResponseToChannel(PortalChannel, ECollisionResponse::ECR_Block);
+		AActionDemoCharacter* OverlappedActor = Cast<AActionDemoCharacter>(OtherActor);
+		if (OverlappedActor == nullptr)
+		{
+			return;
+			UTeleportor* ActorTeleportor = Cast<UTeleportor>(OtherActor->GetComponentByClass(UTeleportor::StaticClass()));
+			if (ActorTeleportor == nullptr)
+			{
+				return;
+			}
+			if (!ActorTeleportor->Cloned)
+			{
+				VDestroy(ActorTeleportor->Clone);
+				ActorTeleportor->Clone = NULL;
+				TeleportingObjects.Remove(OtherActor);
+			}
+		}
+		else
+		{
+			bPlayerCanTeleport = false;
+		}
 	}
 }
 
@@ -242,7 +326,10 @@ void APortal::OnTeleportEnd(class UPrimitiveComponent* OverlappedComp, class AAc
 	AActionDemoCharacter* OverlappedActor = Cast<AActionDemoCharacter>(OtherActor);
 	if (OtherPortal != nullptr)
 	{
-		bJustTeleported = false;
+		if (OverlappedActor != nullptr)
+		{
+			bJustTeleported = false;
+		}
 	}
 }
 
@@ -259,4 +346,15 @@ void APortal::ResetChannel()
 	{
 		TargetComponents[i]->SetCollisionObjectType(TargetComponentsChannels[i]);
 	}
+}
+
+void APortal::VDestroy(AActor* ToDestroy)
+{
+	if (!ToDestroy) return;
+	if (!ToDestroy->IsValidLowLevel()) return;
+
+	ToDestroy->K2_DestroyActor();
+	ToDestroy = NULL;
+
+	//GEngine->ForceGarbageCollection(true);
 }

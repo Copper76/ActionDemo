@@ -33,6 +33,8 @@ protected:
 	UFUNCTION()
 	void OnTeleportEnd(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
 
+	void VDestroy(AActor* ToDestroy);
+
 protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
@@ -93,4 +95,6 @@ public:
 	APortal* OtherPortal; //set it on spawn if there is another
 
 	float VertComponent;
+
+	TArray<AActor*> TeleportingObjects = TArray<AActor*>();
 };

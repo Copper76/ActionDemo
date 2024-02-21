@@ -57,7 +57,10 @@ void UTP_WeaponComponent::Fire()
 		SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 		AActor* BulletHole = GetWorld()->SpawnActor<AActor>(BulletBP, BulletHit.ImpactPoint, BulletHit.ImpactNormal.Rotation(), SpawnInfo);
 		BulletHole->AttachToActor(BulletHit.GetActor(), FAttachmentTransformRules::KeepWorldTransform);
-		BulletHit.GetComponent()->AddImpulse(Fwd.Vector() * BulletForce);
+		if (BulletHit.GetComponent()->GetOwner()->IsRootComponentMovable())
+		{
+			BulletHit.GetComponent()->AddImpulse(Fwd.Vector() * BulletForce);
+		}
 	}
 }
 
