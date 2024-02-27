@@ -54,7 +54,6 @@ void UDemoMyCharacterMovementComponent::OnMovementUpdated(float DeltaSeconds, co
 
 void UDemoMyCharacterMovementComponent::OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode)
 {
-	UE_LOG(LogTemp, Warning, TEXT("%d"), MovementMode.GetIntValue());
 	Super::OnMovementModeChanged(PreviousMovementMode, PreviousCustomMode);
 
 	if (PreviousMovementMode == MOVE_Falling)

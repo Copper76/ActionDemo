@@ -5,6 +5,7 @@
 #include "../ActionDemoCharacter.h"
 #include "Kismet/GameplayStatics.h"
 #include "ActionDemo/Public/Teleportor.h"
+#include "PhysicsEngine/PhysicsConstraintComponent.h"
 
 #define POINT(x, c) DrawDebugPoint(GetWorld(), x, 10, c, !5.0f, 5.0f);
 #define LINE(x1, x2, c) DrawDebugLine(GetWorld(), x1, x2, c, !5.0f, 5.0f);
@@ -159,7 +160,10 @@ void APortal::Tick(float DeltaTime)
 		{
 			for(FHitResult hit : ObstacleHits)
 			{
-				CaptureComponent->HiddenActors.Add(hit.GetActor());
+				if (!TeleportingObjects.Contains(hit.GetActor()))
+				{
+					CaptureComponent->HiddenActors.Add(hit.GetActor());
+				}
 			}
 		}
 
@@ -167,36 +171,6 @@ void APortal::Tick(float DeltaTime)
 		{
 			Teleport();
 		}
-		/**
-		for (int32 i = TeleportingObjects.Num() - 1; i >= 0; i--)
-		{
-			FVector Location = GetActorRotation().UnrotateVector(Plane->GetComponentLocation() - TeleportingObjects[i]->GetActorLocation());
-			UTeleportor* ActorTeleportor = Cast<UTeleportor>(TeleportingObjects[i]->GetComponentByClass(UTeleportor::StaticClass()));
-			if (Location.X > 0.0f)
-			{
-				FVector NewLoc = ActorTeleportor->Clone->GetActorLocation();
-				FRotator NewRot = ActorTeleportor->Clone->GetActorRotation();
-				VDestroy(ActorTeleportor->Clone);
-				ActorTeleportor->Clone = NULL;
-				TeleportingObjects.RemoveAt(i);
-				TeleportingObjects[i]->SetActorLocationAndRotation(NewLoc, NewRot);
-			}
-			else
-			{
-				FRotator Rotation = TeleportingObjects[i]->GetActorRotation() - GetActorRotation() + OtherPortal->GetActorRotation();
-				if (VertComponent == 1.0f || VertComponent == -1.0f)
-				{
-				}
-				else
-				{
-					Location.Z = -Location.Z;
-				}
-				Location += OtherPortal->GetActorLocation();
-				Location = OtherPortal->GetActorRotation().RotateVector(Location);
-				ActorTeleportor->Clone->SetActorLocationAndRotation(Location, Rotation);
-			}
-		}
-		**/
 	}
 }
 
@@ -235,55 +209,88 @@ void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherA
 	if (OtherPortal != nullptr)
 	{
 		OtherComp->SetCollisionResponseToChannel(PortalChannel, ECollisionResponse::ECR_Ignore);
+		TeleportingObjects.Add(OtherActor);
 		AActionDemoCharacter* OverlappedActor = Cast<AActionDemoCharacter>(OtherActor);
-		UE_LOG(LogTemp, Warning, TEXT("%s"), *OtherActor->GetActorLabel())
 		if (OverlappedActor == nullptr)
 		{
 			UTeleportor* ActorTeleportor = Cast<UTeleportor>(OtherActor->GetComponentByClass(UTeleportor::StaticClass()));
 			if (ActorTeleportor == nullptr)
 			{
 				ActorTeleportor = Cast<UTeleportor>(OtherActor->AddComponentByClass(UTeleportor::StaticClass(), false, FTransform::Identity, false));
-				ActorTeleportor->Cloned = false;
 				ActorTeleportor->RegisterComponent();
 			}
-			UE_LOG(LogTemp, Warning, TEXT("Cloned? %s"), ActorTeleportor->Cloned ? TEXT("TRUE") : TEXT("FALSE"))
 
-			if (ActorTeleportor->Cloned == false)
+			if (ActorTeleportor->Cloned == false && ActorTeleportor->Inportal == false)
 			{
-				FVector Location = GetActorRotation().UnrotateVector(Plane->GetComponentLocation() - OtherActor->GetActorLocation());
+				ActorTeleportor->Inportal = true;
+				FVector Location = GetActorLocation() - OtherActor->GetActorLocation();
 				FRotator Rotation = OtherActor->GetActorRotation() - GetActorRotation() + OtherPortal->GetActorRotation();
-				if (VertComponent == 1.0f || VertComponent == -1.0f)
+				Location.Z = -Location.Z;
+				if (OtherPortal->VertComponent == 1.0f || OtherPortal->VertComponent == -1.0f)
 				{
+					Rotation += FRotator(180.0f, 0.0f, 0.0f);
 				}
 				else
 				{
-					Location.Z = -Location.Z;
+					Rotation += FRotator(0.0f, 180.0f, 0.0f);
 				}
-				Location = OtherPortal->GetActorRotation().RotateVector(Location);
+				if (Rotation.Yaw > 360.0f)
+				{
+					Rotation.Yaw -= 360.0f;
+				}
+				Location = Rotation.RotateVector(Location);
+				//Location += OtherPortal->GetActorLocation();
 				Location += OtherPortal->GetActorLocation();
 
 				//Creating the cloned actor
-				Location = OtherActor->GetActorLocation() + FVector(0.0f, 0.0f, 1000.0f);
 				FTransform NewTrans = FTransform(Rotation, Location);
-				//AActor* ClonedActor = Cast<AActor>(StaticDuplicateObject(OtherActor, OtherActor->GetOuter()));
 				FActorSpawnParameters params;
+				params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 				params.Template = OtherActor;
-				AActor* ClonedActor = GetWorld()->SpawnActor<AActor>(OtherActor->GetClass(),params);
+				//params.CustomPreSpawnInitalization = nullptr;
+				params.bDeferConstruction = true;
+				//AActor* ClonedActor = GetWorld()->SpawnActorDeferred<AActor>(OtherActor->GetClass(), NewTrans, OtherActor->GetAttachParentActor(), nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn, ESpawnActorScaleMethod::OverrideRootScale);
+				AActor* ClonedActor = GetWorld()->SpawnActor<AActor>(OtherActor->GetClass(), NewTrans, params);
 				if (ClonedActor)
 				{
-					ClonedActor->SetActorTransform(NewTrans);
 					ClonedActor->AttachToActor(OtherActor->GetAttachParentActor(), FAttachmentTransformRules::KeepWorldTransform);
-					ClonedActor->FinishSpawning(NewTrans);
-					UE_LOG(LogTemp, Warning, TEXT("%s"), *ClonedActor->GetWorld()->GetName())
-					//UE_LOG(LogTemp, Warning, TEXT("PORTAL LOC? %s"), *OtherPortal->GetActorLocation().ToString())
-				}
-				//UTeleportor* ClonedTeleportor = Cast<UTeleportor>(ClonedActor->AddComponentByClass(UTeleportor::StaticClass(), false, FTransform::Identity, false));
-				//ClonedTeleportor->RegisterComponent();
 
-				//ActorTeleportor->Clone = ClonedActor;
-				//ClonedActor->SetActorLocationAndRotation(Location, Rotation);
-				//UE_LOG(LogTemp, Warning, TEXT("%s"), *ClonedActor->GetActorLabel())
-				//TeleportingObjects.Add(OtherActor);
+					UTeleportor* ClonedTeleportor = Cast<UTeleportor>(ClonedActor->GetComponentByClass(UTeleportor::StaticClass()));
+					ClonedTeleportor->Cloned = true;
+					ActorTeleportor->Clone = ClonedActor;
+					ClonedActor->SetActorLocationAndRotation(Location, Rotation);
+					UE_LOG(LogTemp, Warning, TEXT("Cloned Actor Loc: %s"), *ClonedActor->GetActorLocation().ToString())
+					ClonedActor->FinishSpawning(NewTrans);
+
+					//Add constraint to the two objects
+					
+					UPhysicsConstraintComponent* Constraint = Cast<UPhysicsConstraintComponent>(OtherActor->GetComponentByClass(UPhysicsConstraintComponent::StaticClass()));
+					if (Constraint == nullptr) {
+						Constraint = NewObject<UPhysicsConstraintComponent>(OtherActor);
+						UPrimitiveComponent* ClonedPhysicalComponent = ClonedActor->GetComponentByClass<UPrimitiveComponent>();
+						Constraint->ConstraintActor1 = OtherActor;
+						Constraint->ConstraintActor2 = ClonedActor;
+						Constraint->SetConstrainedComponents(OtherComp, NAME_None, ClonedPhysicalComponent, NAME_None);
+						FConstraintInstance& ConstraintInstance = Constraint->ConstraintInstance;
+
+						FRotator RotationDiff = ClonedPhysicalComponent->GetComponentRotation() - OtherComp->GetComponentRotation();
+						FVector LocationDiff = ClonedPhysicalComponent->GetComponentLocation() - OtherComp->GetComponentLocation();
+
+						//ConstraintInstance.SetRefFrame(EConstraintFrame::Frame1, FTransform::Identity);
+						//ConstraintInstance.SetRefFrame(EConstraintFrame::Frame2, FTransform(RotationDiff, LocationDiff));
+						ConstraintInstance.SetRefFrame(EConstraintFrame::Frame1, FTransform(OtherComp->GetComponentRotation(), OtherComp->GetComponentLocation()));
+						ConstraintInstance.SetRefFrame(EConstraintFrame::Frame2, FTransform(ClonedPhysicalComponent->GetComponentRotation(), ClonedPhysicalComponent->GetComponentLocation()));
+
+						ConstraintInstance.SetLinearLimits(ELinearConstraintMotion::LCM_Locked, ELinearConstraintMotion::LCM_Locked, ELinearConstraintMotion::LCM_Locked, 0);
+
+						ConstraintInstance.SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0);
+						ConstraintInstance.SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0);
+						ConstraintInstance.SetAngularTwistLimit(EAngularConstraintMotion::ACM_Locked, 0);
+
+						Constraint->AttachToComponent(OtherActor->GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
+						Constraint->RegisterComponent();
+					}
+				}
 			}
 		}
 		else
@@ -295,23 +302,48 @@ void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherA
 
 void APortal::OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
+	UE_LOG(LogTemp, Warning, TEXT("EXIT: %s"), *OtherActor->GetActorLabel())
+	OtherComp->SetCollisionResponseToChannel(PortalChannel, ECollisionResponse::ECR_Block);
+	TeleportingObjects.Remove(OtherActor);
 	if (OtherPortal != nullptr)
 	{
-		OtherComp->SetCollisionResponseToChannel(PortalChannel, ECollisionResponse::ECR_Block);
 		AActionDemoCharacter* OverlappedActor = Cast<AActionDemoCharacter>(OtherActor);
 		if (OverlappedActor == nullptr)
 		{
-			return;
 			UTeleportor* ActorTeleportor = Cast<UTeleportor>(OtherActor->GetComponentByClass(UTeleportor::StaticClass()));
 			if (ActorTeleportor == nullptr)
 			{
 				return;
 			}
-			if (!ActorTeleportor->Cloned)
+			if (!ActorTeleportor->Cloned && ActorTeleportor->Inportal)
 			{
+				UPhysicsConstraintComponent* Constraint = Cast<UPhysicsConstraintComponent>(OtherActor->GetComponentByClass(UPhysicsConstraintComponent::StaticClass()));
+				if (Constraint != nullptr)
+				{
+					Constraint->BreakConstraint();
+					Constraint->DestroyComponent();
+					GEngine->ForceGarbageCollection(true);
+					Constraint = nullptr;
+				}
+				FVector Location = GetActorRotation().UnrotateVector(Plane->GetComponentLocation() - OtherActor->GetActorLocation());
+				if (Location.X > 0.0f && ActorTeleportor->Clone != nullptr)
+				{
+					UE_LOG(LogTemp, Warning, TEXT("WILL TP"))
+					FVector NewLoc = ActorTeleportor->Clone->GetActorLocation();
+					FRotator NewRot = ActorTeleportor->Clone->GetActorRotation();
+					FRotator Rotation = OtherPortal->GetActorRotation() - GetActorRotation() + FRotator(0.0f, 180.0f, 0.0f);
+					//UPrimitiveComponent* PhysicalComponent = TeleportingObjects[i]->GetComponentByClass<UPrimitiveComponent>();
+					//PhysicalComponent->SetSimulatePhysics(false);
+					UE_LOG(LogTemp, Warning, TEXT("Old Vel: %s"), *OtherComp->GetComponentVelocity().ToString())
+					FVector NewVel = Rotation.RotateVector(OtherComp->GetComponentVelocity());
+					OtherActor->SetActorLocationAndRotation(NewLoc, NewRot, false,nullptr,ETeleportType::TeleportPhysics);
+					OtherComp->SetPhysicsLinearVelocity(NewVel);
+					UE_LOG(LogTemp, Warning, TEXT("New Vel: %s"), *OtherComp->GetComponentVelocity().ToString())
+					//PhysicalComponent->SetSimulatePhysics(true);
+				}
+				ActorTeleportor->Inportal = false;
 				VDestroy(ActorTeleportor->Clone);
-				ActorTeleportor->Clone = NULL;
-				TeleportingObjects.Remove(OtherActor);
+				ActorTeleportor->Clone = nullptr;
 			}
 		}
 		else
@@ -356,5 +388,5 @@ void APortal::VDestroy(AActor* ToDestroy)
 	ToDestroy->K2_DestroyActor();
 	ToDestroy = NULL;
 
-	//GEngine->ForceGarbageCollection(true);
+	GEngine->ForceGarbageCollection(true);
 }

@@ -283,6 +283,7 @@ void UTP_WeaponComponent::TogglePortal()
 
 bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalRotation, AActor*& TargetSurface, bool isBlue)
 {
+	if (Character->GetPortal(isBlue) != nullptr && Character->GetPortal(isBlue)->TeleportingObjects.Num() > 0) return false;
 	FCollisionQueryParams QueryParams = Character->GetIgnorePortalParams(isBlue);
 	FVector Start = PlayerController->PlayerCameraManager->GetCameraLocation();
 	FVector Fwd = PlayerController->PlayerCameraManager->GetCameraRotation().Vector();

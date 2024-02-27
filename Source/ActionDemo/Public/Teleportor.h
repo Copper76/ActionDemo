@@ -16,10 +16,11 @@ public:
 	// Sets default values for this component's properties
 	UTeleportor();
 
-	bool Inportal = true;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
+	bool Inportal = false;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
-	bool Cloned = true;
+	bool Cloned = false;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
 	AActor* Clone;
