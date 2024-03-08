@@ -899,10 +899,11 @@ bool UDemoMyCharacterMovementComponent::TryClimb()
 
 	for (int i = 0; i < 5; i++)
 	{
-		if (GetWorld()->LineTraceSingleByProfile(WallHit, Start, Start + Fwd * CapR() * 2, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) break;
+		//if (GetWorld()->LineTraceSingleByProfile(WallHit, Start, Start + Fwd * CapR() * 2, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) break;
+		if (GetWorld()->LineTraceSingleByChannel(WallHit, Start, Start + Fwd * CapR() * 2, ECollisionChannel::ECC_WorldStatic, DemoCharacterOwner->GetIgnoreCharacterParams())) break;
 		Start += FVector::UpVector * (1.5f * CapHH() - (MaxStepHeight - 1)) / 4;
 	}
-	if (!WallHit.IsValidBlockingHit() || WallHit.GetActor()->IsA<APortal>())
+	if (!WallHit.IsValidBlockingHit() || WallHit.GetActor()->IsA<APortal>() || WallHit.GetComponent()->GetCollisionObjectType() != ECollisionChannel::ECC_WorldStatic)
 	{
 		bFellOff = false;
 		return false;
