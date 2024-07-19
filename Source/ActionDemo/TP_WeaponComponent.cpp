@@ -4,11 +4,13 @@
 #include "TP_WeaponComponent.h"
 #include "ActionDemoCharacter.h"
 #include "ActionDemoProjectile.h"
+#include "FlattenComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "Components/SceneCaptureComponentCube.h"
 
 #define POINT(x, c) DrawDebugPoint(GetWorld(), x, 10, c, !5.0f, 5.0f);
 
@@ -17,11 +19,89 @@ UTP_WeaponComponent::UTP_WeaponComponent()
 {
 	// Default offset from the character location for projectiles to spawn
 	MuzzleOffset = FVector(100.0f, 0.0f, 10.0f);
+	PrimaryComponentTick.bCanEverTick = true;
+}
+
+void UTP_WeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	if (m_FlattenFireTimer > 0.0f)
+	{
+		m_FlattenFireTimer -= DeltaTime;
+	}
+	else
+	{
+		m_FlattenFireTimer = 0.0f;
+	}
+}
+
+
+void UTP_WeaponComponent::AttachWeapon(AActionDemoCharacter* TargetCharacter)
+{
+	if (TargetCharacter == nullptr) return;
+
+	m_Character = TargetCharacter;
+	PlayerController = Cast<APlayerController>(m_Character->GetController());
+
+	// Attach the weapon to the First Person Character
+	FAttachmentTransformRules AttachmentRules(EAttachmentRule::SnapToTarget, true);
+	AttachToComponent(m_Character->GetMesh1P(), AttachmentRules, FName(TEXT("GripPoint")));
+
+	// switch bHasRifle so the animation blueprint can switch to another animation set
+	m_Character->SetHasRifle(true, GetOwner());
+
+	// Set up action bindings
+	if (PlayerController)
+	{
+		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
+		{
+			// Set the priority of the mapping to 1, so that it overrides the Jump action with the Fire action when using touch input
+			Subsystem->AddMappingContext(FireMappingContext, 1);
+			Subsystem->AddMappingContext(PortalMappingContext, 0);
+			Subsystem->AddMappingContext(FlattenMappingContext, 0);
+		}
+
+		if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerController->InputComponent))
+		{
+			//Fire mode Bullet
+			// Fire Bullet
+			EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Fire);
+			UInputTriggerPulse* FirePulse = NewObject<UInputTriggerPulse>(this, TEXT("TriggerImpulse"));
+			FirePulse->bTriggerOnStart = true;
+			FirePulse->Interval = 0.1f;
+			FireAction->Triggers.Add(FirePulse);
+
+			// Aim Down Sight
+			EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Aim);
+
+
+			//Fire mode portal
+			// Fire Blue Portal
+			EnhancedInputComponent->BindAction(BluePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::BluePortalFire);
+
+			// Fire Orange Portal
+			EnhancedInputComponent->BindAction(OrangePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::OrangePortalFire);
+
+			//Fire mode flatten
+			EnhancedInputComponent->BindAction(FlattenAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::FlattenFire);
+
+			//Toggle Fire Mode
+			EnhancedInputComponent->BindAction(ToggleARAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::ToggleAR);
+
+			//Toggle Fire Mode
+			EnhancedInputComponent->BindAction(TogglePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::TogglePortal);
+
+			//Toggle Fire Mode
+			EnhancedInputComponent->BindAction(ToggleFlattenAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::ToggleFlatten);
+
+			//Empty Action as a placeholder
+			EnhancedInputComponent->BindAction(EmptyAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Empty);
+		}
+	}
 }
 
 void UTP_WeaponComponent::Fire()
 {
-	if (Character == nullptr || PlayerController == nullptr || isReloading)
+	if (m_Character == nullptr || PlayerController == nullptr || isReloading)
 	{
 		return;
 	}
@@ -29,19 +109,19 @@ void UTP_WeaponComponent::Fire()
 	// Try and play the sound if specified
 	if (FireSound != nullptr)
 	{
-		UGameplayStatics::PlaySoundAtLocation(this, FireSound, Character->GetActorLocation());
+		UGameplayStatics::PlaySoundAtLocation(this, FireSound, m_Character->GetActorLocation());
 	}
 
 	FHitResult BulletHit;
 	FVector Start = PlayerController->PlayerCameraManager->GetCameraLocation();
 	FRotator Fwd = PlayerController->PlayerCameraManager->GetCameraRotation();
 
-	if (Character->AimingPoseLoc == FVector(-15.0f, 0.0f, -155.0f))
+	if (m_Character->AimingPoseLoc == FVector(-15.0f, 0.0f, -155.0f))
 	{
-		Character->AddControllerYawInput(FMath::RandRange(-BulletSideKick, BulletSideKick));
+		m_Character->AddControllerYawInput(FMath::RandRange(-BulletSideKick, BulletSideKick));
 		if (Fwd.Pitch < 45.0f)
 		{
-			Character->AddControllerPitchInput(-BulletVertKick);
+			m_Character->AddControllerPitchInput(-BulletVertKick);
 		}
 	}
 	else
@@ -49,7 +129,7 @@ void UTP_WeaponComponent::Fire()
 		Fwd = (Fwd + FRotator(FMath::FRandRange(-HipFireSpread, HipFireSpread), FMath::FRandRange(-HipFireSpread, HipFireSpread), 0.0f));
 	}
 
-	GetWorld()->LineTraceSingleByChannel(BulletHit, Start, Start + Fwd.Vector() * FireRange, ECC_Visibility, Character->GetIgnoreCharacterParams());
+	GetWorld()->LineTraceSingleByChannel(BulletHit, Start, Start + Fwd.Vector() * FireRange, ECC_Visibility, m_Character->GetIgnoreCharacterParams());
 
 	if (BulletHit.IsValidBlockingHit() && !BulletHit.GetActor()->IsA<APortal>())
 	{
@@ -68,72 +148,19 @@ void UTP_WeaponComponent::Aim(const FInputActionValue& Value)
 {
 	if (Value.Get<bool>())
 	{
-		Character->AimingPoseLoc = FVector(-15.0f,0.0f,-155.0f);
-		Character->AimingPoseRotation = FRotator(0.0f, -20.0f, 0.0f);
+		m_Character->AimingPoseLoc = FVector(-15.0f,0.0f,-155.0f);
+		m_Character->AimingPoseRotation = FRotator(0.0f, -20.0f, 0.0f);
 	}
 	else
 	{
-		Character->AimingPoseLoc = FVector(-30.0f, 0.0f, -150.0f);
-		Character->AimingPoseRotation = FRotator(0.0f, 0.0f, 0.0f);
-	}
-}
-
-void UTP_WeaponComponent::AttachWeapon(AActionDemoCharacter* TargetCharacter)
-{
-	Character = TargetCharacter;
-	if (Character == nullptr)
-	{
-		return;
-	}
-	PlayerController = Cast<APlayerController>(Character->GetController());
-
-	// Attach the weapon to the First Person Character
-	FAttachmentTransformRules AttachmentRules(EAttachmentRule::SnapToTarget, true);
-	AttachToComponent(Character->GetMesh1P(), AttachmentRules, FName(TEXT("GripPoint")));
-	
-	// switch bHasRifle so the animation blueprint can switch to another animation set
-	Character->SetHasRifle(true, GetOwner());
-
-	// Set up action bindings
-	if (PlayerController)
-	{
-		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
-		{
-			// Set the priority of the mapping to 1, so that it overrides the Jump action with the Fire action when using touch input
-			Subsystem->AddMappingContext(PortalMappingContext, 0);
-			Subsystem->AddMappingContext(FireMappingContext, 1);
-		}
-
-		if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerController->InputComponent))
-		{
-			// Fire Bullet
-			EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Fire);
-			UInputTriggerPulse* FirePulse = NewObject<UInputTriggerPulse>(this, TEXT("TriggerImpulse"));
-			FirePulse->bTriggerOnStart = true;
-			FirePulse->Interval = 0.1f;
-			FireAction->Triggers.Add(FirePulse);
-
-			// Aim Down Sight
-			EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Aim);
-
-			// Fire Blue Portal
-			EnhancedInputComponent->BindAction(BluePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::BluePortalFire);
-
-			// Fire Orange Portal
-			EnhancedInputComponent->BindAction(OrangePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::OrangePortalFire);
-
-			//Toggle Fire Mode
-			EnhancedInputComponent->BindAction(ToggleARAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::ToggleAR);
-
-			//Toggle Fire Mode
-			EnhancedInputComponent->BindAction(TogglePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::TogglePortal);
-		}
+		m_Character->AimingPoseLoc = FVector(-30.0f, 0.0f, -150.0f);
+		m_Character->AimingPoseRotation = FRotator(0.0f, 0.0f, 0.0f);
 	}
 }
 
 void UTP_WeaponComponent::BluePortalFire()
 {
-	if (Character == nullptr || Character->GetController() == nullptr)
+	if (m_Character == nullptr || m_Character->GetController() == nullptr)
 	{
 		return;
 	}
@@ -141,14 +168,14 @@ void UTP_WeaponComponent::BluePortalFire()
 	// Try and play the sound if specified
 	if (FireSound != nullptr)
 	{
-		UGameplayStatics::PlaySoundAtLocation(this, FireSound, Character->GetActorLocation());
+		UGameplayStatics::PlaySoundAtLocation(this, FireSound, m_Character->GetActorLocation());
 	}
 
 	// Try and play a firing animation if specified
 	if (FireAnimation != nullptr)
 	{
 		// Get the animation object for the arms mesh
-		UAnimInstance* AnimInstance = Character->GetMesh1P()->GetAnimInstance();
+		UAnimInstance* AnimInstance = m_Character->GetMesh1P()->GetAnimInstance();
 		if (AnimInstance != nullptr)
 		{
 			AnimInstance->Montage_Play(FireAnimation, 1.f);
@@ -170,31 +197,31 @@ void UTP_WeaponComponent::BluePortalFire()
 	{
 		UE_LOG(LogTemp, Warning, TEXT("TARGET: %s"), *TargetSurface->GetName());
 	}
-	if (Character->BluePortal == NULL)
+	if (m_Character->BluePortal == NULL)
 	{
 		FActorSpawnParameters SpawnInfo;
 		SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		Character->BluePortal = GetWorld()->SpawnActor<APortal>(BluePortalBP, PortalCentre, PortalRotation, SpawnInfo);
-		if (Character->OrangePortal == nullptr)
+		m_Character->BluePortal = GetWorld()->SpawnActor<APortal>(BluePortalBP, PortalCentre, PortalRotation, SpawnInfo);
+		if (m_Character->OrangePortal == nullptr)
 		{
-			Character->BluePortal->SetUp(Character, TargetSurface);
+			m_Character->BluePortal->SetUp(m_Character, TargetSurface);
 		}
 		else
 		{
-			Character->BluePortal->SetUp(Character, TargetSurface, Character->OrangePortal);
+			m_Character->BluePortal->SetUp(m_Character, TargetSurface, m_Character->OrangePortal);
 		}
 	}
 	else
 	{
-		Character->BluePortal->GetRootComponent()->SetWorldLocation(PortalCentre);
-		Character->BluePortal->GetRootComponent()->SetWorldRotation(PortalRotation);
-		Character->BluePortal->SetUpCollision(TargetSurface);
+		m_Character->BluePortal->GetRootComponent()->SetWorldLocation(PortalCentre);
+		m_Character->BluePortal->GetRootComponent()->SetWorldRotation(PortalRotation);
+		m_Character->BluePortal->SetUpCollision(TargetSurface);
 	}
 }
 
 void UTP_WeaponComponent::OrangePortalFire()
 {
-	if (Character == nullptr || Character->GetController() == nullptr)
+	if (m_Character == nullptr || m_Character->GetController() == nullptr)
 	{
 		return;
 	}
@@ -202,14 +229,14 @@ void UTP_WeaponComponent::OrangePortalFire()
 	// Try and play the sound if specified
 	if (FireSound != nullptr)
 	{
-		UGameplayStatics::PlaySoundAtLocation(this, FireSound, Character->GetActorLocation());
+		UGameplayStatics::PlaySoundAtLocation(this, FireSound, m_Character->GetActorLocation());
 	}
 
 	// Try and play a firing animation if specified
 	if (FireAnimation != nullptr)
 	{
 		// Get the animation object for the arms mesh
-		UAnimInstance* AnimInstance = Character->GetMesh1P()->GetAnimInstance();
+		UAnimInstance* AnimInstance = m_Character->GetMesh1P()->GetAnimInstance();
 		if (AnimInstance != nullptr)
 		{
 			AnimInstance->Montage_Play(FireAnimation, 1.f);
@@ -231,25 +258,57 @@ void UTP_WeaponComponent::OrangePortalFire()
 	{
 		UE_LOG(LogTemp, Warning, TEXT("TARGET: %s"), *TargetSurface->GetName());
 	}
-	if (Character->OrangePortal == nullptr)
+	if (m_Character->OrangePortal == nullptr)
 	{
 		FActorSpawnParameters SpawnInfo;
 		SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		Character->OrangePortal = GetWorld()->SpawnActor<APortal>(OrangePortalBP, PortalCentre, PortalRotation, SpawnInfo);
-		if (Character->BluePortal == nullptr)
+		m_Character->OrangePortal = GetWorld()->SpawnActor<APortal>(OrangePortalBP, PortalCentre, PortalRotation, SpawnInfo);
+		if (m_Character->BluePortal == nullptr)
 		{
-			Character->OrangePortal->SetUp(Character, TargetSurface);
+			m_Character->OrangePortal->SetUp(m_Character, TargetSurface);
 		}
 		else
 		{
-			Character->OrangePortal->SetUp(Character, TargetSurface, Character->BluePortal);
+			m_Character->OrangePortal->SetUp(m_Character, TargetSurface, m_Character->BluePortal);
 		}
 	}
 	else
 	{
-		Character->OrangePortal->GetRootComponent()->SetWorldLocation(PortalCentre);
-		Character->OrangePortal->GetRootComponent()->SetWorldRotation(PortalRotation);
-		Character->OrangePortal->SetUpCollision(TargetSurface);
+		m_Character->OrangePortal->GetRootComponent()->SetWorldLocation(PortalCentre);
+		m_Character->OrangePortal->GetRootComponent()->SetWorldRotation(PortalRotation);
+		m_Character->OrangePortal->SetUpCollision(TargetSurface);
+	}
+}
+
+void UTP_WeaponComponent::FlattenFire()
+{
+	if (m_Character == nullptr || PlayerController == nullptr || m_FlattenFireTimer > 0.0f)
+	{
+		return;
+	}
+
+	// Try and play the sound if specified
+	if (FireSound != nullptr)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, FireSound, m_Character->GetActorLocation());
+	}
+
+	FHitResult FlattenHit;
+	FVector Start = PlayerController->PlayerCameraManager->GetCameraLocation();
+	FRotator Fwd = PlayerController->PlayerCameraManager->GetCameraRotation();
+
+	GetWorld()->LineTraceSingleByChannel(FlattenHit, Start, Start + Fwd.Vector() * FireRange, ECC_Visibility, m_Character->GetIgnoreCharacterParams());
+
+	if (FlattenHit.IsValidBlockingHit())
+	{
+		UFlattenComponent* target = FlattenHit.GetActor()->FindComponentByClass<UFlattenComponent>();
+		if (target == nullptr) return;
+
+		m_Character->CaptureObject(FlattenHit.GetActor());
+
+		target->Flatten();
+
+		m_FlattenFireTimer = m_FlattenFireRate;
 	}
 }
 
@@ -263,6 +322,7 @@ void UTP_WeaponComponent::ToggleAR()
 			UE_LOG(LogTemp, Warning, TEXT("TOGGLING TO 1"));
 			Subsystem->AddMappingContext(FireMappingContext, 1);
 			Subsystem->AddMappingContext(PortalMappingContext, 0);
+			Subsystem->AddMappingContext(FlattenMappingContext, 0);
 		}
 	}
 }
@@ -277,14 +337,30 @@ void UTP_WeaponComponent::TogglePortal()
 			UE_LOG(LogTemp, Warning, TEXT("TOGGLING TO 2"));
 			Subsystem->AddMappingContext(FireMappingContext, 0);
 			Subsystem->AddMappingContext(PortalMappingContext, 1);
+			Subsystem->AddMappingContext(FlattenMappingContext, 0);
+		}
+	}
+}
+
+void UTP_WeaponComponent::ToggleFlatten()
+{
+	if (PlayerController)
+	{
+		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
+		{
+			// Set the priority of the mapping to 1, so that it overrides the Jump action with the Fire action when using touch input
+			UE_LOG(LogTemp, Warning, TEXT("TOGGLING TO 3"));
+			Subsystem->AddMappingContext(FireMappingContext, 0);
+			Subsystem->AddMappingContext(PortalMappingContext, 0);
+			Subsystem->AddMappingContext(FlattenMappingContext, 1);
 		}
 	}
 }
 
 bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalRotation, AActor*& TargetSurface, bool isBlue)
 {
-	if (Character->GetPortal(isBlue) != nullptr && Character->GetPortal(isBlue)->TeleportingObjects.Num() > 0) return false;
-	FCollisionQueryParams QueryParams = Character->GetIgnorePortalParams(isBlue);
+	if (m_Character->GetPortal(isBlue) != nullptr && m_Character->GetPortal(isBlue)->TeleportingObjects.Num() > 0) return false;
+	FCollisionQueryParams QueryParams = m_Character->GetIgnorePortalParams(isBlue);
 	FVector Start = PlayerController->PlayerCameraManager->GetCameraLocation();
 	FVector Fwd = PlayerController->PlayerCameraManager->GetCameraRotation().Vector();
 	float HorizontalRotation = PlayerController->PlayerCameraManager->GetCameraRotation().Yaw;
@@ -464,7 +540,7 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalR
 
 void UTP_WeaponComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	if (Character == nullptr)
+	if (m_Character == nullptr)
 	{
 		return;
 	}

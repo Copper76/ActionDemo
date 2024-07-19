@@ -14,6 +14,7 @@ class UInputComponent;
 class USkeletalMeshComponent;
 class USceneComponent;
 class UCameraComponent;
+class USceneCaptureComponentCube;
 class UAnimMontage;
 class USoundBase;
 
@@ -32,7 +33,8 @@ class AActionDemoCharacter : public ACharacter
 	GENERATED_BODY()
 
 	protected:
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Movement) class UDemoMyCharacterMovementComponent* DemoMyCharacterMovementComponent;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Movement)
+	class UDemoMyCharacterMovementComponent* DemoMyCharacterMovementComponent;
 
 private:
 	/** Pawn mesh: 1st person view (arms; seen only by self) */
@@ -42,6 +44,10 @@ private:
 	/** First person camera */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
 	UCameraComponent* PlayerCamera;
+
+	/** Flatten Capture camera */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
+	USceneCaptureComponentCube* FlattenCamera;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = cable, meta = (AllowPrivateAccess = "true"))
 	class UCableComponent* Grappler;
@@ -114,6 +120,10 @@ public:
 	/** Getter for the bool */
 	UFUNCTION(BlueprintCallable, Category = Weapon)
 	bool GetHasRifle();
+
+	USceneCaptureComponentCube* GetFlattenCamera();
+
+	void CaptureObject(AActor* flattenActor);
 
 protected:
 	/** Called for movement input */

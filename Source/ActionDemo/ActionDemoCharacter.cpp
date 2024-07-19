@@ -4,6 +4,7 @@
 #include "ActionDemoProjectile.h"
 #include "Animation/AnimInstance.h"
 #include "Camera/CameraComponent.h"
+#include "Components/SceneCaptureComponentCube.h"
 #include "Components/CapsuleComponent.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -30,6 +31,11 @@ AActionDemoCharacter::AActionDemoCharacter(const FObjectInitializer& ObjectIniti
 	CameraOffset = FVector(-10.f, 0.f, 60.f);
 	PlayerCamera->SetRelativeLocation(CameraOffset); // Position the camera
 	PlayerCamera->bUsePawnControlRotation = true;
+
+	// Create a CaptureComponent	
+	FlattenCamera = CreateDefaultSubobject<USceneCaptureComponentCube>(TEXT("Flatten Camera"));
+	FlattenCamera->SetupAttachment(GetCapsuleComponent());
+	FlattenCamera->SetRelativeLocation(CameraOffset); // Position the camera
 
 	// Create a mesh component that will be used when being viewed from a '1st person' view (when controlling this pawn)
 	Mesh1P = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("CharacterMesh1P"));
@@ -197,7 +203,6 @@ void AActionDemoCharacter::Flash()
 {
 	if (FlashCoolDown <= 0.0f) {
 		this->AddActorWorldOffset(FlashOffset, true);
-		UE_LOG(LogTemp, Warning, TEXT("TRIGGERED"));
 		//DemoMyCharacterMovementComponent->AddForce(GetActorForwardVector() * 1000.0f);
 		FlashCoolDown = FlashMaxCoolDown;
 	}
@@ -381,6 +386,19 @@ void AActionDemoCharacter::SetHasRifle(bool bNewHasRifle, AActor* Weapon)
 bool AActionDemoCharacter::GetHasRifle()
 {
 	return bHasRifle;
+}
+
+USceneCaptureComponentCube* AActionDemoCharacter::GetFlattenCamera()
+{
+	return FlattenCamera;
+}
+
+void AActionDemoCharacter::CaptureObject(AActor* flattenActor)
+{
+	FlattenCamera->ShowOnlyActors.Empty();
+	FlattenCamera->ShowOnlyActors.Add(flattenActor);
+
+	FlattenCamera->CaptureScene();
 }
 
 APortal* AActionDemoCharacter::GetPortal(bool isBlue)
