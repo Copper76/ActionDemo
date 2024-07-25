@@ -15,6 +15,6 @@ UFlattenComponent::UFlattenComponent()
 
 void UFlattenComponent::Flatten()
 {
-
+	GetOwner()->Destroy();
 }
 

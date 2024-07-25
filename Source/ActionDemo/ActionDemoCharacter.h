@@ -14,9 +14,14 @@ class UInputComponent;
 class USkeletalMeshComponent;
 class USceneComponent;
 class UCameraComponent;
-class USceneCaptureComponentCube;
+class USceneCaptureComponent2D;
+class UTextureRenderTarget2D;
 class UAnimMontage;
 class USoundBase;
+class UImage;
+class ADecalActor;
+class UMaterialInstanceDynamic;
+class UMaterialInterface;
 
 UENUM(BlueprintType)
 enum EGrapplingStage
@@ -47,7 +52,7 @@ private:
 
 	/** Flatten Capture camera */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
-	USceneCaptureComponentCube* FlattenCamera;
+	USceneCaptureComponent2D* m_FlattenCamera;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = cable, meta = (AllowPrivateAccess = "true"))
 	class UCableComponent* Grappler;
@@ -90,6 +95,15 @@ private:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	float CrouchSpeed = 12.0f;
 
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD")
+	UImage* HUDImage;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD")
+	ADecalActor* TestActor;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD")
+	UMaterialInterface* m_BaseMaterial;
 	
 public:
 	AActionDemoCharacter(const FObjectInitializer& ObjectInitializer);
@@ -121,9 +135,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = Weapon)
 	bool GetHasRifle();
 
-	USceneCaptureComponentCube* GetFlattenCamera();
+	UFUNCTION(BlueprintCallable, Category = Weapon)
+	UMaterialInstanceDynamic* CaptureObject(AActor* flattenActor);
 
-	void CaptureObject(AActor* flattenActor);
+	UTextureRenderTarget2D* GetRenderTarget();
 
 protected:
 	/** Called for movement input */
@@ -151,6 +166,8 @@ protected:
 	void CalcCamera(float DeltaTime, struct FMinimalViewInfo& OutResult) override;
 
 	virtual void Landed(const FHitResult& Hit) override;
+
+	UTexture2D* CreateSnapshot(UTextureRenderTarget2D* RenderTarget);
 
 public:
 	virtual void Jump() override;

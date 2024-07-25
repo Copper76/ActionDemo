@@ -4,11 +4,20 @@
 #include "ActionDemoProjectile.h"
 #include "Animation/AnimInstance.h"
 #include "Camera/CameraComponent.h"
-#include "Components/SceneCaptureComponentCube.h"
+#include "Components/SceneCaptureComponent2D.h"
+#include "Blueprint/UserWidget.h"
+#include "Components/Image.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "Engine/Texture2D.h"
+#include "Engine/TextureDefines.h" 
 #include "Components/CapsuleComponent.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "DemoMyCharacterMovementComponent.h"
+#include "Kismet/KismetRenderingLibrary.h"
+#include "Materials/MaterialInstanceDynamic.h"
+
+#include "Engine/DecalActor.h"
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -24,18 +33,19 @@ AActionDemoCharacter::AActionDemoCharacter(const FObjectInitializer& ObjectIniti
 	
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(55.f, 96.0f);
+
+	CameraOffset = FVector(-10.f, 0.f, 60.f);
 		
 	// Create a CameraComponent	
 	PlayerCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
 	PlayerCamera->SetupAttachment(GetCapsuleComponent());
-	CameraOffset = FVector(-10.f, 0.f, 60.f);
 	PlayerCamera->SetRelativeLocation(CameraOffset); // Position the camera
 	PlayerCamera->bUsePawnControlRotation = true;
 
-	// Create a CaptureComponent	
-	FlattenCamera = CreateDefaultSubobject<USceneCaptureComponentCube>(TEXT("Flatten Camera"));
-	FlattenCamera->SetupAttachment(GetCapsuleComponent());
-	FlattenCamera->SetRelativeLocation(CameraOffset); // Position the camera
+	//// Create a CaptureComponent	
+	m_FlattenCamera = CreateDefaultSubobject<USceneCaptureComponent2D>(TEXT("Flatten Camera"));
+	m_FlattenCamera->SetupAttachment(GetCapsuleComponent());
+	m_FlattenCamera->SetRelativeLocation(CameraOffset); // Position the camera
 
 	// Create a mesh component that will be used when being viewed from a '1st person' view (when controlling this pawn)
 	Mesh1P = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("CharacterMesh1P"));
@@ -71,6 +81,15 @@ void AActionDemoCharacter::BeginPlay()
 		}
 	}
 
+	FVector2D ViewportSize;
+	if (GEngine && GEngine->GameViewport)
+	{
+		GEngine->GameViewport->GetViewportSize(ViewportSize);
+	}
+	if (m_FlattenCamera)
+	{
+		m_FlattenCamera->TextureTarget->InitAutoFormat(ViewportSize.X, ViewportSize.Y);
+	}
 }
 
 //////////////////////////////////////////////////////////////////////////// Input
@@ -388,17 +407,58 @@ bool AActionDemoCharacter::GetHasRifle()
 	return bHasRifle;
 }
 
-USceneCaptureComponentCube* AActionDemoCharacter::GetFlattenCamera()
+UMaterialInstanceDynamic* AActionDemoCharacter::CaptureObject(AActor* flattenActor)
 {
-	return FlattenCamera;
+	m_FlattenCamera->ShowOnlyActors.Empty();
+	m_FlattenCamera->ShowOnlyActors.Add(flattenActor);
+
+	m_FlattenCamera->CaptureScene();
+	UTexture2D* texture = CreateSnapshot(m_FlattenCamera->TextureTarget);
+	HUDImage->SetBrushFromTexture(texture);
+	UMaterialInstanceDynamic* MaterialInstance = UMaterialInstanceDynamic::Create(m_BaseMaterial, this);
+	TestActor->SetDecalMaterial(MaterialInstance);
+
+	return MaterialInstance;
 }
 
-void AActionDemoCharacter::CaptureObject(AActor* flattenActor)
+UTextureRenderTarget2D* AActionDemoCharacter::GetRenderTarget()
 {
-	FlattenCamera->ShowOnlyActors.Empty();
-	FlattenCamera->ShowOnlyActors.Add(flattenActor);
+	return m_FlattenCamera->TextureTarget;
+}
 
-	FlattenCamera->CaptureScene();
+UTexture2D* AActionDemoCharacter::CreateSnapshot(UTextureRenderTarget2D* RenderTarget)
+{
+	FTextureRenderTargetResource* RenderTargetResource = RenderTarget->GameThread_GetRenderTargetResource();
+	TArray<FColor> OutBMP;
+	FIntRect SourceRect(0, 0, RenderTarget->SizeX, RenderTarget->SizeY);
+	RenderTargetResource->ReadPixels(OutBMP, FReadSurfaceDataFlags(), SourceRect);
+
+	for (FColor& Pixel : OutBMP)
+	{
+		Pixel.A = 255 - Pixel.A;
+	}
+
+	// Create a new UTexture2D and copy the pixels to it
+	UTexture2D* StaticTexture = UTexture2D::CreateTransient(RenderTarget->SizeX, RenderTarget->SizeY, PF_B8G8R8A8);
+	if (!StaticTexture)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Failed to create static texture."));
+		return nullptr;
+	}
+
+	// Lock the texture for editing
+	void* TextureData = StaticTexture->GetPlatformData()->Mips[0].BulkData.Lock(LOCK_READ_WRITE);
+
+	// Copy the pixel data
+	FMemory::Memcpy(TextureData, OutBMP.GetData(), OutBMP.Num() * sizeof(FColor));
+
+	// Unlock the texture
+	StaticTexture->GetPlatformData()->Mips[0].BulkData.Unlock();
+
+	// Update the texture resource
+	StaticTexture->UpdateResource();
+
+	return StaticTexture;
 }
 
 APortal* AActionDemoCharacter::GetPortal(bool isBlue)

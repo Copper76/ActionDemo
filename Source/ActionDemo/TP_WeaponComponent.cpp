@@ -10,7 +10,11 @@
 #include "Kismet/GameplayStatics.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
-#include "Components/SceneCaptureComponentCube.h"
+#include "Engine/DecalActor.h"
+#include "Components/DecalComponent.h"
+#include "Engine/TextureRenderTarget2D.h"
+
+#include "DrawDebugHelpers.h"
 
 #define POINT(x, c) DrawDebugPoint(GetWorld(), x, 10, c, !5.0f, 5.0f);
 
@@ -282,6 +286,14 @@ void UTP_WeaponComponent::OrangePortalFire()
 
 void UTP_WeaponComponent::FlattenFire()
 {
+	UWorld* World = GetWorld();
+
+	if (!World)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("World is null."));
+		return;
+	}
+
 	if (m_Character == nullptr || PlayerController == nullptr || m_FlattenFireTimer > 0.0f)
 	{
 		return;
@@ -297,16 +309,68 @@ void UTP_WeaponComponent::FlattenFire()
 	FVector Start = PlayerController->PlayerCameraManager->GetCameraLocation();
 	FRotator Fwd = PlayerController->PlayerCameraManager->GetCameraRotation();
 
-	GetWorld()->LineTraceSingleByChannel(FlattenHit, Start, Start + Fwd.Vector() * FireRange, ECC_Visibility, m_Character->GetIgnoreCharacterParams());
+	World->LineTraceSingleByChannel(FlattenHit, Start, Start + Fwd.Vector() * FireRange, ECC_Visibility, m_Character->GetIgnoreCharacterParams());
 
 	if (FlattenHit.IsValidBlockingHit())
 	{
 		UFlattenComponent* target = FlattenHit.GetActor()->FindComponentByClass<UFlattenComponent>();
 		if (target == nullptr) return;
 
-		m_Character->CaptureObject(FlattenHit.GetActor());
+		UMaterialInstanceDynamic* material = m_Character->CaptureObject(FlattenHit.GetActor());
+
+		float objectDist = FlattenHit.Distance;
+
+		FVector meshExtent = FlattenHit.GetActor()->GetComponentByClass<UStaticMeshComponent>()->Bounds.BoxExtent;
+
+		//FVector DecalSize = FVector(meshExtent.X * 10.0f, meshExtent.Y * 10.0f, meshExtent.Z * 10.0f);
+
+		//FVector HitLocation = FlattenHit.GetActor()->GetActorLocation();
 
 		target->Flatten();
+
+
+		//Look for what is behind the object
+		if (World->LineTraceSingleByChannel(FlattenHit, Start, Start + Fwd.Vector() * FireRange, ECC_Visibility, m_Character->GetIgnoreCharacterParams()))
+		{
+			FVector HitLocation = FlattenHit.ImpactPoint + Fwd.Vector() * meshExtent.X * 5.0f;
+			FRotator HitRotation = FlattenHit.ImpactNormal.Rotation();
+
+			// Adjust the rotation to align with the camera view direction
+
+			//FVector DecalSize = FVector(100.0f, renderTarget->SizeX / 2.0f, renderTarget->SizeY / 2.0f);
+			FVector DecalSize = FVector(meshExtent.X * 10.0f, meshExtent.Y * 10.0f, meshExtent.Z * 10.0f);
+			DecalSize *= objectDist / (FlattenHit.Distance + meshExtent.X * 5.0f);
+
+			FQuat yawQuaternion = FQuat(FVector(0, 1, 0), FMath::DegreesToRadians(Fwd.Yaw + 180.0f));
+
+			ADecalActor* DecalActor = World->SpawnActor<ADecalActor>(HitLocation, yawQuaternion.Rotator());
+			if (DecalActor)
+			{
+				if (FlattenHit.Normal == FVector::UpVector)
+				{
+					DecalActor->SetActorRotation(DecalActor->GetActorRotation() + FRotator(0.0f, 0.0f, -90.0f));
+				}
+				UDecalComponent* DecalComponent = DecalActor->GetDecal();
+				if (material)
+				{
+					DecalActor->SetDecalMaterial(material);
+					DecalComponent->DecalSize = DecalSize;
+					//DecalActor->GetDecal()->SetWorldScale3D(DecalSize);
+
+					DrawDebugBox(
+						World,
+						HitLocation,
+						DecalSize,
+						yawQuaternion,
+						FColor::Red,
+						true,
+						0.0f,
+						0.0f,
+						1.0f
+					);
+				}
+			}
+		}
 
 		m_FlattenFireTimer = m_FlattenFireRate;
 	}
