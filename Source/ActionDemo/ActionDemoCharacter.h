@@ -94,16 +94,6 @@ private:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	float CrouchSpeed = 12.0f;
-
-public:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD")
-	UImage* HUDImage;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD")
-	ADecalActor* TestActor;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD")
-	UMaterialInterface* m_BaseMaterial;
 	
 public:
 	AActionDemoCharacter(const FObjectInitializer& ObjectInitializer);
@@ -135,11 +125,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category = Weapon)
 	bool GetHasRifle();
 
-	UFUNCTION(BlueprintCallable, Category = Weapon)
-	UMaterialInstanceDynamic* CaptureObject(AActor* flattenActor);
-
-	UTextureRenderTarget2D* GetRenderTarget();
-
 protected:
 	/** Called for movement input */
 	void Move(const FInputActionValue& Value);
@@ -166,8 +151,6 @@ protected:
 	void CalcCamera(float DeltaTime, struct FMinimalViewInfo& OutResult) override;
 
 	virtual void Landed(const FHitResult& Hit) override;
-
-	UTexture2D* CreateSnapshot(UTextureRenderTarget2D* RenderTarget);
 
 public:
 	virtual void Jump() override;

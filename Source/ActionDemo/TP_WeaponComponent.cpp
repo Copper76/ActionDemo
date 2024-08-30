@@ -61,7 +61,6 @@ void UTP_WeaponComponent::AttachWeapon(AActionDemoCharacter* TargetCharacter)
 			// Set the priority of the mapping to 1, so that it overrides the Jump action with the Fire action when using touch input
 			Subsystem->AddMappingContext(FireMappingContext, 1);
 			Subsystem->AddMappingContext(PortalMappingContext, 0);
-			Subsystem->AddMappingContext(FlattenMappingContext, 0);
 		}
 
 		if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerController->InputComponent))
@@ -85,17 +84,11 @@ void UTP_WeaponComponent::AttachWeapon(AActionDemoCharacter* TargetCharacter)
 			// Fire Orange Portal
 			EnhancedInputComponent->BindAction(OrangePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::OrangePortalFire);
 
-			//Fire mode flatten
-			EnhancedInputComponent->BindAction(FlattenAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::FlattenFire);
-
 			//Toggle Fire Mode
 			EnhancedInputComponent->BindAction(ToggleARAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::ToggleAR);
 
 			//Toggle Fire Mode
 			EnhancedInputComponent->BindAction(TogglePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::TogglePortal);
-
-			//Toggle Fire Mode
-			EnhancedInputComponent->BindAction(ToggleFlattenAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::ToggleFlatten);
 
 			//Empty Action as a placeholder
 			EnhancedInputComponent->BindAction(EmptyAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Empty);
@@ -284,97 +277,6 @@ void UTP_WeaponComponent::OrangePortalFire()
 	}
 }
 
-void UTP_WeaponComponent::FlattenFire()
-{
-	UWorld* World = GetWorld();
-
-	if (!World)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("World is null."));
-		return;
-	}
-
-	if (m_Character == nullptr || PlayerController == nullptr || m_FlattenFireTimer > 0.0f)
-	{
-		return;
-	}
-
-	// Try and play the sound if specified
-	if (FireSound != nullptr)
-	{
-		UGameplayStatics::PlaySoundAtLocation(this, FireSound, m_Character->GetActorLocation());
-	}
-
-	FHitResult FlattenHit;
-	FVector Start = PlayerController->PlayerCameraManager->GetCameraLocation();
-	FRotator Fwd = PlayerController->PlayerCameraManager->GetCameraRotation();
-
-	World->LineTraceSingleByChannel(FlattenHit, Start, Start + Fwd.Vector() * FireRange, ECC_Visibility, m_Character->GetIgnoreCharacterParams());
-
-	if (FlattenHit.IsValidBlockingHit())
-	{
-		UFlattenComponent* target = FlattenHit.GetActor()->FindComponentByClass<UFlattenComponent>();
-		if (target == nullptr) return;
-
-		UMaterialInstanceDynamic* material = m_Character->CaptureObject(FlattenHit.GetActor());
-
-		float objectDist = FlattenHit.Distance;
-
-		FVector meshExtent = FlattenHit.GetActor()->GetComponentByClass<UStaticMeshComponent>()->Bounds.BoxExtent;
-
-		//FVector DecalSize = FVector(meshExtent.X * 10.0f, meshExtent.Y * 10.0f, meshExtent.Z * 10.0f);
-
-		//FVector HitLocation = FlattenHit.GetActor()->GetActorLocation();
-
-		target->Flatten();
-
-
-		//Look for what is behind the object
-		if (World->LineTraceSingleByChannel(FlattenHit, Start, Start + Fwd.Vector() * FireRange, ECC_Visibility, m_Character->GetIgnoreCharacterParams()))
-		{
-			FVector HitLocation = FlattenHit.ImpactPoint + Fwd.Vector() * meshExtent.X * 5.0f;
-			FRotator HitRotation = FlattenHit.ImpactNormal.Rotation();
-
-			// Adjust the rotation to align with the camera view direction
-
-			//FVector DecalSize = FVector(100.0f, renderTarget->SizeX / 2.0f, renderTarget->SizeY / 2.0f);
-			FVector DecalSize = FVector(meshExtent.X * 10.0f, meshExtent.Y * 10.0f, meshExtent.Z * 10.0f);
-			DecalSize *= objectDist / (FlattenHit.Distance + meshExtent.X * 5.0f);
-
-			FQuat yawQuaternion = FQuat(FVector(0, 1, 0), FMath::DegreesToRadians(Fwd.Yaw + 180.0f));
-
-			ADecalActor* DecalActor = World->SpawnActor<ADecalActor>(HitLocation, yawQuaternion.Rotator());
-			if (DecalActor)
-			{
-				if (FlattenHit.Normal == FVector::UpVector)
-				{
-					DecalActor->SetActorRotation(DecalActor->GetActorRotation() + FRotator(0.0f, 0.0f, -90.0f));
-				}
-				UDecalComponent* DecalComponent = DecalActor->GetDecal();
-				if (material)
-				{
-					DecalActor->SetDecalMaterial(material);
-					DecalComponent->DecalSize = DecalSize;
-					//DecalActor->GetDecal()->SetWorldScale3D(DecalSize);
-
-					DrawDebugBox(
-						World,
-						HitLocation,
-						DecalSize,
-						yawQuaternion,
-						FColor::Red,
-						true,
-						0.0f,
-						0.0f,
-						1.0f
-					);
-				}
-			}
-		}
-
-		m_FlattenFireTimer = m_FlattenFireRate;
-	}
-}
 
 void UTP_WeaponComponent::ToggleAR()
 {
@@ -386,7 +288,6 @@ void UTP_WeaponComponent::ToggleAR()
 			UE_LOG(LogTemp, Warning, TEXT("TOGGLING TO 1"));
 			Subsystem->AddMappingContext(FireMappingContext, 1);
 			Subsystem->AddMappingContext(PortalMappingContext, 0);
-			Subsystem->AddMappingContext(FlattenMappingContext, 0);
 		}
 	}
 }
@@ -401,22 +302,6 @@ void UTP_WeaponComponent::TogglePortal()
 			UE_LOG(LogTemp, Warning, TEXT("TOGGLING TO 2"));
 			Subsystem->AddMappingContext(FireMappingContext, 0);
 			Subsystem->AddMappingContext(PortalMappingContext, 1);
-			Subsystem->AddMappingContext(FlattenMappingContext, 0);
-		}
-	}
-}
-
-void UTP_WeaponComponent::ToggleFlatten()
-{
-	if (PlayerController)
-	{
-		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
-		{
-			// Set the priority of the mapping to 1, so that it overrides the Jump action with the Fire action when using touch input
-			UE_LOG(LogTemp, Warning, TEXT("TOGGLING TO 3"));
-			Subsystem->AddMappingContext(FireMappingContext, 0);
-			Subsystem->AddMappingContext(PortalMappingContext, 0);
-			Subsystem->AddMappingContext(FlattenMappingContext, 1);
 		}
 	}
 }

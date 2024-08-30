@@ -407,60 +407,6 @@ bool AActionDemoCharacter::GetHasRifle()
 	return bHasRifle;
 }
 
-UMaterialInstanceDynamic* AActionDemoCharacter::CaptureObject(AActor* flattenActor)
-{
-	m_FlattenCamera->ShowOnlyActors.Empty();
-	m_FlattenCamera->ShowOnlyActors.Add(flattenActor);
-
-	m_FlattenCamera->CaptureScene();
-	UTexture2D* texture = CreateSnapshot(m_FlattenCamera->TextureTarget);
-	HUDImage->SetBrushFromTexture(texture);
-	UMaterialInstanceDynamic* MaterialInstance = UMaterialInstanceDynamic::Create(m_BaseMaterial, this);
-	TestActor->SetDecalMaterial(MaterialInstance);
-
-	return MaterialInstance;
-}
-
-UTextureRenderTarget2D* AActionDemoCharacter::GetRenderTarget()
-{
-	return m_FlattenCamera->TextureTarget;
-}
-
-UTexture2D* AActionDemoCharacter::CreateSnapshot(UTextureRenderTarget2D* RenderTarget)
-{
-	FTextureRenderTargetResource* RenderTargetResource = RenderTarget->GameThread_GetRenderTargetResource();
-	TArray<FColor> OutBMP;
-	FIntRect SourceRect(0, 0, RenderTarget->SizeX, RenderTarget->SizeY);
-	RenderTargetResource->ReadPixels(OutBMP, FReadSurfaceDataFlags(), SourceRect);
-
-	for (FColor& Pixel : OutBMP)
-	{
-		Pixel.A = 255 - Pixel.A;
-	}
-
-	// Create a new UTexture2D and copy the pixels to it
-	UTexture2D* StaticTexture = UTexture2D::CreateTransient(RenderTarget->SizeX, RenderTarget->SizeY, PF_B8G8R8A8);
-	if (!StaticTexture)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("Failed to create static texture."));
-		return nullptr;
-	}
-
-	// Lock the texture for editing
-	void* TextureData = StaticTexture->GetPlatformData()->Mips[0].BulkData.Lock(LOCK_READ_WRITE);
-
-	// Copy the pixel data
-	FMemory::Memcpy(TextureData, OutBMP.GetData(), OutBMP.Num() * sizeof(FColor));
-
-	// Unlock the texture
-	StaticTexture->GetPlatformData()->Mips[0].BulkData.Unlock();
-
-	// Update the texture resource
-	StaticTexture->UpdateResource();
-
-	return StaticTexture;
-}
-
 APortal* AActionDemoCharacter::GetPortal(bool isBlue)
 {
 	return isBlue ? BluePortal : OrangePortal;
