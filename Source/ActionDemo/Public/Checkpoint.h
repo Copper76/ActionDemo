@@ -1,0 +1,26 @@
+// Fill out your copyright notice in the Description page of Project Settings.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Engine/TriggerVolume.h"
+#include "Checkpoint.generated.h"
+
+/**
+ * 
+ */
+UCLASS()
+class ACTIONDEMO_API ACheckpoint : public ATriggerVolume
+{
+	GENERATED_BODY()
+
+protected:
+    virtual void BeginPlay() override;
+
+    UFUNCTION()
+    void OnBeginOverlap(AActor* OverlappedActor, AActor* OtherActor);
+
+private:
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Checkpoint", meta=(AllowPrivateAccess))
+    int32 CheckpointIndex = 0;
+};

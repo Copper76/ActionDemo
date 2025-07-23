@@ -975,8 +975,8 @@ void UDemoMyCharacterMovementComponent::PhysClimb(float DeltaTime, int32 Iterati
 
 		// Clamp Acceleration
 		Acceleration = Acceleration.RotateAngleAxis(90.0f, -UpdatedComponent->GetRightVector());
-		Acceleration.X = 0.0f;
-		Acceleration.Y = 0.0f;
+		//Acceleration.X = 0.0f;
+		//Acceleration.Y = 0.0f;
 		AddImpulse(FVector::DownVector * Climb_GravityForce * Climb_GravityScaleCurve->GetFloatValue(bClimbTime));
 		// Apply acceleration
 		CalcVelocity(timeTick, 1.0f, false, GetMaxBrakingDeceleration());

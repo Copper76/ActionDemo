@@ -90,6 +90,8 @@ void AActionDemoCharacter::BeginPlay()
 	{
 		m_FlattenCamera->TextureTarget->InitAutoFormat(ViewportSize.X, ViewportSize.Y);
 	}
+
+	LastCheckpoint = GetActorTransform();
 }
 
 //////////////////////////////////////////////////////////////////////////// Input
@@ -135,10 +137,7 @@ void AActionDemoCharacter::Move(const FInputActionValue& Value)
 	if (Controller != nullptr)
 	{
 		AddMovementInput(GetActorForwardVector(), MovementVector.Y);
-		if (!DemoMyCharacterMovementComponent->IsCustomMovementMode(CMOVE_Climb))
-		{
-			AddMovementInput(GetActorRightVector(), MovementVector.X);
-		}
+		AddMovementInput(GetActorRightVector(), MovementVector.X);
 	}
 }
 
@@ -317,6 +316,14 @@ void AActionDemoCharacter::Tick(float DeltaTime)
 	{
 		FlashCoolDown -= DeltaTime;
 	}
+
+	if (GetActorLocation().Z < KillZ)
+	{
+		Grappler->EndLocation = FVector::ZeroVector;
+		DemoMyCharacterMovementComponent->SetMovementMode(EMovementMode::MOVE_Falling);
+		Controller->SetControlRotation(LastCheckpoint.GetRotation().Rotator());
+		SetActorTransform(LastCheckpoint, false, nullptr, ETeleportType::ResetPhysics);
+	}
 #pragma region Grapple
 	if (GrappleCoolDown > 0 && GrappleStage == GRAPPLE_NONE)
 	{
@@ -410,6 +417,14 @@ bool AActionDemoCharacter::GetHasRifle()
 APortal* AActionDemoCharacter::GetPortal(bool isBlue)
 {
 	return isBlue ? BluePortal : OrangePortal;
+}
+
+void AActionDemoCharacter::SetCheckpoint(const int32 InCheckpointIndex, const FTransform InCheckpoint)
+{
+	if (InCheckpointIndex <= CheckpointIndex) return;
+
+	CheckpointIndex = InCheckpointIndex;
+	LastCheckpoint = InCheckpoint;
 }
 
 FCollisionQueryParams AActionDemoCharacter::GetIgnoreCharacterParams() const

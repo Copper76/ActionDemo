@@ -183,7 +183,10 @@ protected:
 
 	//Grapple
 	float GrappleCoolDown = 0.0f;
-	float GrappleMaxCoolDown = 3.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple")
+	float GrappleMaxCoolDown = 0.3f;
+
 	float GrappleTravelTime;
 	bool GrappleIsSuccessful;
 	UPROPERTY(BlueprintReadOnly) FVector GrappleEndLoc;
@@ -214,5 +217,16 @@ public:
 	UPROPERTY(BlueprintReadOnly) FRotator AimingPoseRotation;
 	UPROPERTY(BlueprintReadOnly) float ADSSpeed = 100.0f;
 	bool isAiming = false;
+
+public:
+	void SetCheckpoint(const int32 InCheckpointIndex, const FTransform InCheckpoint);
+
+private:
+	int32 CheckpointIndex = 0;
+
+	FTransform LastCheckpoint;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Defaults", meta = (AllowPrivateAccess))
+	float KillZ = -1000.0f;
 };
 
