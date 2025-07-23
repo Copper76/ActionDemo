@@ -14,8 +14,8 @@ void ACheckpoint::BeginPlay()
 
 void ACheckpoint::OnBeginOverlap(AActor* OverlappedActor, AActor* OtherActor)
 {
-    AActionDemoCharacter* Player = Cast<AActionDemoCharacter>(OtherActor);
-    if (!Player) return;
-
-    Player->SetCheckpoint(CheckpointIndex, GetActorTransform());
+    if (AActionDemoCharacter* Player = Cast<AActionDemoCharacter>(OtherActor))
+    {
+        Player->SetCheckpoint(CheckpointIndex, GetActorTransform());
+    }
 }
