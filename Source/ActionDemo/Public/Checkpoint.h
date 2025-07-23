@@ -3,14 +3,14 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Engine/TriggerVolume.h"
+#include "Engine/TriggerBox.h"
 #include "Checkpoint.generated.h"
 
 /**
  * 
  */
-UCLASS()
-class ACTIONDEMO_API ACheckpoint : public ATriggerVolume
+UCLASS(Blueprintable)
+class ACTIONDEMO_API ACheckpoint : public ATriggerBox
 {
 	GENERATED_BODY()
 
@@ -19,6 +19,9 @@ protected:
 
     UFUNCTION()
     void OnBeginOverlap(AActor* OverlappedActor, AActor* OtherActor);
+
+public:
+    inline int32 GetCheckpointIndex() { return CheckpointIndex; }
 
 private:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Checkpoint", meta=(AllowPrivateAccess))

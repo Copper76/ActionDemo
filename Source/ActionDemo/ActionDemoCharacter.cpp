@@ -16,6 +16,7 @@
 #include "DemoMyCharacterMovementComponent.h"
 #include "Kismet/KismetRenderingLibrary.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "CheckpointManager.h"
 
 #include "Engine/DecalActor.h"
 
@@ -91,7 +92,14 @@ void AActionDemoCharacter::BeginPlay()
 		m_FlattenCamera->TextureTarget->InitAutoFormat(ViewportSize.X, ViewportSize.Y);
 	}
 
-	LastCheckpoint = GetActorTransform();
+	if (UCheckpointManager* CheckpointManager = GetWorld()->GetSubsystem<UCheckpointManager>())
+	{
+		CheckpointManager->AddCheckpoint(0, GetActorTransform());
+		if (CheckpointManager->GetCheckpointIndex() != 0)
+		{
+			
+		}
+	}
 }
 
 //////////////////////////////////////////////////////////////////////////// Input
@@ -137,7 +145,7 @@ void AActionDemoCharacter::Move(const FInputActionValue& Value)
 	if (Controller != nullptr)
 	{
 		AddMovementInput(GetActorForwardVector(), MovementVector.Y);
-		AddMovementInput(GetActorRightVector(), MovementVector.X);
+		AddMovementInput(GetActorRightVector(), DemoMyCharacterMovementComponent->IsCustomMovementMode(CMOVE_Climb) ? MovementVector.X * 0.5f : MovementVector.X);
 	}
 }
 
@@ -319,10 +327,7 @@ void AActionDemoCharacter::Tick(float DeltaTime)
 
 	if (GetActorLocation().Z < KillZ)
 	{
-		Grappler->EndLocation = FVector::ZeroVector;
-		DemoMyCharacterMovementComponent->SetMovementMode(EMovementMode::MOVE_Falling);
-		Controller->SetControlRotation(LastCheckpoint.GetRotation().Rotator());
-		SetActorTransform(LastCheckpoint, false, nullptr, ETeleportType::ResetPhysics);
+		ReturnToLastCheckpoint();
 	}
 #pragma region Grapple
 	if (GrappleCoolDown > 0 && GrappleStage == GRAPPLE_NONE)
@@ -419,12 +424,16 @@ APortal* AActionDemoCharacter::GetPortal(bool isBlue)
 	return isBlue ? BluePortal : OrangePortal;
 }
 
-void AActionDemoCharacter::SetCheckpoint(const int32 InCheckpointIndex, const FTransform InCheckpoint)
+void AActionDemoCharacter::ReturnToLastCheckpoint()
 {
-	if (InCheckpointIndex <= CheckpointIndex) return;
-
-	CheckpointIndex = InCheckpointIndex;
-	LastCheckpoint = InCheckpoint;
+	Grappler->EndLocation = FVector::ZeroVector;
+	DemoMyCharacterMovementComponent->SetMovementMode(EMovementMode::MOVE_Falling);
+	if (UCheckpointManager* CheckpointManager = GetWorld()->GetSubsystem<UCheckpointManager>())
+	{
+		FTransform LastCheckpoint = *CheckpointManager->GetLastCheckpoint();
+		Controller->SetControlRotation(LastCheckpoint.GetRotation().Rotator());
+		SetActorLocation(LastCheckpoint.GetLocation(), false, nullptr, ETeleportType::ResetPhysics);
+	}
 }
 
 FCollisionQueryParams AActionDemoCharacter::GetIgnoreCharacterParams() const

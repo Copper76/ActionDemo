@@ -4,18 +4,19 @@
 #include "Checkpoint.h"
 #include "GameFramework/Character.h"
 #include "ActionDemo/ActionDemoCharacter.h"
-#include "Kismet/GameplayStatics.h"
+#include "CheckpointManager.h"
 
 void ACheckpoint::BeginPlay()
 {
     Super::BeginPlay();
+
     OnActorBeginOverlap.AddDynamic(this, &ACheckpoint::OnBeginOverlap);
 }
 
 void ACheckpoint::OnBeginOverlap(AActor* OverlappedActor, AActor* OtherActor)
 {
-    if (AActionDemoCharacter* Player = Cast<AActionDemoCharacter>(OtherActor))
+    if (UCheckpointManager* CheckpointManager = GetWorld()->GetSubsystem<UCheckpointManager>())
     {
-        Player->SetCheckpoint(CheckpointIndex, GetActorTransform());
+        CheckpointManager->SetCheckpointIndex(CheckpointIndex);
     }
 }

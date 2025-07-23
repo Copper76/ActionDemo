@@ -218,14 +218,10 @@ public:
 	UPROPERTY(BlueprintReadOnly) float ADSSpeed = 100.0f;
 	bool isAiming = false;
 
-public:
-	void SetCheckpoint(const int32 InCheckpointIndex, const FTransform InCheckpoint);
+private:
+	void ReturnToLastCheckpoint();
 
 private:
-	int32 CheckpointIndex = 0;
-
-	FTransform LastCheckpoint;
-
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Defaults", meta = (AllowPrivateAccess))
 	float KillZ = -1000.0f;
 };
