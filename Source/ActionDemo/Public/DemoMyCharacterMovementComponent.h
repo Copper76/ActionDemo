@@ -170,6 +170,10 @@ protected:
 	virtual bool IsMovingOnGround() const override;
 
 	virtual bool CanCrouchInCurrentState() const override;
+	
+	virtual void Crouch(bool bClientSimulation = false) override;
+
+	virtual void UnCrouch(bool bClientSimulation = false) override;
 
 	virtual void UpdateCharacterStateBeforeMovement(float DeltaSeconds) override;
 
@@ -183,6 +187,10 @@ protected:
 
 	virtual bool CanAttemptJump() const override;
 	virtual bool DoJump(bool bReplayingMoves) override;
+
+//Gravity
+private:
+	inline FVector GetNormalisedGravity() const { return GetGravityDirection().GetSafeNormal(); }
 
 //Slide
 private:

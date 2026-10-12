@@ -12,3 +12,12 @@ AActionDemoGameMode::AActionDemoGameMode()
 	DefaultPawnClass = PlayerPawnClassFinder.Class;
 
 }
+
+APawn* AActionDemoGameMode::SpawnDefaultPawnFor_Implementation(AController* NewPlayer, AActor* StartSpot)
+{
+	FRotator StartRotation = StartSpot->GetActorRotation();
+	FVector StartLocation = StartSpot->GetActorLocation();
+
+	FTransform Transform = FTransform(StartRotation, StartLocation);
+	return SpawnDefaultPawnAtTransform(NewPlayer, Transform);
+}

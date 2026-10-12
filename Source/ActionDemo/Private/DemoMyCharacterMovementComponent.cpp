@@ -105,6 +105,247 @@ bool UDemoMyCharacterMovementComponent::CanCrouchInCurrentState() const
 	return Super::CanCrouchInCurrentState() && (IsMovingOnGround() || IsGrappling());
 }
 
+void UDemoMyCharacterMovementComponent::Crouch(bool bClientSimulation)
+{
+	if (!HasValidData())
+	{
+		return;
+	}
+
+	if (!bClientSimulation && !CanCrouchInCurrentState())
+	{
+		return;
+	}
+
+	// See if collision is already at desired size.
+	if (CharacterOwner->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight() == CrouchedHalfHeight)
+	{
+		if (!bClientSimulation)
+		{
+			CharacterOwner->bIsCrouched = true;
+		}
+		CharacterOwner->OnStartCrouch(0.f, 0.f);
+		return;
+	}
+
+	if (bClientSimulation && CharacterOwner->GetLocalRole() == ROLE_SimulatedProxy)
+	{
+		// restore collision size before crouching
+		ACharacter* DefaultCharacter = CharacterOwner->GetClass()->GetDefaultObject<ACharacter>();
+		CharacterOwner->GetCapsuleComponent()->SetCapsuleSize(DefaultCharacter->GetCapsuleComponent()->GetUnscaledCapsuleRadius(), DefaultCharacter->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight());
+		bShrinkProxyCapsule = true;
+	}
+
+	// Change collision size to crouching dimensions
+	const float ComponentScale = CharacterOwner->GetCapsuleComponent()->GetShapeScale();
+	const float OldUnscaledHalfHeight = CharacterOwner->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight();
+	const float OldUnscaledRadius = CharacterOwner->GetCapsuleComponent()->GetUnscaledCapsuleRadius();
+	// Height is not allowed to be smaller than radius.
+	const float ClampedCrouchedHalfHeight = FMath::Max3(0.f, OldUnscaledRadius, CrouchedHalfHeight);
+	CharacterOwner->GetCapsuleComponent()->SetCapsuleSize(OldUnscaledRadius, ClampedCrouchedHalfHeight);
+	float HalfHeightAdjust = (OldUnscaledHalfHeight - ClampedCrouchedHalfHeight);
+	float ScaledHalfHeightAdjust = HalfHeightAdjust * ComponentScale;
+
+	if (!bClientSimulation)
+	{
+		const FVector GravityDir = GetNormalisedGravity();
+		const FQuat CapsuleRotation = UpdatedComponent->GetComponentQuat();
+
+		// Crouching to a larger height? (this is rare)
+		if (ClampedCrouchedHalfHeight > OldUnscaledHalfHeight)
+		{
+			FCollisionQueryParams CapsuleParams(SCENE_QUERY_STAT(CrouchTrace), false, CharacterOwner);
+			FCollisionResponseParams ResponseParam;
+			InitCollisionParams(CapsuleParams, ResponseParam);
+			const bool bEncroached = GetWorld()->OverlapBlockingTestByChannel(UpdatedComponent->GetComponentLocation() + GravityDir * ScaledHalfHeightAdjust, CapsuleRotation,
+				UpdatedComponent->GetCollisionObjectType(), GetPawnCapsuleCollisionShape(SHRINK_None), CapsuleParams, ResponseParam);
+
+			// If encroached, cancel
+			if (bEncroached)
+			{
+				CharacterOwner->GetCapsuleComponent()->SetCapsuleSize(OldUnscaledRadius, OldUnscaledHalfHeight);
+				return;
+			}
+		}
+
+		if (bCrouchMaintainsBaseLocation)
+		{
+			// Intentionally not using MoveUpdatedComponent, where a horizontal plane constraint would prevent the base of the capsule from staying at the same spot.
+			UpdatedComponent->MoveComponent(GravityDir * ScaledHalfHeightAdjust, CapsuleRotation, true, nullptr, EMoveComponentFlags::MOVECOMP_NoFlags, ETeleportType::TeleportPhysics);
+		}
+
+		CharacterOwner->bIsCrouched = true;
+	}
+
+	bForceNextFloorCheck = true;
+
+	// OnStartCrouch takes the change from the Default size, not the current one (though they are usually the same).
+	const float MeshAdjust = ScaledHalfHeightAdjust;
+	ACharacter* DefaultCharacter = CharacterOwner->GetClass()->GetDefaultObject<ACharacter>();
+	HalfHeightAdjust = (DefaultCharacter->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight() - ClampedCrouchedHalfHeight);
+	ScaledHalfHeightAdjust = HalfHeightAdjust * ComponentScale;
+
+	AdjustProxyCapsuleSize();
+	CharacterOwner->OnStartCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+
+	// Don't smooth this change in mesh position
+	if ((bClientSimulation && CharacterOwner->GetLocalRole() == ROLE_SimulatedProxy) || (IsNetMode(NM_ListenServer) && CharacterOwner->GetRemoteRole() == ROLE_AutonomousProxy))
+	{
+		FNetworkPredictionData_Client_Character* ClientData = GetPredictionData_Client_Character();
+		if (ClientData)
+		{
+			ClientData->MeshTranslationOffset -= FVector(0.f, 0.f, MeshAdjust);
+			ClientData->OriginalMeshTranslationOffset = ClientData->MeshTranslationOffset;
+		}
+	}
+}
+
+void UDemoMyCharacterMovementComponent::UnCrouch(bool bClientSimulation)
+{
+	if (!HasValidData())
+	{
+		return;
+	}
+
+	ACharacter* DefaultCharacter = CharacterOwner->GetClass()->GetDefaultObject<ACharacter>();
+
+	// See if collision is already at desired size.
+	if (CharacterOwner->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight() == DefaultCharacter->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight())
+	{
+		if (!bClientSimulation)
+		{
+			CharacterOwner->bIsCrouched = false;
+		}
+		CharacterOwner->OnEndCrouch(0.f, 0.f);
+		return;
+	}
+
+	const float CurrentCrouchedHalfHeight = CharacterOwner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+
+	const float ComponentScale = CharacterOwner->GetCapsuleComponent()->GetShapeScale();
+	const float OldUnscaledHalfHeight = CharacterOwner->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight();
+	const float HalfHeightAdjust = DefaultCharacter->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight() - OldUnscaledHalfHeight;
+	const float ScaledHalfHeightAdjust = HalfHeightAdjust * ComponentScale;
+	const FVector PawnLocation = UpdatedComponent->GetComponentLocation();
+	const FVector GravityDir = GetNormalisedGravity();
+	const FQuat CapsuleRotation = UpdatedComponent->GetComponentQuat();
+
+	// Grow to uncrouched size.
+	check(CharacterOwner->GetCapsuleComponent());
+
+	if (!bClientSimulation)
+	{
+		// Try to stay in place and see if the larger capsule fits. We use a slightly taller capsule to avoid penetration.
+		const UWorld* MyWorld = GetWorld();
+		const float SweepInflation = UE_KINDA_SMALL_NUMBER * 10.f;
+		FCollisionQueryParams CapsuleParams(SCENE_QUERY_STAT(CrouchTrace), false, CharacterOwner);
+		FCollisionResponseParams ResponseParam;
+		InitCollisionParams(CapsuleParams, ResponseParam);
+
+		// Compensate for the difference between current capsule size and standing size
+		const FCollisionShape StandingCapsuleShape = GetPawnCapsuleCollisionShape(SHRINK_HeightCustom, -SweepInflation - ScaledHalfHeightAdjust); // Shrink by negative amount, so actually grow it.
+		const ECollisionChannel CollisionChannel = UpdatedComponent->GetCollisionObjectType();
+		bool bEncroached = true;
+
+		if (!bCrouchMaintainsBaseLocation)
+		{
+			// Expand in place
+			bEncroached = MyWorld->OverlapBlockingTestByChannel(PawnLocation, CapsuleRotation, CollisionChannel, StandingCapsuleShape, CapsuleParams, ResponseParam);
+
+			if (bEncroached)
+			{
+				// Try adjusting capsule position to see if we can avoid encroachment.
+				if (ScaledHalfHeightAdjust > 0.f)
+				{
+					// Shrink to a short capsule, sweep down to base to find where that would hit something, and then try to stand up from there.
+					float PawnRadius, PawnHalfHeight;
+					CharacterOwner->GetCapsuleComponent()->GetScaledCapsuleSize(PawnRadius, PawnHalfHeight);
+					const float ShrinkHalfHeight = PawnHalfHeight - PawnRadius;
+					const float TraceDist = PawnHalfHeight - ShrinkHalfHeight;
+					const FVector Down = GravityDir * TraceDist;
+
+					FHitResult Hit(1.f);
+					const FCollisionShape ShortCapsuleShape = GetPawnCapsuleCollisionShape(SHRINK_HeightCustom, ShrinkHalfHeight);
+					const bool bBlockingHit = MyWorld->SweepSingleByChannel(Hit, PawnLocation, PawnLocation + Down, CapsuleRotation, CollisionChannel, ShortCapsuleShape, CapsuleParams);
+					if (Hit.bStartPenetrating)
+					{
+						bEncroached = true;
+					}
+					else
+					{
+						// Compute where the base of the sweep ended up, and see if we can stand there
+						const float DistanceToBase = (Hit.Time * TraceDist) + ShortCapsuleShape.Capsule.HalfHeight;
+						const FVector NewLoc = PawnLocation + GravityDir * (DistanceToBase - StandingCapsuleShape.Capsule.HalfHeight - SweepInflation - MIN_FLOOR_DIST / 2.f);
+						bEncroached = MyWorld->OverlapBlockingTestByChannel(NewLoc, CapsuleRotation, CollisionChannel, StandingCapsuleShape, CapsuleParams, ResponseParam);
+						if (!bEncroached)
+						{
+							// Intentionally not using MoveUpdatedComponent, where a horizontal plane constraint would prevent the base of the capsule from staying at the same spot.
+							UpdatedComponent->MoveComponent(NewLoc - PawnLocation, CapsuleRotation, false, nullptr, EMoveComponentFlags::MOVECOMP_NoFlags, ETeleportType::TeleportPhysics);
+						}
+					}
+				}
+			}
+		}
+		else
+		{
+			// Expand while keeping base location the same.
+			FVector StandingLocation = PawnLocation - GravityDir * (StandingCapsuleShape.GetCapsuleHalfHeight() - CurrentCrouchedHalfHeight);
+			bEncroached = MyWorld->OverlapBlockingTestByChannel(StandingLocation, CapsuleRotation, CollisionChannel, StandingCapsuleShape, CapsuleParams, ResponseParam);
+
+			if (bEncroached)
+			{
+				if (IsMovingOnGround())
+				{
+					// Something might be just barely overhead, try moving down closer to the floor to avoid it.
+					const float MinFloorDist = UE_KINDA_SMALL_NUMBER * 10.f;
+					if (CurrentFloor.bBlockingHit && CurrentFloor.FloorDist > MinFloorDist)
+					{
+						StandingLocation += GravityDir * (CurrentFloor.FloorDist - MinFloorDist);
+						bEncroached = MyWorld->OverlapBlockingTestByChannel(StandingLocation, CapsuleRotation, CollisionChannel, StandingCapsuleShape, CapsuleParams, ResponseParam);
+					}
+				}
+			}
+
+			if (!bEncroached)
+			{
+				// Commit the change in location.
+				UpdatedComponent->MoveComponent(StandingLocation - PawnLocation, CapsuleRotation, false, nullptr, EMoveComponentFlags::MOVECOMP_NoFlags, ETeleportType::TeleportPhysics);
+				bForceNextFloorCheck = true;
+			}
+		}
+
+		// If still encroached then abort.
+		if (bEncroached)
+		{
+			return;
+		}
+
+		CharacterOwner->bIsCrouched = false;
+	}
+	else
+	{
+		bShrinkProxyCapsule = true;
+	}
+
+	// Now call SetCapsuleSize() to cause touch/untouch events and actually grow the capsule
+	CharacterOwner->GetCapsuleComponent()->SetCapsuleSize(DefaultCharacter->GetCapsuleComponent()->GetUnscaledCapsuleRadius(), DefaultCharacter->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight(), true);
+
+	const float MeshAdjust = ScaledHalfHeightAdjust;
+	AdjustProxyCapsuleSize();
+	CharacterOwner->OnEndCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+
+	// Don't smooth this change in mesh position
+	if ((bClientSimulation && CharacterOwner->GetLocalRole() == ROLE_SimulatedProxy) || (IsNetMode(NM_ListenServer) && CharacterOwner->GetRemoteRole() == ROLE_AutonomousProxy))
+	{
+		FNetworkPredictionData_Client_Character* ClientData = GetPredictionData_Client_Character();
+		if (ClientData)
+		{
+			ClientData->MeshTranslationOffset += FVector(0.f, 0.f, MeshAdjust);
+			ClientData->OriginalMeshTranslationOffset = ClientData->MeshTranslationOffset;
+		}
+	}
+}
+
 void UDemoMyCharacterMovementComponent::UpdateCharacterStateBeforeMovement(float DeltaSeconds)
 {
 	if (!IsCustomMovementMode(CMOVE_Grapple) && bWantsToGrapple)
@@ -418,7 +659,7 @@ void UDemoMyCharacterMovementComponent::EnterSlide()
 void UDemoMyCharacterMovementComponent::ExitSlide()
 {
 	bLeftSlide = true;
-	FQuat NewRotation = FRotationMatrix::MakeFromXZ(UpdatedComponent->GetForwardVector().GetSafeNormal2D(), FVector::UpVector).ToQuat();
+	FQuat NewRotation = FRotationMatrix::MakeFromXZ(UpdatedComponent->GetForwardVector().GetSafeNormal2D(), -GetNormalisedGravity()).ToQuat();
 	FHitResult Hit;
 	SafeMoveUpdatedComponent(FVector::ZeroVector, NewRotation, true, Hit);
 	if (CharacterOwner->bPressedJump)
@@ -455,8 +696,9 @@ void UDemoMyCharacterMovementComponent::PhysSlide(float DeltaTime, int32 Iterati
 	bool bTriedLedgeMove = false;
 	float remainingTime = DeltaTime;
 
+	const FVector NormalisedGravity = GetNormalisedGravity();
 
-	Velocity += Slide_GravityForce * FVector::DownVector * DeltaTime;
+	Velocity += Slide_GravityForce * NormalisedGravity * DeltaTime;
 
 	while ((remainingTime >= MIN_TICK_TIME) && (Iterations < MaxSimulationIterations) && CharacterOwner && (CharacterOwner->Controller || bRunPhysicsWithNoController || (CharacterOwner->GetLocalRole() == ROLE_SimulatedProxy)))
 	{
@@ -476,7 +718,7 @@ void UDemoMyCharacterMovementComponent::PhysSlide(float DeltaTime, int32 Iterati
 		const FVector OldVelocity = Velocity;
 
 		FVector SlopeForce = CurrentFloor.HitResult.Normal;
-		SlopeForce.Z = 0.f;
+		SlopeForce -= FVector::DotProduct(SlopeForce, NormalisedGravity) * NormalisedGravity;
 		Velocity += SlopeForce * Slide_GravityForce * DeltaTime;
 
 		Acceleration = Acceleration.ProjectOnTo(UpdatedComponent->GetRightVector().GetSafeNormal2D()) * Slide_SteerFactor;
@@ -639,7 +881,7 @@ void UDemoMyCharacterMovementComponent::PhysSlide(float DeltaTime, int32 Iterati
 
 
 	FHitResult Hit;
-	FQuat NewRotation = FRotationMatrix::MakeFromXZ(Velocity.GetSafeNormal2D(), FVector::UpVector).ToQuat();
+	FQuat NewRotation = FRotationMatrix::MakeFromXZ(Velocity.GetSafeNormal2D(), -GetGravityDirection()).ToQuat();
 	SafeMoveUpdatedComponent(FVector::ZeroVector, NewRotation, false, Hit);
 }
 #pragma endregion
@@ -651,9 +893,11 @@ bool UDemoMyCharacterMovementComponent::TryMantle()
 	//Check mode
 	if (!IsMovementMode(MOVE_Walking) && !IsMovementMode(MOVE_Falling)) return false;
 
+	const FVector NormalisedGravity = GetNormalisedGravity();
+
 	//Check facing a wall
-	FVector BaseLoc = UpdatedComponent->GetComponentLocation() + FVector::DownVector * CapHH();
-	FVector Fwd = UpdatedComponent->GetForwardVector().GetSafeNormal2D();
+	FVector BaseLoc = UpdatedComponent->GetComponentLocation() + NormalisedGravity * CapHH();
+	FVector Fwd = FVector::VectorPlaneProject(UpdatedComponent->GetForwardVector(), -NormalisedGravity).GetSafeNormal();
 	float MaxHeight = CapHH() + Mantle_ReachHeight;
 	float CosMMWSA = FMath::Cos(FMath::DegreesToRadians(Mantle_MinWallSteepnessAngle));
 	float CosMMSA = FMath::Cos(FMath::DegreesToRadians(Mantle_MaxSurfaceAngle));
@@ -661,21 +905,21 @@ bool UDemoMyCharacterMovementComponent::TryMantle()
 
 	FHitResult FrontHit;
 	float CheckDistance = FMath::Clamp(Velocity | Fwd, CapR() + 30.0f, Mantle_MaxDistance);
-	FVector FrontStart = BaseLoc + FVector::UpVector * (MaxStepHeight - 1);
+	FVector FrontStart = BaseLoc - NormalisedGravity * (MaxStepHeight - 1);
 	for (int i = 0; i < 6; i++)
 	{
 		if (GetWorld() -> LineTraceSingleByProfile(FrontHit, FrontStart, FrontStart + Fwd*CheckDistance, "BlockAll",DemoCharacterOwner->GetIgnoreCharacterParams())) break;
-		FrontStart += FVector::UpVector * (2.0f * CapHH() - (MaxStepHeight - 1)) / 5;
+		FrontStart -= NormalisedGravity * (2.0f * CapHH() - (MaxStepHeight - 1)) / 5;
 	}
 	if (!FrontHit.IsValidBlockingHit()) return false;
-	float CosWallSteepnessAngle = FrontHit.Normal | FVector::UpVector;
+	float CosWallSteepnessAngle = FrontHit.Normal | -NormalisedGravity;
 	if (FMath::Abs(CosWallSteepnessAngle) > CosMMWSA || (Fwd | -FrontHit.Normal) < CosMMAA) return false;
 	
 	//Check top surface
 	TArray<FHitResult> HeightHits;
 	FHitResult SurfaceHit;
-	FVector WallUp = FVector::VectorPlaneProject(FVector::UpVector, FrontHit.Normal).GetSafeNormal();
-	float WallCos = FVector::UpVector | FrontHit.Normal;
+	FVector WallUp = FVector::VectorPlaneProject(-NormalisedGravity, FrontHit.Normal).GetSafeNormal();
+	float WallCos = -NormalisedGravity | FrontHit.Normal;
 	float WallSin = FMath::Sqrt(1 - WallCos * WallCos);
 	FVector TraceStart = FrontHit.Location + Fwd + WallUp * (MaxHeight - (MaxStepHeight - 1)) / WallSin;//Fwd is used to avoid edge cases
 
@@ -689,15 +933,15 @@ bool UDemoMyCharacterMovementComponent::TryMantle()
 			break;
 		}
 	}
-	if (!SurfaceHit.IsValidBlockingHit() || (SurfaceHit.Normal | FVector::UpVector) < CosMMSA) return false;
-	float Height = (SurfaceHit.Location - BaseLoc) | FVector::UpVector;
+	if (!SurfaceHit.IsValidBlockingHit() || (SurfaceHit.Normal | -NormalisedGravity) < CosMMSA) return false;
+	float Height = (SurfaceHit.Location - BaseLoc) | -NormalisedGravity;
 
 	if (Height > MaxHeight) return false;
 
 	//Check Clearance on top
-	float SurfaceCos = FVector::UpVector | SurfaceHit.Normal;
+	float SurfaceCos = -NormalisedGravity | SurfaceHit.Normal;
 	float SurfaceSin = FMath::Sqrt(1 - SurfaceCos * SurfaceCos);
-	FVector ClearCapLoc = SurfaceHit.Location + Fwd * CapR() + FVector::UpVector * (CapHH() + 1 + CapR() * 2 * SurfaceSin);
+	FVector ClearCapLoc = SurfaceHit.Location + Fwd * CapR() - NormalisedGravity * (CapHH() + 1 + CapR() * 2 * SurfaceSin);
 	FCollisionShape CapShape = FCollisionShape::MakeCapsule(CapR(), CapHH());
 	FCollisionShape CrouchedCapShape = FCollisionShape::MakeCapsule(CapR(), GetCrouchedHalfHeight());
 	CAPSULE(ClearCapLoc, FColor::Red);
@@ -717,7 +961,7 @@ bool UDemoMyCharacterMovementComponent::TryMantle()
 	//Mantle Selection
 	FVector TransitionTarget = GetMantleStartLocation(FrontHit, SurfaceHit);
 
-	float UpSpeed = Velocity | FVector::UpVector;
+	float UpSpeed = Velocity | -NormalisedGravity;
 	float TransDistance = FVector::Dist(TransitionTarget, UpdatedComponent->GetComponentLocation());
 	TransitionQueueMontageSpeed = FMath::GetMappedRangeValueClamped(FVector2D(-500, 750), FVector2D(0.9f, 1.2f), UpSpeed);
 	TransitionRMS.Reset();
@@ -741,15 +985,20 @@ bool UDemoMyCharacterMovementComponent::TryMantle()
 
 FVector UDemoMyCharacterMovementComponent::GetMantleStartLocation(FHitResult FrontHit, FHitResult SurfaceHit) const
 {
-	float CosWallSteepnessAngle = FrontHit.Normal | FVector::UpVector;
+	const FVector NormalisedGravity = GetNormalisedGravity();
+
+	const FVector WallHoriz = FVector::VectorPlaneProject(FrontHit.Normal, -NormalisedGravity).GetSafeNormal();
+	const FVector FwdHoriz = FVector::VectorPlaneProject(UpdatedComponent->GetForwardVector(), -NormalisedGravity).GetSafeNormal();
+
+	float CosWallSteepnessAngle = FrontHit.Normal | -NormalisedGravity;
 	float DownDistance = MaxStepHeight - 1;
 	FVector EdgeTangent = FVector::CrossProduct(SurfaceHit.Normal, FrontHit.Normal).GetSafeNormal();
 	FVector MantleStart = SurfaceHit.Location;
-	MantleStart += FrontHit.Normal.GetSafeNormal2D()*(2.0f + CapR());
-	MantleStart += UpdatedComponent->GetForwardVector().GetSafeNormal2D().ProjectOnTo(EdgeTangent) * CapR() * 0.3f;
-	MantleStart += FVector::UpVector * CapHH();
-	MantleStart += FVector::DownVector * DownDistance;
-	MantleStart += FrontHit.Normal.GetSafeNormal2D() * CosWallSteepnessAngle * DownDistance;
+	MantleStart += WallHoriz *(2.0f + CapR());
+	MantleStart += FwdHoriz.ProjectOnTo(EdgeTangent) * CapR() * 0.3f;
+	MantleStart -= NormalisedGravity * CapHH();
+	MantleStart += NormalisedGravity * DownDistance;
+	MantleStart += WallHoriz * CosWallSteepnessAngle * DownDistance;
 	return MantleStart;
 }
 
@@ -758,14 +1007,18 @@ FVector UDemoMyCharacterMovementComponent::GetMantleStartLocation(FHitResult Fro
 #pragma region WallRun
 bool UDemoMyCharacterMovementComponent::TryWallRun()
 {
+	const FVector NormalisedGravity = GetNormalisedGravity();
+
+	double DownVelocity = FVector::DotProduct(Velocity, NormalisedGravity);
+
 	if (!IsFalling()) return false;
-	if (Velocity.SizeSquared2D() < pow(WallRun_MinSpeed, 2)) return false;
-	if (Velocity.Z < -WallRun_MaxVerticalSpeed) return false;
+	if (FVector::VectorPlaneProject(Velocity, NormalisedGravity).SizeSquared() < pow(WallRun_MinSpeed, 2)) return false;
+	if (DownVelocity > WallRun_MaxVerticalSpeed) return false;
 	FVector Start = UpdatedComponent->GetComponentLocation();
 	FVector LeftEnd = Start - UpdatedComponent->GetRightVector() * CapR() * 2;
 	FVector RightEnd = Start + UpdatedComponent->GetRightVector() * CapR() * 2;
 	FHitResult FloorHit, WallHit;
-	if (GetWorld()->LineTraceSingleByProfile(FloorHit, Start, Start + FVector::DownVector * (CapHH() + WallRun_MinHeight), "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) return false;
+	if (GetWorld()->LineTraceSingleByProfile(FloorHit, Start, Start + NormalisedGravity * (CapHH() + WallRun_MinHeight), "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) return false;
 
 	GetWorld()->LineTraceSingleByProfile(WallHit, Start, LeftEnd, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
 	if (WallHit.IsValidBlockingHit() && (Velocity | WallHit.Normal) < 0)
@@ -786,10 +1039,10 @@ bool UDemoMyCharacterMovementComponent::TryWallRun()
 	}
 
 	FVector ProjectedVelocity = FVector::VectorPlaneProject(Velocity, WallHit.Normal);
-	if (ProjectedVelocity.SizeSquared2D() < pow(WallRun_MinSpeed, 2)) return false;
+	if (FVector::VectorPlaneProject(ProjectedVelocity, NormalisedGravity).SizeSquared() < pow(WallRun_MinSpeed, 2)) return false;
 
 	Velocity = ProjectedVelocity;
-	Velocity.Z = FMath::Clamp(Velocity.Z, 0.0f, WallRun_MaxVerticalSpeed);
+	Velocity += (FMath::Clamp(DownVelocity, 0.0f, WallRun_MaxVerticalSpeed) - DownVelocity) * NormalisedGravity;
 	SetMovementMode(MOVE_Custom, CMOVE_WallRun);
 	return true;
 }
@@ -807,6 +1060,8 @@ void UDemoMyCharacterMovementComponent::PhysWallRun(float DeltaTime, int32 Itera
 		Velocity = FVector::ZeroVector;
 		return;
 	}
+
+	const FVector NormalisedGravity = GetNormalisedGravity();
 
 	bJustTeleported = false;
 	float remainingTime = DeltaTime;
@@ -834,14 +1089,15 @@ void UDemoMyCharacterMovementComponent::PhysWallRun(float DeltaTime, int32 Itera
 		}
 		// Clamp Acceleration
 		Acceleration = FVector::VectorPlaneProject(Acceleration, WallHit.Normal);
-		Acceleration.Z = 0.0f;
+		Acceleration -= FVector::DotProduct(Acceleration, NormalisedGravity) * NormalisedGravity;
 		// Apply acceleration
 		CalcVelocity(timeTick, 0.f, false, GetMaxBrakingDeceleration());
 		Velocity = FVector::VectorPlaneProject(Velocity, WallHit.Normal);
-		float TangentAccel = Acceleration.GetSafeNormal() | Velocity.GetSafeNormal2D();
-		bool bVelUp = Velocity.Z > 0.0f;
-		Velocity.Z += GetGravityZ() * WallRun_GravityScaleCurve->GetFloatValue(bVelUp ? 0.f : TangentAccel) * timeTick;
-		if (Velocity.SizeSquared2D() < pow(WallRun_MinSpeed, 2) || Velocity.Z < -WallRun_MaxVerticalSpeed)
+		FVector TangentVelocity = FVector::VectorPlaneProject(Velocity, NormalisedGravity);
+		float TangentAccel = Acceleration.GetSafeNormal() | TangentVelocity.GetSafeNormal();
+		bool bVelUp = FVector::DotProduct(Acceleration, -NormalisedGravity) > 0.0f;
+		Velocity += GetGravityZ() * NormalisedGravity * WallRun_GravityScaleCurve->GetFloatValue(bVelUp ? 0.f : TangentAccel) * timeTick;
+		if (TangentVelocity.SizeSquared() < pow(WallRun_MinSpeed, 2) || FVector::DotProduct(Acceleration, NormalisedGravity) > WallRun_MaxVerticalSpeed)
 		{
 			SetMovementMode(MOVE_Falling);
 			StartNewPhysics(remainingTime, Iterations);
@@ -876,8 +1132,8 @@ void UDemoMyCharacterMovementComponent::PhysWallRun(float DeltaTime, int32 Itera
 	FVector End = Safe_bWallRunIsRight ? Start + CastDelta : Start - CastDelta;
 	FHitResult FloorHit, WallHit;
 	GetWorld()->LineTraceSingleByProfile(WallHit, Start, End, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
-	GetWorld()->LineTraceSingleByProfile(FloorHit, Start, Start + FVector::DownVector * (CapHH() + WallRun_MinHeight * .5f), "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
-	if (FloorHit.IsValidBlockingHit() || !WallHit.IsValidBlockingHit() || Velocity.SizeSquared2D() < pow(WallRun_MinSpeed, 2))
+	GetWorld()->LineTraceSingleByProfile(FloorHit, Start, Start + NormalisedGravity * (CapHH() + WallRun_MinHeight * .5f), "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
+	if (FloorHit.IsValidBlockingHit() || !WallHit.IsValidBlockingHit() || FVector::VectorPlaneProject(Velocity, NormalisedGravity).SizeSquared() < pow(WallRun_MinSpeed, 2))
 	{
 		SetMovementMode(MOVE_Falling);
 	}
@@ -889,19 +1145,20 @@ void UDemoMyCharacterMovementComponent::PhysWallRun(float DeltaTime, int32 Itera
 bool UDemoMyCharacterMovementComponent::TryClimb()
 {
 	if (!IsFalling()) return false;
-	if (Velocity.Z < -Climb_MinSpeed) return false;
+	const FVector NormalisedGravity = GetNormalisedGravity();
+	if (FVector::DotProduct(Acceleration, NormalisedGravity) > Climb_MinSpeed) return false;
 	float CosMMWSA = FMath::Cos(FMath::DegreesToRadians(Climb_MinWallSteepnessAngle));
 	float CosMMAA = FMath::Cos(FMath::DegreesToRadians(Climb_MaxAlignmentAngle));
 
-	FVector Start = UpdatedComponent->GetComponentLocation() + FVector::DownVector * CapHH();
-	FVector Fwd = UpdatedComponent->GetForwardVector().GetSafeNormal2D();
+	FVector Start = UpdatedComponent->GetComponentLocation() + NormalisedGravity * CapHH();
+	FVector Fwd = FVector::VectorPlaneProject(UpdatedComponent->GetForwardVector(), -NormalisedGravity).GetSafeNormal();
 	FHitResult WallHit;
 
 	for (int i = 0; i < 5; i++)
 	{
 		//if (GetWorld()->LineTraceSingleByProfile(WallHit, Start, Start + Fwd * CapR() * 2, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) break;
 		if (GetWorld()->LineTraceSingleByChannel(WallHit, Start, Start + Fwd * CapR() * 2, ECollisionChannel::ECC_WorldStatic, DemoCharacterOwner->GetIgnoreCharacterParams())) break;
-		Start += FVector::UpVector * (1.5f * CapHH() - (MaxStepHeight - 1)) / 4;
+		Start -= NormalisedGravity * (1.5f * CapHH() - (MaxStepHeight - 1)) / 4;
 	}
 	if (!WallHit.IsValidBlockingHit() || WallHit.GetActor()->IsA<APortal>() || WallHit.GetComponent()->GetCollisionObjectType() != ECollisionChannel::ECC_WorldStatic)
 	{
@@ -910,14 +1167,14 @@ bool UDemoMyCharacterMovementComponent::TryClimb()
 	}
 
 	if (bFellOff) return false;
-	if ((GetLastInputVector() | UpdatedComponent->GetForwardVector().GetSafeNormal2D()) <= 0.5f) return false;//Don't enter if the player is not actively moving forward
-	float CosWallSteepnessAngle = WallHit.Normal | FVector::UpVector;
+	if ((GetLastInputVector() | UpdatedComponent->GetForwardVector().GetSafeNormal()) <= 0.5f) return false;//Don't enter if the player is not actively moving forward
+	float CosWallSteepnessAngle = WallHit.Normal | -NormalisedGravity;
 	if (FMath::Abs(CosWallSteepnessAngle) > CosMMWSA || (Fwd | -WallHit.Normal) < CosMMAA) return false;
 
-	FQuat NewRotation = FRotationMatrix::MakeFromXZ(-WallHit.Normal, FVector::UpVector).ToQuat();
+	FQuat NewRotation = FRotationMatrix::MakeFromXZ(-WallHit.Normal, -NormalisedGravity).ToQuat();
 	SafeMoveUpdatedComponent(FVector::ZeroVector, NewRotation, false, WallHit);
 
-	Velocity.Z += Climb_EnterImpulse;
+	Velocity -= NormalisedGravity * Climb_EnterImpulse;
 	SetMovementMode(MOVE_Custom, CMOVE_Climb);
 
 	return true;
@@ -937,6 +1194,8 @@ void UDemoMyCharacterMovementComponent::PhysClimb(float DeltaTime, int32 Iterati
 		return;
 	}
 
+	const FVector NormalisedGravity = GetNormalisedGravity();
+
 	bJustTeleported = false;
 	float remainingTime = DeltaTime;
 	// Perform the move
@@ -949,18 +1208,18 @@ void UDemoMyCharacterMovementComponent::PhysClimb(float DeltaTime, int32 Iterati
 		remainingTime -= timeTick;
 		const FVector OldLocation = UpdatedComponent->GetComponentLocation();
 
-		FVector Start = UpdatedComponent->GetComponentLocation() + FVector::DownVector * CapHH();
-		FVector Fwd = UpdatedComponent->GetForwardVector().GetSafeNormal2D();
+		FVector Start = UpdatedComponent->GetComponentLocation() + NormalisedGravity * CapHH();
+		FVector Fwd = FVector::VectorPlaneProject(UpdatedComponent->GetForwardVector(), -NormalisedGravity).GetSafeNormal();
 		FHitResult WallHit;
 
 		for (int i = 0; i < 5; i++)
 		{
 			if (GetWorld()->LineTraceSingleByProfile(WallHit, Start, Start + Fwd * CapR() * 2, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) break;
-			Start += FVector::UpVector * (1.5f * CapHH() - (MaxStepHeight - 1)) / 4;
+			Start -= NormalisedGravity * (1.5f * CapHH() - (MaxStepHeight - 1)) / 4;
 		}
 		if (!WallHit.IsValidBlockingHit())
 		{
-			Velocity.Z = 0.0f;
+			Velocity -= FVector::DotProduct(Velocity, NormalisedGravity) * NormalisedGravity;
 			SetMovementMode(MOVE_Falling);
 			StartNewPhysics(remainingTime, Iterations);
 			return;
@@ -977,11 +1236,11 @@ void UDemoMyCharacterMovementComponent::PhysClimb(float DeltaTime, int32 Iterati
 		Acceleration = Acceleration.RotateAngleAxis(90.0f, -UpdatedComponent->GetRightVector());
 		//Acceleration.X = 0.0f;
 		//Acceleration.Y = 0.0f;
-		AddImpulse(FVector::DownVector * Climb_GravityForce * Climb_GravityScaleCurve->GetFloatValue(bClimbTime));
+		AddImpulse(NormalisedGravity * Climb_GravityForce * Climb_GravityScaleCurve->GetFloatValue(bClimbTime));
 		// Apply acceleration
 		CalcVelocity(timeTick, 1.0f, false, GetMaxBrakingDeceleration());
 		Velocity = FVector::VectorPlaneProject(Velocity, WallHit.Normal);
-		if (Velocity.Z <= -Climb_MinSpeed)
+		if (FVector::DotProduct(Velocity, NormalisedGravity) > Climb_MinSpeed)
 		{
 			Velocity += WallHit.Normal * Climb_FallOffForce;
 			SetMovementMode(MOVE_Falling);
@@ -1093,11 +1352,13 @@ void UDemoMyCharacterMovementComponent::PhysGrapple(float DeltaTime, int32 Itera
 
 	bJustTeleported = false;
 
+	const FVector NormalisedGravity = GetNormalisedGravity();
+
 	// Perform the move
 	Iterations++;
 	bJustTeleported = false;
 	FVector OldLocation = UpdatedComponent->GetComponentLocation();
-	FVector Start = UpdatedComponent->GetComponentLocation() + FVector::UpVector * Grapple_CamOffset;
+	FVector Start = UpdatedComponent->GetComponentLocation() - NormalisedGravity * Grapple_CamOffset;
 	FVector bGrapplePivot = GetGrapplingPivot();
 	FVector PivotDir = (bGrapplePivot - Start).GetSafeNormal();
 

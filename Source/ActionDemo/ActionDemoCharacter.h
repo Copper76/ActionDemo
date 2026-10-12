@@ -104,6 +104,8 @@ public:
 
 	FCollisionQueryParams GetIgnorePortalParams(bool isBlue) const;
 
+	inline float GetCurrentRoll() const { return CurrentRoll; }
+
 protected:
 	virtual void BeginPlay();
 
@@ -224,5 +226,7 @@ private:
 private:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Defaults", meta = (AllowPrivateAccess))
 	float KillZ = -1000.0f;
+
+	float CurrentRoll = 0.0f;
 };
 

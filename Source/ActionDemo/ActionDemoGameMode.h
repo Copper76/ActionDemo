@@ -13,6 +13,9 @@ class AActionDemoGameMode : public AGameModeBase
 
 public:
 	AActionDemoGameMode();
+
+protected:
+	virtual APawn* SpawnDefaultPawnFor_Implementation(AController* NewPlayer, AActor* StartSpot) override;
 };
 
 

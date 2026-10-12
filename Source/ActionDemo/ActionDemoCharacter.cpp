@@ -97,7 +97,7 @@ void AActionDemoCharacter::BeginPlay()
 		CheckpointManager->AddCheckpoint(0, GetActorTransform());
 		if (CheckpointManager->GetCheckpointIndex() != 0)
 		{
-			
+			//To be confirmed
 		}
 	}
 }
@@ -307,7 +307,8 @@ void AActionDemoCharacter::CalcCamera(float DeltaTime, struct FMinimalViewInfo& 
 	if (PlayerCamera)
 	{
 		PlayerCamera->GetCameraView(DeltaTime, OutResult);
-		OutResult.Location += CrouchEyeOffset;
+		const FQuat GravityAlign = FQuat::FindBetweenNormals(FVector::UpVector, -DemoMyCharacterMovementComponent->GetGravityDirection());
+		OutResult.Location += GravityAlign.RotateVector(CrouchEyeOffset);
 	}
 }
 
@@ -329,6 +330,13 @@ void AActionDemoCharacter::Tick(float DeltaTime)
 	{
 		ReturnToLastCheckpoint();
 	}
+
+	CurrentRoll = FMath::FInterpTo(CurrentRoll, -TargetRoll, DeltaTime, TiltSpeed);
+
+	float CrouchInterpTime = FMath::Min(1.0f, CrouchSpeed * DeltaTime);
+	CrouchEyeOffset = (1.0f - CrouchInterpTime) * CrouchEyeOffset;
+	//GetController()->SetControlRotation(FRotator(FMath::FInterpTo(GetControlRotation().Roll, TargetRoll, DeltaTime, 10.0f), GetControlRotation().Pitch, GetControlRotation().Yaw));
+
 #pragma region Grapple
 	if (GrappleCoolDown > 0 && GrappleStage == GRAPPLE_NONE)
 	{
@@ -375,9 +383,6 @@ void AActionDemoCharacter::Tick(float DeltaTime)
 		}
 	}
 #pragma endregion
-	float CrouchInterpTime = FMath::Min(1.0f, CrouchSpeed * DeltaTime);
-	CrouchEyeOffset = (1.0f - CrouchInterpTime) * CrouchEyeOffset;
-	//GetController()->SetControlRotation(FRotator(FMath::FInterpTo(GetControlRotation().Roll, TargetRoll, DeltaTime, 10.0f), GetControlRotation().Pitch, GetControlRotation().Yaw));
 
 #pragma region Teleport
 	//line trace to find the target for teleportation
