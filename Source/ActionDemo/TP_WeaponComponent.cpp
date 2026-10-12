@@ -312,7 +312,6 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalR
 	FCollisionQueryParams QueryParams = m_Character->GetIgnorePortalParams(isBlue);
 	FVector Start = PlayerController->PlayerCameraManager->GetCameraLocation();
 	FVector Fwd = PlayerController->PlayerCameraManager->GetCameraRotation().Vector();
-	float HorizontalRotation = PlayerController->PlayerCameraManager->GetCameraRotation().Yaw;
 
 	FHitResult PortalHit;
 	GetWorld()->LineTraceSingleByChannel(PortalHit, Start, Start + Fwd * Portal_Range, ECC_Visibility, QueryParams);
@@ -333,13 +332,43 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalR
 	PortalCentre = PortalHit.ImpactPoint;
 	FVector PortalSurface = PortalHit.ImpactNormal;
 
-	//Calculate the correct rotation now that the checks are passed
-	float VertComponent = FMath::Abs(FMath::RoundHalfToZero(1000.0f * PortalHit.ImpactNormal.Rotation().Pitch / 90.0f) / 1000.0f);
-	PortalRotation = FRotator(PortalHit.ImpactNormal.Rotation().Pitch, VertComponent == 1.0f? HorizontalRotation + 180.0f : PortalHit.ImpactNormal.Rotation().Yaw, 0.0f);
+	// Player-space basis (actor up = gravity up)
+	const FVector PlayerUp = m_Character->GetActorUpVector().GetSafeNormal();
+	FVector PlayerFwd = FVector::VectorPlaneProject(Fwd, PlayerUp).GetSafeNormal();
+	if (PlayerFwd.IsNearlyZero())
+	{
+		PlayerFwd = FVector::VectorPlaneProject(m_Character->GetActorForwardVector(), PlayerUp).GetSafeNormal();
+	}
+
+	// Wall (no player-up component) is the special case: stand straight, yaw from surface.
+	// Anything with a vertical component: face ±player up, yaw/twist from look (+180).
+	const FVector ImpactNormal = PortalHit.ImpactNormal.GetSafeNormal();
+	const float UpDot = ImpactNormal | PlayerUp;
+	const bool bWall = FMath::IsNearlyZero(UpDot, 1.e-3f);
+
+	FVector PortalNormal;
+	FVector PortalUp;
+	if (bWall)
+	{
+		PortalNormal = FVector::VectorPlaneProject(ImpactNormal, PlayerUp).GetSafeNormal();
+		if (PortalNormal.IsNearlyZero())
+		{
+			PortalNormal = ImpactNormal;
+		}
+		PortalUp = PlayerUp;
+	}
+	else
+	{
+		PortalNormal = (UpDot >= 0.f ? 1.f : -1.f) * PlayerUp;
+		PortalUp = -PlayerFwd;
+	}
+
+	const FQuat PortalQuat = FRotationMatrix::MakeFromXZ(PortalNormal, PortalUp).ToQuat();
+	PortalRotation = PortalQuat.Rotator();
 
 	FVector SurfaceRight = FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::RightVector), PortalSurface).GetSafeNormal();
 
-	FVector SurfaceUp = PortalRotation.RotateVector(FVector::UpVector).GetSafeNormal();
+	FVector SurfaceUp = PortalQuat.RotateVector(FVector::UpVector).GetSafeNormal();
 
 	AActor* TargetActor = PortalHit.GetActor();
 

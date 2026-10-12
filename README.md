@@ -16,6 +16,15 @@ This project is a demo project using Unreal Engine. The project is a practice pr
 - [x] Weapon swap
 - [X] Assault Rifle
 - [X] Teleporting objects through portal
+- [X] Allow movement to be gravity ignorant
+- [ ] Make gun animation idle
+- [ ] Make gun animation move
+- [ ] Make gun animation fire
+- [ ] Make gun animation sprint
+- [ ] Make mantle and other movement animations
+- [ ] Make gun recoil properly
+- [ ] Make portal work with all orientation
+- [ ] Rework the logic of portal so it feels better and can fire through
 
 ## Controls
 - WSAD to move around
