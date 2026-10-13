@@ -640,13 +640,31 @@ bool UDemoMyCharacterMovementComponent::DoJump(bool bReplayingMoves)
 	return false;
 }
 
-void UDemoMyCharacterMovementComponent::AlignMovement(FRotator NewRotation)
+void UDemoMyCharacterMovementComponent::AlignMovement(const FQuat& RelativeRotation, const FQuat& ViewRotation)
 {
-	UE_LOG(LogTemp, Warning, TEXT("ROTATOR: %s"), *NewRotation.ToString());
 	UE_LOG(LogTemp, Warning, TEXT("PRE-VELOCITY: %s"), *Velocity.ToString());
-	Velocity = NewRotation.RotateVector(Velocity).GetClampedToMaxSize(Portal_MaxTravelSpeed);
-	Acceleration = NewRotation.RotateVector(Acceleration);
+	Velocity = RelativeRotation.RotateVector(Velocity).GetClampedToMaxSize(Portal_MaxTravelSpeed);
+	Acceleration = RelativeRotation.RotateVector(Acceleration);
 	UE_LOG(LogTemp, Warning, TEXT("After-VELOCITY: %s"), *Velocity.ToString());
+
+	// View up is "up" as seen through the portal. Gravity is the opposite, snapped to the strongest world axis.
+	const FVector GravityHint = -ViewRotation.GetUpVector();
+	const FVector AbsGravity = GravityHint.GetAbs();
+
+	FVector SnappedGravity = FVector::ZeroVector;
+	if (AbsGravity.X >= AbsGravity.Y && AbsGravity.X >= AbsGravity.Z)
+	{
+		SnappedGravity.X = FMath::Sign(GravityHint.X);
+	}
+	else if (AbsGravity.Y >= AbsGravity.Z)
+	{
+		SnappedGravity.Y = FMath::Sign(GravityHint.Y);
+	}
+	else
+	{
+		SnappedGravity.Z = FMath::Sign(GravityHint.Z);
+	}
+	SetGravityDirection(SnappedGravity);
 }
 
 #pragma region Slide

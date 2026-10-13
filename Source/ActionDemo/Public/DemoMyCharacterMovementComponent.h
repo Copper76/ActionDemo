@@ -233,7 +233,7 @@ public:
 
 	UFUNCTION(BlueprintCallable) bool IsCustomMovementMode(ECustomMovementMode InCustomMovementMode) const;
 
-	void AlignMovement(FRotator NewRotation);
+	void AlignMovement(const FQuat& RelativeRotation, const FQuat& ViewRotation);
 
 //private:
 	//UFUNCTION() void OnRep_ShortMantle();

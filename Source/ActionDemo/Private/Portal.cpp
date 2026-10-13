@@ -26,7 +26,7 @@ APortal::APortal()
 	//CaptureComponent->AttachToComponent(SceneRoot, FAttachmentTransformRules::KeepRelativeTransform);
 	CameraOffset = FVector(10.f, 0.f, 0.0f);
 	CaptureComponent->SetRelativeLocation(CameraOffset); // Position the camera
-	CameraRotation = FRotator(0.0f, 0.0f, 90.0f);
+	CameraRotation = FRotator(0.0f, 0.0f, 90.0f).Quaternion();
 	CaptureComponent->SetRelativeRotation(CameraRotation);
 
 	BoxCollider = CreateDefaultSubobject<UBoxComponent>(TEXT("Teleporter"));
@@ -87,7 +87,8 @@ void APortal::SetUp(AActionDemoCharacter* Player, AActor* TargetSurface, APortal
 
 void APortal::SetUpCollision(AActor* TargetSurface)
 {
-	VertComponent = GetActorRotation().Pitch / 90.0f;
+	const FVector RefUp = Character ? Character->GetActorUpVector() : FVector::UpVector;
+	VertComponent = GetActorForwardVector() | RefUp.GetSafeNormal();
 	VertComponent = FMath::RoundHalfToZero(1000.0f * VertComponent) / 1000.0f;
 	if (!TargetComponents.IsEmpty())
 	{
@@ -121,33 +122,21 @@ void APortal::Tick(float DeltaTime)
 	if (!(OtherPortal == nullptr || PlayerController == nullptr || Character == nullptr))
 	{
 		CaptureComponent->HiddenActors.Empty();
-		FVector PlayerOffset = Plane->GetComponentLocation() - PlayerController->PlayerCameraManager->GetCameraLocation();
-		PlayerOffset = GetActorRotation().UnrotateVector(PlayerOffset);
 
-		FRotator CamRotation = PlayerController->PlayerCameraManager->GetCameraRotation();
-		//OtherPortal->CaptureComponent->SetRelativeRotation(FRotator(FRotator(0.0f, 180.0f, 0.0f) - GetActorRotation(), CamRotation.Yaw * VertComponent));
-		if (VertComponent == 1.0f || VertComponent == -1.0f)
-		{
-			float RollRotation = (180.0f -GetActorRotation().Yaw + CamRotation.Yaw)* VertComponent + GetActorRotation().Roll;
-			float PitchFactor = FMath::Cos(RollRotation * PI / 180.0f);
-			float YawFactor = FMath::Sin(RollRotation * PI / 180.0f);
-			float PitchRotation = (GetActorRotation().Pitch + CamRotation.Pitch) * PitchFactor;
-			float YawRotation = (GetActorRotation().Pitch + CamRotation.Pitch) * YawFactor;
-			OtherPortal->CaptureComponent->SetRelativeRotation(FRotator(FMath::Clamp(PitchRotation, -90.0f, 90.0f), YawRotation, RollRotation));
-		}
-		else
+		const FQuat EntryQ = GetActorQuat();
+		const FQuat ExitQ = OtherPortal->GetActorQuat();
+		const FQuat CamQ = PlayerController->PlayerCameraManager->GetCameraRotation().Quaternion();
+		const FQuat FlipQ = FQuat(FVector::ZAxisVector, PI);
+
+		FVector PlayerOffset = Plane->GetComponentLocation() - PlayerController->PlayerCameraManager->GetCameraLocation();
+		PlayerOffset = EntryQ.UnrotateVector(PlayerOffset);
+		if (FMath::Abs(VertComponent) < 1.0f)
 		{
 			PlayerOffset.Z = -PlayerOffset.Z;
-			//OtherPortal->CaptureComponent->SetRelativeRotation(FRotator(GetActorRotation().Pitch + CamRotation.Pitch + FMath::Abs(CamRotation.Yaw) * VertComponent, 180.0f - GetActorRotation().Yaw + CamRotation.Yaw * (1 - VertComponent), VertComponent == 0 ? 0.0f : 180.0f + GetActorRotation().Yaw - CamRotation.Yaw));//not the best on slope
-			float YawRotation = 180.0f-GetActorRotation().Yaw + CamRotation.Yaw;
-			float YawAdjustment = YawRotation;
-			if (YawAdjustment > 180.0f)
-			{
-				YawAdjustment -= 360.0f;
-			}
-			float PitchRotation = GetActorRotation().Pitch + CamRotation.Pitch - FMath::Abs(YawAdjustment) * VertComponent;
-			OtherPortal->CaptureComponent->SetRelativeRotation(FRotator(FMath::Clamp(PitchRotation, -90.0f, 90.0f), YawRotation, YawAdjustment * VertComponent));
 		}
+
+		const FQuat CaptureWorldQ = ExitQ * FlipQ * EntryQ.Inverse() * CamQ;
+		OtherPortal->CaptureComponent->SetWorldRotation(CaptureWorldQ);
 		OtherPortal->CaptureComponent->SetRelativeLocation(CameraOffset + PlayerOffset);
 		
 		TArray<FHitResult> ObstacleHits;
@@ -177,31 +166,16 @@ void APortal::Tick(float DeltaTime)
 void APortal::Teleport()
 {
 	OtherPortal->bJustTeleported = true;
-	float OtherVertComponent = FMath::Abs(OtherPortal->VertComponent);
 
-	PlayerController->SetControlRotation(FRotator(OtherPortal->CaptureComponent->GetComponentRotation().Pitch, (OtherPortal->CaptureComponent->GetComponentRotation().Yaw + OtherPortal->CaptureComponent->GetComponentRotation().Roll), 0.0f));
+	const FQuat ExitQ = OtherPortal->GetActorQuat();
+	const FQuat TravelQ = ExitQ * FQuat(FVector::ZAxisVector, PI) * GetActorQuat().Inverse();
 
-	Character->SetActorLocation(OtherPortal->CaptureComponent->GetComponentLocation() + OtherPortal->GetActorRotation().RotateVector(-Character->CameraOffset), false, nullptr, ETeleportType::TeleportPhysics);
+	const FQuat CaptureQ = OtherPortal->CaptureComponent->GetComponentQuat();
+	PlayerController->SetControlRotation(CaptureQ.Rotator());
 
-	if (VertComponent == 1.0f || VertComponent == -1.0f)
-	{
-		Character->AlignMovement(FRotator(OtherVertComponent == 1.0f ? OtherPortal->GetActorRotation().Pitch : OtherPortal->GetActorRotation().Pitch, OtherVertComponent == 1.0f ? 0.0f : OtherPortal->GetActorRotation().Yaw, 0.0f) + FRotator(GetActorRotation().Pitch, 0.0f, 0.0f));
-	}
-	else
-	{
-		float YawAdjustment = 180.0f - GetActorRotation().Yaw;
-		if (YawAdjustment > 180.0f)
-		{
-			YawAdjustment -= 360.0f;
-		}
-		Character->AlignMovement(FRotator(OtherVertComponent == 1.0f ? -OtherPortal->GetActorRotation().Pitch : -OtherPortal->GetActorRotation().Pitch, OtherVertComponent == 1.0f ? 0.0f : OtherPortal->GetActorRotation().Yaw, 0.0f) + FRotator(-GetActorRotation().Pitch, YawAdjustment, 0.0f));
-		//Character->AlignMovement(FRotator(-GetActorRotation().Pitch, YawAdjustment, 0.0f));
-	}
-	if (OtherVertComponent == 1.0f)
-	{
-		//TP to centre to avoid premature loop break
-		//Character->SetActorLocation(OtherPortal->GetActorLocation() + OtherPortal->GetActorRotation().RotateVector(-Character->CameraOffset), false, nullptr, ETeleportType::TeleportPhysics);
-	}
+	Character->SetActorLocation(OtherPortal->CaptureComponent->GetComponentLocation() + ExitQ.RotateVector(-Character->CameraOffset), false, nullptr, ETeleportType::TeleportPhysics);
+
+	Character->AlignMovement(TravelQ, ExitQ);
 }
 
 void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
@@ -224,22 +198,10 @@ void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherA
 			{
 				ActorTeleportor->Inportal = true;
 				FVector Location = GetActorLocation() - OtherActor->GetActorLocation();
-				FRotator Rotation = OtherActor->GetActorRotation() - GetActorRotation() + OtherPortal->GetActorRotation();
 				Location.Z = -Location.Z;
-				if (OtherPortal->VertComponent == 1.0f || OtherPortal->VertComponent == -1.0f)
-				{
-					Rotation += FRotator(180.0f, 0.0f, 0.0f);
-				}
-				else
-				{
-					Rotation += FRotator(0.0f, 180.0f, 0.0f);
-				}
-				if (Rotation.Yaw > 360.0f)
-				{
-					Rotation.Yaw -= 360.0f;
-				}
+
+				const FQuat Rotation = OtherPortal->GetActorQuat() * FQuat(FVector::ZAxisVector, PI) * GetActorQuat().Inverse() * OtherActor->GetActorQuat();
 				Location = Rotation.RotateVector(Location);
-				//Location += OtherPortal->GetActorLocation();
 				Location += OtherPortal->GetActorLocation();
 
 				//Creating the cloned actor
@@ -247,9 +209,7 @@ void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherA
 				FActorSpawnParameters params;
 				params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 				params.Template = OtherActor;
-				//params.CustomPreSpawnInitalization = nullptr;
 				params.bDeferConstruction = true;
-				//AActor* ClonedActor = GetWorld()->SpawnActorDeferred<AActor>(OtherActor->GetClass(), NewTrans, OtherActor->GetAttachParentActor(), nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn, ESpawnActorScaleMethod::OverrideRootScale);
 				AActor* ClonedActor = GetWorld()->SpawnActor<AActor>(OtherActor->GetClass(), NewTrans, params);
 				if (ClonedActor)
 				{
@@ -273,13 +233,8 @@ void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherA
 						Constraint->SetConstrainedComponents(OtherComp, NAME_None, ClonedPhysicalComponent, NAME_None);
 						FConstraintInstance& ConstraintInstance = Constraint->ConstraintInstance;
 
-						FRotator RotationDiff = ClonedPhysicalComponent->GetComponentRotation() - OtherComp->GetComponentRotation();
-						FVector LocationDiff = ClonedPhysicalComponent->GetComponentLocation() - OtherComp->GetComponentLocation();
-
-						//ConstraintInstance.SetRefFrame(EConstraintFrame::Frame1, FTransform::Identity);
-						//ConstraintInstance.SetRefFrame(EConstraintFrame::Frame2, FTransform(RotationDiff, LocationDiff));
-						ConstraintInstance.SetRefFrame(EConstraintFrame::Frame1, FTransform(OtherComp->GetComponentRotation(), OtherComp->GetComponentLocation()));
-						ConstraintInstance.SetRefFrame(EConstraintFrame::Frame2, FTransform(ClonedPhysicalComponent->GetComponentRotation(), ClonedPhysicalComponent->GetComponentLocation()));
+						ConstraintInstance.SetRefFrame(EConstraintFrame::Frame1, FTransform(OtherComp->GetComponentQuat(), OtherComp->GetComponentLocation()));
+						ConstraintInstance.SetRefFrame(EConstraintFrame::Frame2, FTransform(ClonedPhysicalComponent->GetComponentQuat(), ClonedPhysicalComponent->GetComponentLocation()));
 
 						ConstraintInstance.SetLinearLimits(ELinearConstraintMotion::LCM_Locked, ELinearConstraintMotion::LCM_Locked, ELinearConstraintMotion::LCM_Locked, 0);
 
@@ -325,21 +280,18 @@ void APortal::OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AAct
 					GEngine->ForceGarbageCollection(true);
 					Constraint = nullptr;
 				}
-				FVector Location = GetActorRotation().UnrotateVector(Plane->GetComponentLocation() - OtherActor->GetActorLocation());
+				FVector Location = GetActorQuat().UnrotateVector(Plane->GetComponentLocation() - OtherActor->GetActorLocation());
 				if (Location.X > 0.0f && ActorTeleportor->Clone != nullptr)
 				{
 					UE_LOG(LogTemp, Warning, TEXT("WILL TP"))
 					FVector NewLoc = ActorTeleportor->Clone->GetActorLocation();
-					FRotator NewRot = ActorTeleportor->Clone->GetActorRotation();
-					FRotator Rotation = OtherPortal->GetActorRotation() - GetActorRotation() + FRotator(0.0f, 180.0f, 0.0f);
-					//UPrimitiveComponent* PhysicalComponent = TeleportingObjects[i]->GetComponentByClass<UPrimitiveComponent>();
-					//PhysicalComponent->SetSimulatePhysics(false);
+					FQuat NewRot = ActorTeleportor->Clone->GetActorQuat();
+					const FQuat Rotation = OtherPortal->GetActorQuat() * FQuat(FVector::ZAxisVector, PI) * GetActorQuat().Inverse();
 					UE_LOG(LogTemp, Warning, TEXT("Old Vel: %s"), *OtherComp->GetComponentVelocity().ToString())
 					FVector NewVel = Rotation.RotateVector(OtherComp->GetComponentVelocity());
-					OtherActor->SetActorLocationAndRotation(NewLoc, NewRot, false,nullptr,ETeleportType::TeleportPhysics);
+					OtherActor->SetActorLocationAndRotation(NewLoc, NewRot, false, nullptr, ETeleportType::TeleportPhysics);
 					OtherComp->SetPhysicsLinearVelocity(NewVel);
 					UE_LOG(LogTemp, Warning, TEXT("New Vel: %s"), *OtherComp->GetComponentVelocity().ToString())
-					//PhysicalComponent->SetSimulatePhysics(true);
 				}
 				ActorTeleportor->Inportal = false;
 				VDestroy(ActorTeleportor->Clone);

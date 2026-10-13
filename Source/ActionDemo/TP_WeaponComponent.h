@@ -116,7 +116,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void Empty() {};
 
-	bool CheckValidLoc(FVector& PortalCentre, FRotator& OutRotation, AActor*& TargetSurface, bool isBlue);
+	bool CheckValidLoc(FVector& PortalCentre, FQuat& OutRotation, AActor*& TargetSurface, bool isBlue);
 
 protected:
 	/** Ends gameplay for this component. */

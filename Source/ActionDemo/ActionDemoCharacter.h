@@ -161,7 +161,7 @@ public:
 
 	void UnGrapple();
 
-	void AlignMovement(FRotator NewRotation);
+	void AlignMovement(const FQuat& RelativeRotation, const FQuat& ViewRotation);
 
 protected:
 	// APawn interface

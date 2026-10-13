@@ -234,9 +234,9 @@ void AActionDemoCharacter::Flash()
 	}
 }
 
-void AActionDemoCharacter::AlignMovement(FRotator NewRotation)
+void AActionDemoCharacter::AlignMovement(const FQuat& RelativeRotation, const FQuat& ViewRotation)
 {
-	DemoMyCharacterMovementComponent->AlignMovement(NewRotation);
+	DemoMyCharacterMovementComponent->AlignMovement(RelativeRotation, ViewRotation);
 }
 
 void AActionDemoCharacter::Grapple()

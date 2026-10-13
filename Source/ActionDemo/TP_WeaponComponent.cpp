@@ -180,7 +180,7 @@ void UTP_WeaponComponent::BluePortalFire()
 	}
 
 	FVector PortalCentre;
-	FRotator PortalRotation;
+	FQuat PortalRotation;
 	AActor* TargetSurface = nullptr;
 	if (!CheckValidLoc(PortalCentre, PortalRotation, TargetSurface, true))
 	{
@@ -198,7 +198,7 @@ void UTP_WeaponComponent::BluePortalFire()
 	{
 		FActorSpawnParameters SpawnInfo;
 		SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		m_Character->BluePortal = GetWorld()->SpawnActor<APortal>(BluePortalBP, PortalCentre, PortalRotation, SpawnInfo);
+		m_Character->BluePortal = GetWorld()->SpawnActor<APortal>(BluePortalBP, FTransform(PortalRotation, PortalCentre), SpawnInfo);
 		if (m_Character->OrangePortal == nullptr)
 		{
 			m_Character->BluePortal->SetUp(m_Character, TargetSurface);
@@ -240,7 +240,7 @@ void UTP_WeaponComponent::OrangePortalFire()
 		}
 	}
 
-	FRotator PortalRotation;
+	FQuat PortalRotation;
 	FVector PortalCentre;
 	AActor* TargetSurface = NULL;
 	if (!CheckValidLoc(PortalCentre, PortalRotation, TargetSurface, false))
@@ -259,7 +259,7 @@ void UTP_WeaponComponent::OrangePortalFire()
 	{
 		FActorSpawnParameters SpawnInfo;
 		SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		m_Character->OrangePortal = GetWorld()->SpawnActor<APortal>(OrangePortalBP, PortalCentre, PortalRotation, SpawnInfo);
+		m_Character->OrangePortal = GetWorld()->SpawnActor<APortal>(OrangePortalBP, FTransform(PortalRotation, PortalCentre), SpawnInfo);
 		if (m_Character->BluePortal == nullptr)
 		{
 			m_Character->OrangePortal->SetUp(m_Character, TargetSurface);
@@ -306,7 +306,7 @@ void UTP_WeaponComponent::TogglePortal()
 	}
 }
 
-bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalRotation, AActor*& TargetSurface, bool isBlue)
+bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FQuat& PortalRotation, AActor*& TargetSurface, bool isBlue)
 {
 	if (m_Character->GetPortal(isBlue) != nullptr && m_Character->GetPortal(isBlue)->TeleportingObjects.Num() > 0) return false;
 	FCollisionQueryParams QueryParams = m_Character->GetIgnorePortalParams(isBlue);
@@ -360,15 +360,14 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FRotator& PortalR
 	else
 	{
 		PortalNormal = (UpDot >= 0.f ? 1.f : -1.f) * PlayerUp;
-		PortalUp = -PlayerFwd;
+		PortalUp = PlayerFwd;
 	}
 
-	const FQuat PortalQuat = FRotationMatrix::MakeFromXZ(PortalNormal, PortalUp).ToQuat();
-	PortalRotation = PortalQuat.Rotator();
+	PortalRotation = FRotationMatrix::MakeFromXZ(PortalNormal, PortalUp).ToQuat();
 
 	FVector SurfaceRight = FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::RightVector), PortalSurface).GetSafeNormal();
 
-	FVector SurfaceUp = PortalQuat.RotateVector(FVector::UpVector).GetSafeNormal();
+	FVector SurfaceUp = PortalRotation.RotateVector(FVector::UpVector).GetSafeNormal();
 
 	AActor* TargetActor = PortalHit.GetActor();
 

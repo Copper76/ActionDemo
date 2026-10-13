@@ -66,7 +66,7 @@ protected:
 
 private:
 	FVector CameraOffset;
-	FRotator CameraRotation;
+	FQuat CameraRotation;
 	bool bPlayerCanTeleport;
 	bool bJustTeleported;
 
