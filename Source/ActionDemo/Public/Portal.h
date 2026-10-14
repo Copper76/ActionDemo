@@ -35,6 +35,12 @@ protected:
 
 	void VDestroy(AActor* ToDestroy);
 
+	bool HasCrossedPortal(AActor* Actor) const;
+
+	void HandOffTeleportingObject(AActor* Original);
+
+	void UpdateCloneConstraint(AActor* Original, AActor* Clone);
+
 protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
@@ -63,6 +69,8 @@ protected:
 	TArray<ECollisionChannel> TargetComponentsChannels;
 
 	void Teleport();
+
+	void SetActorClip(AActor* Actor, const FLinearColor Origin, const FLinearColor Normal, const bool bEnable);
 
 private:
 	FVector CameraOffset;
@@ -96,5 +104,5 @@ public:
 
 	float VertComponent;
 
-	TArray<AActor*> TeleportingObjects = TArray<AActor*>();
+	TMap<AActor*, AActor*> TeleportingObjects = TMap<AActor*, AActor*>();
 };
