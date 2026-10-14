@@ -15,6 +15,7 @@
 #include "Engine/TextureRenderTarget2D.h"
 
 #include "DrawDebugHelpers.h"
+#include "PortalTraceLibrary.h"
 
 #define POINT(x, c) DrawDebugPoint(GetWorld(), x, 10, c, !5.0f, 5.0f);
 
@@ -126,7 +127,7 @@ void UTP_WeaponComponent::Fire()
 		Fwd = (Fwd + FRotator(FMath::FRandRange(-HipFireSpread, HipFireSpread), FMath::FRandRange(-HipFireSpread, HipFireSpread), 0.0f));
 	}
 
-	GetWorld()->LineTraceSingleByChannel(BulletHit, Start, Start + Fwd.Vector() * FireRange, ECC_Visibility, m_Character->GetIgnoreCharacterParams());
+	UPortalTraceLibrary::LineTraceSingleByChannel(GetWorld(), BulletHit, Start, Start + Fwd.Vector() * FireRange, ECC_Visibility, m_Character->GetIgnoreCharacterParams());
 
 	if (BulletHit.IsValidBlockingHit() && !BulletHit.GetActor()->IsA<APortal>())
 	{

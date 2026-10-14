@@ -90,6 +90,9 @@ public:
 
 	void Link(APortal* Portal);
 
+	// Maps a world point and direction through this portal onto the linked portal.
+	bool PassageTransform(const FVector& WorldPoint, const FVector& WorldDirection, FVector& OutPoint, FVector& OutDirection) const;
+
 	void SetToNoCollide();
 
 	void ResetChannel();

@@ -114,6 +114,21 @@ void APortal::Link(APortal* Portal)
 	}
 }
 
+bool APortal::PassageTransform(const FVector& WorldPoint, const FVector& WorldDirection, FVector& OutPoint, FVector& OutDirection) const
+{
+	if (!OtherPortal || !Plane || !OtherPortal->Plane)
+	{
+		return false;
+	}
+
+	const FQuat TravelQ = OtherPortal->GetActorQuat() * FQuat(FVector::ZAxisVector, PI) * GetActorQuat().Inverse();
+	const FVector EntryOrigin = Plane->GetComponentLocation();
+	const FVector ExitOrigin = OtherPortal->Plane->GetComponentLocation();
+	OutPoint = ExitOrigin + TravelQ.RotateVector(WorldPoint - EntryOrigin);
+	OutDirection = TravelQ.RotateVector(WorldDirection);
+	return true;
+}
+
 // Called every frame
 void APortal::Tick(float DeltaTime)
 {
@@ -328,6 +343,11 @@ void APortal::SetActorClip(AActor* Actor, const FLinearColor Origin, const FLine
 				MID = Mesh->CreateDynamicMaterialInstance(i, Mat);
 			}
 
+			if (!MID)
+			{
+				continue;
+			}
+
 			MID->SetScalarParameterValue(TEXT("ClipEnabled"), bEnable ? 1.f : 0.f);
 			MID->SetVectorParameterValue(TEXT("ClipPlaneOrigin"), Origin);
 			MID->SetVectorParameterValue(TEXT("ClipPlaneNormal"), Normal);
@@ -345,6 +365,7 @@ void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherA
 		if (OverlappedCharacter)
 		{
 			bPlayerCanTeleport = true;
+			return;
 		}
 
 		if (TeleportingObjects.Contains(OtherActor))

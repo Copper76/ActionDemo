@@ -2,6 +2,7 @@
 
 
 #include "DemoMyCharacterMovementComponent.h"
+#include "PortalTraceLibrary.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/Character.h"
 
@@ -91,7 +92,7 @@ void UDemoMyCharacterMovementComponent::OnMovementModeChanged(EMovementMode Prev
 		FVector Start = UpdatedComponent->GetComponentLocation();
 		FVector End = Start + UpdatedComponent->GetRightVector() * CapR() * 2;
 		FHitResult WallHit;
-		Safe_bWallRunIsRight = GetWorld()->LineTraceSingleByProfile(WallHit, Start, End, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
+		Safe_bWallRunIsRight = UPortalTraceLibrary::LineTraceSingleByProfile(GetWorld(), WallHit, Start, End, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
 	}
 }
 
@@ -624,7 +625,7 @@ bool UDemoMyCharacterMovementComponent::DoJump(bool bReplayingMoves)
 			FVector CastDelta = UpdatedComponent->GetRightVector() * CapR() * 2;
 			FVector End = Safe_bWallRunIsRight ? Start + CastDelta : Start - CastDelta;
 			FHitResult WallHit;
-			GetWorld()->LineTraceSingleByProfile(WallHit, Start, End, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
+			UPortalTraceLibrary::LineTraceSingleByProfile(GetWorld(), WallHit, Start, End, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
 			Velocity += WallHit.Normal * WallRun_JumpOffForce;
 		}
 		else if (bWasClimbing)
@@ -632,7 +633,7 @@ bool UDemoMyCharacterMovementComponent::DoJump(bool bReplayingMoves)
 			FVector Start = UpdatedComponent->GetComponentLocation() + FVector::DownVector * CapHH();
 			FVector End = Start + UpdatedComponent->GetForwardVector() * CapR() * 2;
 			FHitResult WallHit;
-			GetWorld()->LineTraceSingleByProfile(WallHit, Start, End, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
+			UPortalTraceLibrary::LineTraceSingleByProfile(GetWorld(), WallHit, Start, End, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
 			Velocity += WallHit.Normal * Climb_JumpOffForce;
 		}
 		return true;
@@ -926,7 +927,7 @@ bool UDemoMyCharacterMovementComponent::TryMantle()
 	FVector FrontStart = BaseLoc - NormalisedGravity * (MaxStepHeight - 1);
 	for (int i = 0; i < 6; i++)
 	{
-		if (GetWorld() -> LineTraceSingleByProfile(FrontHit, FrontStart, FrontStart + Fwd*CheckDistance, "BlockAll",DemoCharacterOwner->GetIgnoreCharacterParams())) break;
+		if (UPortalTraceLibrary::LineTraceSingleByProfile(GetWorld(), FrontHit, FrontStart, FrontStart + Fwd*CheckDistance, "BlockAll",DemoCharacterOwner->GetIgnoreCharacterParams())) break;
 		FrontStart -= NormalisedGravity * (2.0f * CapHH() - (MaxStepHeight - 1)) / 5;
 	}
 	if (!FrontHit.IsValidBlockingHit()) return false;
@@ -941,7 +942,7 @@ bool UDemoMyCharacterMovementComponent::TryMantle()
 	float WallSin = FMath::Sqrt(1 - WallCos * WallCos);
 	FVector TraceStart = FrontHit.Location + Fwd + WallUp * (MaxHeight - (MaxStepHeight - 1)) / WallSin;//Fwd is used to avoid edge cases
 
-	if (!GetWorld()->LineTraceMultiByProfile(HeightHits, TraceStart, FrontHit.Location + Fwd, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) return false;
+	if (!UPortalTraceLibrary::LineTraceMultiByProfile(GetWorld(), HeightHits, TraceStart, FrontHit.Location + Fwd, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) return false;
 
 	for (const FHitResult& Hit : HeightHits)
 	{
@@ -1036,16 +1037,16 @@ bool UDemoMyCharacterMovementComponent::TryWallRun()
 	FVector LeftEnd = Start - UpdatedComponent->GetRightVector() * CapR() * 2;
 	FVector RightEnd = Start + UpdatedComponent->GetRightVector() * CapR() * 2;
 	FHitResult FloorHit, WallHit;
-	if (GetWorld()->LineTraceSingleByProfile(FloorHit, Start, Start + NormalisedGravity * (CapHH() + WallRun_MinHeight), "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) return false;
+	if (UPortalTraceLibrary::LineTraceSingleByProfile(GetWorld(), FloorHit, Start, Start + NormalisedGravity * (CapHH() + WallRun_MinHeight), "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) return false;
 
-	GetWorld()->LineTraceSingleByProfile(WallHit, Start, LeftEnd, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
+	UPortalTraceLibrary::LineTraceSingleByProfile(GetWorld(), WallHit, Start, LeftEnd, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
 	if (WallHit.IsValidBlockingHit() && (Velocity | WallHit.Normal) < 0)
 	{
 		Safe_bWallRunIsRight = false;
 	}
 	else
 	{
-		GetWorld()->LineTraceSingleByProfile(WallHit, Start, RightEnd, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
+		UPortalTraceLibrary::LineTraceSingleByProfile(GetWorld(), WallHit, Start, RightEnd, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
 		if (WallHit.IsValidBlockingHit() && (Velocity | WallHit.Normal) < 0)
 		{
 			Safe_bWallRunIsRight = true;
@@ -1097,7 +1098,7 @@ void UDemoMyCharacterMovementComponent::PhysWallRun(float DeltaTime, int32 Itera
 		FVector End = Safe_bWallRunIsRight ? Start + CastDelta : Start - CastDelta;
 		float SinPullAwayAngle = FMath::Sin(FMath::DegreesToRadians(WallRun_PullAwayAngle));
 		FHitResult WallHit;
-		GetWorld()->LineTraceSingleByProfile(WallHit, Start, End, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
+		UPortalTraceLibrary::LineTraceSingleByProfile(GetWorld(), WallHit, Start, End, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
 		bool bWantsToPullAway = WallHit.IsValidBlockingHit() && !Acceleration.IsNearlyZero() && (Acceleration.GetSafeNormal() | WallHit.Normal) > SinPullAwayAngle;
 		if (!WallHit.IsValidBlockingHit() || bWantsToPullAway)
 		{
@@ -1149,8 +1150,8 @@ void UDemoMyCharacterMovementComponent::PhysWallRun(float DeltaTime, int32 Itera
 	FVector CastDelta = UpdatedComponent->GetRightVector() * CapR() * 2;
 	FVector End = Safe_bWallRunIsRight ? Start + CastDelta : Start - CastDelta;
 	FHitResult FloorHit, WallHit;
-	GetWorld()->LineTraceSingleByProfile(WallHit, Start, End, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
-	GetWorld()->LineTraceSingleByProfile(FloorHit, Start, Start + NormalisedGravity * (CapHH() + WallRun_MinHeight * .5f), "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
+	UPortalTraceLibrary::LineTraceSingleByProfile(GetWorld(), WallHit, Start, End, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
+	UPortalTraceLibrary::LineTraceSingleByProfile(GetWorld(), FloorHit, Start, Start + NormalisedGravity * (CapHH() + WallRun_MinHeight * .5f), "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
 	if (FloorHit.IsValidBlockingHit() || !WallHit.IsValidBlockingHit() || FVector::VectorPlaneProject(Velocity, NormalisedGravity).SizeSquared() < pow(WallRun_MinSpeed, 2))
 	{
 		SetMovementMode(MOVE_Falling);
@@ -1174,8 +1175,8 @@ bool UDemoMyCharacterMovementComponent::TryClimb()
 
 	for (int i = 0; i < 5; i++)
 	{
-		//if (GetWorld()->LineTraceSingleByProfile(WallHit, Start, Start + Fwd * CapR() * 2, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) break;
-		if (GetWorld()->LineTraceSingleByChannel(WallHit, Start, Start + Fwd * CapR() * 2, ECollisionChannel::ECC_WorldStatic, DemoCharacterOwner->GetIgnoreCharacterParams())) break;
+		//if (UPortalTraceLibrary::LineTraceSingleByProfile(GetWorld(), WallHit, Start, Start + Fwd * CapR() * 2, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) break;
+		if (UPortalTraceLibrary::LineTraceSingleByChannel(GetWorld(), WallHit, Start, Start + Fwd * CapR() * 2, ECollisionChannel::ECC_WorldStatic, DemoCharacterOwner->GetIgnoreCharacterParams())) break;
 		Start -= NormalisedGravity * (1.5f * CapHH() - (MaxStepHeight - 1)) / 4;
 	}
 	if (!WallHit.IsValidBlockingHit() || WallHit.GetActor()->IsA<APortal>() || WallHit.GetComponent()->GetCollisionObjectType() != ECollisionChannel::ECC_WorldStatic)
@@ -1232,7 +1233,7 @@ void UDemoMyCharacterMovementComponent::PhysClimb(float DeltaTime, int32 Iterati
 
 		for (int i = 0; i < 5; i++)
 		{
-			if (GetWorld()->LineTraceSingleByProfile(WallHit, Start, Start + Fwd * CapR() * 2, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) break;
+			if (UPortalTraceLibrary::LineTraceSingleByProfile(GetWorld(), WallHit, Start, Start + Fwd * CapR() * 2, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) break;
 			Start -= NormalisedGravity * (1.5f * CapHH() - (MaxStepHeight - 1)) / 4;
 		}
 		if (!WallHit.IsValidBlockingHit())
