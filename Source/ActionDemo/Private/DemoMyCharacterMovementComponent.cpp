@@ -4,6 +4,7 @@
 #include "DemoMyCharacterMovementComponent.h"
 #include "PortalTraceLibrary.h"
 #include "Components/CapsuleComponent.h"
+#include "Engine/OverlapResult.h"
 #include "GameFramework/Character.h"
 
 float MacroDuration = 5.f;
@@ -1468,6 +1469,100 @@ namespace
 		OutHit.Distance = ExitHit.bStartPenetrating ? ExitHit.Distance : ExitHit.Time * FullDistance;
 	}
 
+	bool IsPortalOwnedComponent(const UPrimitiveComponent* Component)
+	{
+		return Component && Component->GetOwner() && Component->GetOwner()->IsA(APortal::StaticClass());
+	}
+
+	// The wall the portal is mounted on reaches behind the plane. A start-overlap has no contact on that wall.
+	bool ComponentReachesBehindPlane(const APortal* Portal, const UPrimitiveComponent* Component)
+	{
+		if (!Portal || !Component)
+		{
+			return false;
+		}
+
+		const FVector Forward = Portal->GetActorForwardVector();
+		const FBoxSphereBounds& Bounds = Component->Bounds;
+		const float CenterDist = FVector::DotProduct(Bounds.Origin - Portal->GetPlaneOrigin(), Forward);
+		const float ExtentAlongForward =
+			Bounds.BoxExtent.X * FMath::Abs(Forward.X)
+			+ Bounds.BoxExtent.Y * FMath::Abs(Forward.Y)
+			+ Bounds.BoxExtent.Z * FMath::Abs(Forward.Z);
+		return CenterDist - ExtentAlongForward <= 2.f;
+	}
+
+	bool HitIsPortalWall(const APortal* Portal, const FHitResult& Hit)
+	{
+		const UPrimitiveComponent* Component = Hit.GetComponent();
+		if (!Portal || IsPortalOwnedComponent(Component))
+		{
+			return false;
+		}
+		if (Hit.bStartPenetrating)
+		{
+			return ComponentReachesBehindPlane(Portal, Component);
+		}
+		return Portal->IsPointBehindPlane(PortalContactPoint(Hit));
+	}
+
+	bool PortalCast(UWorld* World, FHitResult& OutHit, const FVector& Start, const FVector& End, const FQuat& Rot, ECollisionChannel Channel, const FCollisionShape& Shape, FCollisionQueryParams Params, const FCollisionResponseParams& ResponseParam, APortal* TravelPortal)
+	{
+		auto CastSegment = [&](const FVector& SegStart, const FVector& SegEnd, const FQuat& SegRot, APortal* PlanePortal, FCollisionQueryParams SegParams, FHitResult& Hit) -> bool
+		{
+			for (int32 Attempt = 0; Attempt < 8; ++Attempt)
+			{
+				const bool bHit = World->SweepSingleByChannel(Hit, SegStart, SegEnd, SegRot, Channel, Shape, SegParams, ResponseParam);
+				if (!bHit || !Hit.bBlockingHit)
+				{
+					return false;
+				}
+				if (!HitIsPortalWall(PlanePortal, Hit))
+				{
+					return true;
+				}
+				if (UPrimitiveComponent* Component = Hit.GetComponent())
+				{
+					SegParams.AddIgnoredComponent(Component);
+					continue;
+				}
+				return true;
+			}
+			return false;
+		};
+
+		FHitResult EntryHit;
+		const bool bEntry = CastSegment(Start, End, Rot, TravelPortal, Params, EntryHit);
+
+		bool bExit = false;
+		FHitResult ExitHit;
+		FQuat TravelQ = FQuat::Identity;
+		FVector ExitStart = FVector::ZeroVector;
+		FVector ExitEnd = FVector::ZeroVector;
+		if (TravelPortal->OtherPortal && TravelPortal->GetTravelQuat(TravelQ) && TravelPortal->TranslatePoint(Start, ExitStart) && TravelPortal->TranslatePoint(End, ExitEnd))
+		{
+			bExit = CastSegment(ExitStart, ExitEnd, TravelQ * Rot, TravelPortal->OtherPortal, Params, ExitHit);
+			if (bExit)
+			{
+				FHitResult MappedHit;
+				MapExitHitToEntry(ExitHit, TravelQ.Inverse(), TravelPortal->GetPlaneOrigin(), TravelPortal->OtherPortal->GetPlaneOrigin(), Start, End, MappedHit);
+				ExitHit = MappedHit;
+			}
+		}
+
+		if (bEntry && (!bExit || EntryHit.Time <= ExitHit.Time))
+		{
+			OutHit = EntryHit;
+			return true;
+		}
+		if (bExit)
+		{
+			OutHit = ExitHit;
+			return true;
+		}
+		return false;
+	}
+
 }
 
 bool UDemoMyCharacterMovementComponent::MoveUpdatedComponentImpl(const FVector& Delta, const FQuat& NewRotation, bool bSweep, FHitResult* OutHit, ETeleportType Teleport)
@@ -1794,17 +1889,226 @@ bool UDemoMyCharacterMovementComponent::ResolvePenetrationImpl(const FVector& Pr
 
 bool UDemoMyCharacterMovementComponent::OverlapTest(const FVector& Location, const FQuat& RotationQuat, const ECollisionChannel CollisionChannel, const FCollisionShape& CollisionShape, const AActor* IgnoreActor) const
 {
-	return Super::OverlapTest(Location, RotationQuat, CollisionChannel, CollisionShape, IgnoreActor);
+	APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
+	if (!TravelPortal || !GetWorld())
+	{
+		return Super::OverlapTest(Location, RotationQuat, CollisionChannel, CollisionShape, IgnoreActor);
+	}
+
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MovementOverlapTest), false, IgnoreActor);
+	FCollisionResponseParams ResponseParam;
+	InitCollisionParams(QueryParams, ResponseParam);
+
+	auto BlocksAt = [&](const FVector& TestLocation, const FQuat& TestRot, APortal* PlanePortal) -> bool
+	{
+		FCollisionQueryParams Params = QueryParams;
+		for (int32 Attempt = 0; Attempt < 8; ++Attempt)
+		{
+			TArray<FOverlapResult> Overlaps;
+			if (!GetWorld()->OverlapMultiByChannel(Overlaps, TestLocation, TestRot, CollisionChannel, CollisionShape, Params, ResponseParam))
+			{
+				return false;
+			}
+
+			bool bIgnoredWall = false;
+			for (const FOverlapResult& Overlap : Overlaps)
+			{
+				UPrimitiveComponent* Component = Overlap.GetComponent();
+				if (!Overlap.bBlockingHit || !Component)
+				{
+					continue;
+				}
+				if (IsPortalOwnedComponent(Component))
+				{
+					return true;
+				}
+				if (ComponentReachesBehindPlane(PlanePortal, Component))
+				{
+					Params.AddIgnoredComponent(Component);
+					bIgnoredWall = true;
+					continue;
+				}
+				return true;
+			}
+			if (!bIgnoredWall)
+			{
+				return false;
+			}
+		}
+		return false;
+	};
+
+	if (BlocksAt(Location, RotationQuat, TravelPortal))
+	{
+		return true;
+	}
+
+	FQuat TravelQ = FQuat::Identity;
+	FVector ExitLocation = FVector::ZeroVector;
+	if (TravelPortal->OtherPortal && TravelPortal->GetTravelQuat(TravelQ) && TravelPortal->TranslatePoint(Location, ExitLocation))
+	{
+		return BlocksAt(ExitLocation, TravelQ * RotationQuat, TravelPortal->OtherPortal);
+	}
+	return false;
 }
 
 bool UDemoMyCharacterMovementComponent::FloorSweepTest(FHitResult& OutHit, const FVector& Start, const FVector& End, ECollisionChannel TraceChannel, const FCollisionShape& CollisionShape, const FCollisionQueryParams& Params, const FCollisionResponseParams& ResponseParam) const
 {
-	return Super::FloorSweepTest(OutHit, Start, End, TraceChannel, CollisionShape, Params, ResponseParam);
+	APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
+	if (!TravelPortal || !GetWorld())
+	{
+		return Super::FloorSweepTest(OutHit, Start, End, TraceChannel, CollisionShape, Params, ResponseParam);
+	}
+
+	auto Sweep = [&](const FQuat& Rot, const FCollisionShape& Shape, FHitResult& Hit) -> bool
+	{
+		return PortalCast(GetWorld(), Hit, Start, End, Rot, TraceChannel, Shape, Params, ResponseParam, TravelPortal);
+	};
+
+	if (!bUseFlatBaseForFloorChecks)
+	{
+		return Sweep(GetWorldToGravityTransform(), CollisionShape, OutHit);
+	}
+
+	const float CapsuleRadius = CollisionShape.GetCapsuleRadius();
+	const float CapsuleHeight = CollisionShape.GetCapsuleHalfHeight();
+	const FCollisionShape BoxShape = FCollisionShape::MakeBox(FVector(CapsuleRadius * 0.707f, CapsuleRadius * 0.707f, CapsuleHeight));
+	if (Sweep(FQuat(RotateGravityToWorld(FVector(0.f, 0.f, -1.f)), UE_PI * 0.25f), BoxShape, OutHit))
+	{
+		return true;
+	}
+
+	OutHit.Reset(1.f, false);
+	return Sweep(GetWorldToGravityTransform(), BoxShape, OutHit);
 }
 
 void UDemoMyCharacterMovementComponent::ComputeFloorDist(const FVector& CapsuleLocation, float LineDistance, float SweepDistance, FFindFloorResult& OutFloorResult, float SweepRadius, const FHitResult* DownwardSweepResult) const
 {
-	Super::ComputeFloorDist(CapsuleLocation, LineDistance, SweepDistance, OutFloorResult, SweepRadius, DownwardSweepResult);
+	APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
+	if (!TravelPortal || !CharacterOwner || !UpdatedComponent || !GetWorld())
+	{
+		Super::ComputeFloorDist(CapsuleLocation, LineDistance, SweepDistance, OutFloorResult, SweepRadius, DownwardSweepResult);
+		return;
+	}
+
+	OutFloorResult.Clear();
+
+	float PawnRadius, PawnHalfHeight;
+	CharacterOwner->GetCapsuleComponent()->GetScaledCapsuleSize(PawnRadius, PawnHalfHeight);
+
+	if (DownwardSweepResult && DownwardSweepResult->IsValidBlockingHit() && HitIsPortalWall(TravelPortal, *DownwardSweepResult))
+	{
+		DownwardSweepResult = nullptr;
+	}
+
+	bool bSkipSweep = false;
+	if (DownwardSweepResult != nullptr && DownwardSweepResult->IsValidBlockingHit())
+	{
+		const bool bIsDownward = RotateWorldToGravity(DownwardSweepResult->TraceStart - DownwardSweepResult->TraceEnd).Z > 0;
+		const bool bIsVertical = RotateWorldToGravity(DownwardSweepResult->TraceStart - DownwardSweepResult->TraceEnd).SizeSquared2D() <= UE_KINDA_SMALL_NUMBER;
+		if (bIsDownward && bIsVertical)
+		{
+			if (IsWithinEdgeTolerance(DownwardSweepResult->Location, DownwardSweepResult->ImpactPoint, PawnRadius))
+			{
+				bSkipSweep = true;
+
+				const bool bIsWalkable = IsWalkable(*DownwardSweepResult);
+				const float FloorDist = RotateWorldToGravity(CapsuleLocation - DownwardSweepResult->Location).Z;
+				OutFloorResult.SetFromSweep(*DownwardSweepResult, FloorDist, bIsWalkable);
+				if (bIsWalkable)
+				{
+					return;
+				}
+			}
+		}
+	}
+
+	if (SweepDistance < LineDistance)
+	{
+		ensure(SweepDistance >= LineDistance);
+		return;
+	}
+
+	bool bBlockingHit = false;
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(ComputeFloorDist), false, CharacterOwner);
+	QueryParams.bTraceIntoSubComponents = true;
+	QueryParams.bReplaceHitWithSubComponents = false;
+	FCollisionResponseParams ResponseParam;
+	InitCollisionParams(QueryParams, ResponseParam);
+	const ECollisionChannel CollisionChannel = UpdatedComponent->GetCollisionObjectType();
+
+	if (!bSkipSweep && SweepDistance > 0.f && SweepRadius > 0.f)
+	{
+		const float ShrinkScale = 0.9f;
+		const float ShrinkScaleOverlap = 0.1f;
+		float ShrinkHeight = (PawnHalfHeight - PawnRadius) * (1.f - ShrinkScale);
+		float TraceDist = SweepDistance + ShrinkHeight;
+		FCollisionShape CapsuleShape = FCollisionShape::MakeCapsule(SweepRadius, PawnHalfHeight - ShrinkHeight);
+
+		FHitResult Hit(1.f);
+		bBlockingHit = FloorSweepTest(Hit, CapsuleLocation, CapsuleLocation + RotateGravityToWorld(FVector(0.f, 0.f, -TraceDist)), CollisionChannel, CapsuleShape, QueryParams, ResponseParam);
+
+		if (bBlockingHit)
+		{
+			if (Hit.bStartPenetrating || !IsWithinEdgeTolerance(CapsuleLocation, Hit.ImpactPoint, CapsuleShape.Capsule.Radius))
+			{
+				CapsuleShape.Capsule.Radius = FMath::Max(0.f, CapsuleShape.Capsule.Radius - SWEEP_EDGE_REJECT_DISTANCE - UE_KINDA_SMALL_NUMBER);
+				if (!CapsuleShape.IsNearlyZero())
+				{
+					ShrinkHeight = (PawnHalfHeight - PawnRadius) * (1.f - ShrinkScaleOverlap);
+					TraceDist = SweepDistance + ShrinkHeight;
+					CapsuleShape.Capsule.HalfHeight = FMath::Max(PawnHalfHeight - ShrinkHeight, CapsuleShape.Capsule.Radius);
+					Hit.Reset(1.f, false);
+
+					bBlockingHit = FloorSweepTest(Hit, CapsuleLocation, CapsuleLocation + RotateGravityToWorld(FVector(0.f, 0.f, -TraceDist)), CollisionChannel, CapsuleShape, QueryParams, ResponseParam);
+				}
+			}
+
+			const float MaxPenetrationAdjust = FMath::Max(MAX_FLOOR_DIST, PawnRadius);
+			const float SweepResult = FMath::Max(-MaxPenetrationAdjust, Hit.Time * TraceDist - ShrinkHeight);
+
+			OutFloorResult.SetFromSweep(Hit, SweepResult, false);
+			if (Hit.IsValidBlockingHit() && IsWalkable(Hit))
+			{
+				if (SweepResult <= SweepDistance)
+				{
+					OutFloorResult.bWalkableFloor = true;
+					return;
+				}
+			}
+		}
+	}
+
+	if (!OutFloorResult.bBlockingHit && !OutFloorResult.HitResult.bStartPenetrating)
+	{
+		OutFloorResult.FloorDist = SweepDistance;
+		return;
+	}
+
+	if (LineDistance > 0.f)
+	{
+		const float ShrinkHeight = PawnHalfHeight;
+		const float TraceDist = LineDistance + ShrinkHeight;
+		const FVector Down = RotateGravityToWorld(FVector(0.f, 0.f, -TraceDist));
+		QueryParams.TraceTag = SCENE_QUERY_STAT_NAME_ONLY(FloorLineTrace);
+
+		FHitResult Hit(1.f);
+		bBlockingHit = PortalCast(GetWorld(), Hit, CapsuleLocation, CapsuleLocation + Down, FQuat::Identity, CollisionChannel, FCollisionShape(), QueryParams, ResponseParam, TravelPortal);
+
+		if (bBlockingHit && Hit.Time > 0.f)
+		{
+			const float MaxPenetrationAdjust = FMath::Max(MAX_FLOOR_DIST, PawnRadius);
+			const float LineResult = FMath::Max(-MaxPenetrationAdjust, Hit.Time * TraceDist - ShrinkHeight);
+			OutFloorResult.bBlockingHit = true;
+			if (LineResult <= LineDistance && IsWalkable(Hit))
+			{
+				OutFloorResult.SetFromLineTrace(Hit, OutFloorResult.FloorDist, LineResult, true);
+				return;
+			}
+		}
+	}
+
+	OutFloorResult.bWalkableFloor = false;
 }
 #pragma endregion
 
