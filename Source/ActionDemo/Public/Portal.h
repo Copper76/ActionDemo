@@ -34,7 +34,9 @@ protected:
 
 	void HandOffTeleportingObject(AActor* Original);
 
-	void UpdateCloneConstraint(AActor* Original, AActor* Clone);
+	AActor* CreatePortalClone(AActor* Original, const FTransform& SpawnTransform);
+
+	void UpdateCloneTransform(AActor* Original, AActor* Clone);
 
 protected:
 
