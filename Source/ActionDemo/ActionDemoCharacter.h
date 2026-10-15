@@ -176,6 +176,12 @@ public:
 
 	APortal* GetPortal(bool isBlue);
 
+	inline bool IsInPortal() const { return CurrentPortal != nullptr; }
+
+	inline APortal* GetCurrentPortal() const { return CurrentPortal; }
+
+	inline void SetCurrentPortal(APortal* Portal) { CurrentPortal = Portal; }
+
 protected:
 	//Flash
 	float FlashReach = 1000.0f;
@@ -213,6 +219,7 @@ public:
 	APortal* BluePortal;
 	APortal* OrangePortal;
 	FVector CameraOffset;
+	APortal* CurrentPortal = nullptr;
 
 	//AimingAPlayerController
 	UPROPERTY(BlueprintReadOnly) FVector AimingPoseLoc;

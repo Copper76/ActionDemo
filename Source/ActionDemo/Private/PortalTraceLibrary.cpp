@@ -14,7 +14,7 @@ namespace
 	{
 		FVector ExitPoint = FVector::ZeroVector;
 		FVector ExitDirection = FVector::ZeroVector;
-		if (!Portal->PassageTransform(OutHit.ImpactPoint, Direction, ExitPoint, ExitDirection))
+		if (!Portal->TranslatePoint(OutHit.ImpactPoint, ExitPoint) || !Portal->TranslateDirection(Direction, ExitDirection))
 		{
 			return false;
 		}

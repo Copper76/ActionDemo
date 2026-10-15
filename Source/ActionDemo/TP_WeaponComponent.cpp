@@ -199,21 +199,13 @@ void UTP_WeaponComponent::BluePortalFire()
 	{
 		FActorSpawnParameters SpawnInfo;
 		SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		m_Character->BluePortal = GetWorld()->SpawnActor<APortal>(BluePortalBP, FTransform(PortalRotation, PortalCentre), SpawnInfo);
-		if (m_Character->OrangePortal == nullptr)
-		{
-			m_Character->BluePortal->SetUp(m_Character, TargetSurface);
-		}
-		else
-		{
-			m_Character->BluePortal->SetUp(m_Character, TargetSurface, m_Character->OrangePortal);
-		}
+		m_Character->BluePortal = GetWorld()->SpawnActor<APortal>(PortalBP, FTransform(PortalRotation, PortalCentre), SpawnInfo);
+		m_Character->BluePortal->SetUp(TargetSurface, true, m_Character->OrangePortal);
 	}
 	else
 	{
 		m_Character->BluePortal->GetRootComponent()->SetWorldLocation(PortalCentre);
 		m_Character->BluePortal->GetRootComponent()->SetWorldRotation(PortalRotation);
-		m_Character->BluePortal->SetUpCollision(TargetSurface);
 	}
 }
 
@@ -260,21 +252,13 @@ void UTP_WeaponComponent::OrangePortalFire()
 	{
 		FActorSpawnParameters SpawnInfo;
 		SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		m_Character->OrangePortal = GetWorld()->SpawnActor<APortal>(OrangePortalBP, FTransform(PortalRotation, PortalCentre), SpawnInfo);
-		if (m_Character->BluePortal == nullptr)
-		{
-			m_Character->OrangePortal->SetUp(m_Character, TargetSurface);
-		}
-		else
-		{
-			m_Character->OrangePortal->SetUp(m_Character, TargetSurface, m_Character->BluePortal);
-		}
+		m_Character->OrangePortal = GetWorld()->SpawnActor<APortal>(PortalBP, FTransform(PortalRotation, PortalCentre), SpawnInfo);
+		m_Character->OrangePortal->SetUp(TargetSurface, false, m_Character->BluePortal);
 	}
 	else
 	{
 		m_Character->OrangePortal->GetRootComponent()->SetWorldLocation(PortalCentre);
 		m_Character->OrangePortal->GetRootComponent()->SetWorldRotation(PortalRotation);
-		m_Character->OrangePortal->SetUpCollision(TargetSurface);
 	}
 }
 

@@ -188,6 +188,33 @@ protected:
 	virtual bool CanAttemptJump() const override;
 	virtual bool DoJump(bool bReplayingMoves) override;
 
+protected:
+	virtual bool MoveUpdatedComponentImpl(const FVector& Delta, const FQuat& NewRotation, bool bSweep, FHitResult* OutHit = nullptr, ETeleportType Teleport = ETeleportType::None) override;
+
+	virtual bool ResolvePenetrationImpl(const FVector& Adjustment, const FHitResult& Hit, const FQuat& NewRotation) override;
+
+	virtual bool OverlapTest(const FVector& Location, const FQuat& RotationQuat, const ECollisionChannel CollisionChannel, const FCollisionShape& CollisionShape, const AActor* IgnoreActor) const override;
+
+	virtual bool FloorSweepTest(
+		FHitResult& OutHit,
+		const FVector& Start,
+		const FVector& End,
+		ECollisionChannel TraceChannel,
+		const FCollisionShape& CollisionShape,
+		const FCollisionQueryParams& Params,
+		const FCollisionResponseParams& ResponseParam
+	) const override;
+
+	virtual void ComputeFloorDist(
+		const FVector& CapsuleLocation,
+		float LineDistance,
+		float SweepDistance,
+		FFindFloorResult& OutFloorResult,
+		float SweepRadius,
+		const FHitResult* DownwardSweepResult = nullptr
+	) const override;
+
+
 //Gravity
 private:
 	inline FVector GetNormalisedGravity() const { return GetGravityDirection().GetSafeNormal(); }

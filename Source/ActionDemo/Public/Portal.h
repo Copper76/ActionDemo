@@ -30,12 +30,7 @@ protected:
 	UFUNCTION()
 	void OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
 
-	UFUNCTION()
-	void OnTeleportEnd(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
-
 	void VDestroy(AActor* ToDestroy);
-
-	bool HasCrossedPortal(AActor* Actor) const;
 
 	void HandOffTeleportingObject(AActor* Original);
 
@@ -50,62 +45,59 @@ protected:
 	USceneCaptureComponent2D* CaptureComponent;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Collider, meta = (AllowPrivateAccess = "true"))
-	UBoxComponent* BoxCollider;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Collider, meta = (AllowPrivateAccess = "true"))
 	UBoxComponent* ReverseCollider;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Plane, meta = (AllowPrivateAccess = "true"))
 	UStaticMeshComponent* Plane;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Material, meta = (AllowPrivateAccess = "true"))
-	UMaterial* EmptyMaterial;
+	UMaterialInstance* OrangeMaterial;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Material, meta = (AllowPrivateAccess = "true"))
-	UMaterial* LinkedMaterial;
+	UTextureRenderTarget2D* OrangeTextureTarget;
 
-	TArray<UStaticMeshComponent*> TargetComponents;
-
-	TArray<ECollisionChannel> TargetComponentsChannels;
-
-	void Teleport();
+	void Teleport(AActionDemoCharacter* Character);
 
 	void SetActorClip(AActor* Actor, const FLinearColor Origin, const FLinearColor Normal, const bool bEnable);
 
 private:
 	FVector CameraOffset;
 	FQuat CameraRotation;
-	bool bPlayerCanTeleport;
-	bool bJustTeleported;
 
 public:	
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
-	void SetUp(AActionDemoCharacter* Player, AActor* TargetSurface);
-
-	void SetUp(AActionDemoCharacter* Player, AActor* TargetSurface, APortal* OtherPortal);
-
-	void SetUpCollision(AActor* TargetSurface);
+	void SetUp(AActor* TargetSurface, const bool bIsBlue = true,  APortal* OtherPortal = nullptr);
 
 	void Link(APortal* Portal);
 
-	// Maps a world point and direction through this portal onto the linked portal.
-	bool PassageTransform(const FVector& WorldPoint, const FVector& WorldDirection, FVector& OutPoint, FVector& OutDirection) const;
+	// Rotation that takes this portal's space onto the linked portal. False when there is no linked portal.
+	bool GetTravelQuat(FQuat& OutTravelQ) const;
 
-	void SetToNoCollide();
+	// Maps a world point through this portal onto the linked portal.
+	bool TranslatePoint(const FVector& WorldPoint, FVector& OutPoint) const;
 
-	void ResetChannel();
+	// Maps a direction through this portal onto the linked portal.
+	bool TranslateDirection(const FVector& WorldDirection, FVector& OutDirection) const;
+
+	// True on the wall side of the portal, including contacts sitting on the surface.
+	bool IsPointBehindPlane(const FVector& Point) const;
+
+	FVector GetPlaneOrigin() const
+	{
+		return Plane ? Plane->GetComponentLocation() : GetActorLocation();
+	}
 
 public:
-	AActionDemoCharacter* Character;
+	AActionDemoCharacter* LocalPlayer;
 
 	APlayerController* PlayerController;//set it on spawn
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
 	APortal* OtherPortal; //set it on spawn if there is another
 
-	float VertComponent;
-
 	TMap<AActor*, AActor*> TeleportingObjects = TMap<AActor*, AActor*>();
+
+	TMap<AActionDemoCharacter*, AActor*> TeleportingCharacters = TMap<AActionDemoCharacter*, AActor*>();
 };

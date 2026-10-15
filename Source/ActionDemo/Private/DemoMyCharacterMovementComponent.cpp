@@ -1437,6 +1437,247 @@ void UDemoMyCharacterMovementComponent::PhysGrapple(float DeltaTime, int32 Itera
 
 #pragma endregion
 
+#pragma region Portal
+namespace
+{
+	FVector PortalContactPoint(const FHitResult& Hit)
+	{
+		if (Hit.bStartPenetrating && Hit.ImpactPoint.IsNearlyZero())
+		{
+			return Hit.Location;
+		}
+		return Hit.ImpactPoint;
+	}
+
+	void MapExitHitToEntry(const FHitResult& ExitHit, const FQuat& InvTravelQ, const FVector& EntryOrigin, const FVector& ExitOrigin, const FVector& EntryStart, const FVector& EntryEnd, FHitResult& OutHit)
+	{
+		OutHit = ExitHit;
+		OutHit.TraceStart = EntryStart;
+		OutHit.TraceEnd = EntryEnd;
+		OutHit.bBlockingHit = true;
+		auto ToEntry = [&](const FVector& ExitPoint)
+		{
+			return EntryOrigin + InvTravelQ.RotateVector(ExitPoint - ExitOrigin);
+		};
+		OutHit.Location = ToEntry(ExitHit.Location);
+		OutHit.ImpactPoint = ToEntry(ExitHit.ImpactPoint);
+		OutHit.Normal = InvTravelQ.RotateVector(ExitHit.Normal).GetSafeNormal();
+		OutHit.ImpactNormal = InvTravelQ.RotateVector(ExitHit.ImpactNormal).GetSafeNormal();
+		OutHit.Time = ExitHit.Time;
+		const float FullDistance = FVector::Distance(EntryStart, EntryEnd);
+		OutHit.Distance = ExitHit.bStartPenetrating ? ExitHit.Distance : ExitHit.Time * FullDistance;
+	}
+
+}
+
+bool UDemoMyCharacterMovementComponent::MoveUpdatedComponentImpl(const FVector& Delta, const FQuat& NewRotation, bool bSweep, FHitResult* OutHit, ETeleportType Teleport)
+{
+	APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
+	if (!TravelPortal || !bSweep || !UpdatedComponent || !UpdatedPrimitive || !GetWorld())
+	{
+		return Super::MoveUpdatedComponentImpl(Delta, NewRotation, bSweep, OutHit, Teleport);
+	}
+
+	const FVector ConstrainedDelta = ConstrainDirectionToPlane(Delta);
+	if (ConstrainedDelta.IsNearlyZero())
+	{
+		return Super::MoveUpdatedComponentImpl(Delta, NewRotation, bSweep, OutHit, Teleport);
+	}
+
+	const FVector Start = UpdatedComponent->GetComponentLocation();
+	const FVector End = Start + ConstrainedDelta;
+	const FQuat MoveRot = UpdatedComponent->GetComponentQuat();
+
+	TArray<UPrimitiveComponent*> Ignored;
+	FComponentQueryParams QueryParams(SCENE_QUERY_STAT(PortalMove), CharacterOwner);
+	for (int32 Attempt = 0; Attempt < 8; ++Attempt)
+	{
+		TArray<FHitResult> Hits;
+		if (!GetWorld()->ComponentSweepMulti(Hits, UpdatedPrimitive, Start, End, MoveRot, QueryParams))
+		{
+			break;
+		}
+
+		bool bIgnoredBehind = false;
+		for (const FHitResult& Hit : Hits)
+		{
+			UPrimitiveComponent* Component = Hit.GetComponent();
+			if (!Hit.bBlockingHit || !Component)
+			{
+				continue;
+			}
+
+			// Portal-owned colliders (rim strips, plane) stay solid.
+			if (Component->GetOwner() && Component->GetOwner()->IsA(APortal::StaticClass()))
+			{
+				continue;
+			}
+
+			if (!TravelPortal->IsPointBehindPlane(PortalContactPoint(Hit)))
+			{
+				continue;
+			}
+
+			UpdatedPrimitive->IgnoreComponentWhenMoving(Component, true);
+			QueryParams.AddIgnoredComponent(Component);
+			Ignored.AddUnique(Component);
+			bIgnoredBehind = true;
+		}
+
+		if (!bIgnoredBehind)
+		{
+			break;
+		}
+	}
+
+	// Same sweep, played out of the linked portal. Geometry behind that plane is the exit wall.
+	float ExitLimit = 1.f;
+	bool bExitBlocked = false;
+	bool bClippedExitOverlap = false;
+	FVector ExitClipNormal = FVector::ZeroVector;
+	FVector AppliedDelta = ConstrainedDelta;
+	FHitResult ExitHit;
+	FQuat InvTravelQ = FQuat::Identity;
+	const FVector EntryOrigin = TravelPortal->GetPlaneOrigin();
+	FVector ExitOrigin = FVector::ZeroVector;
+	if (APortal* ExitPortal = TravelPortal->OtherPortal)
+	{
+		FVector ExitStart = FVector::ZeroVector;
+		FVector ExitEnd = FVector::ZeroVector;
+		if (TravelPortal->TranslatePoint(Start, ExitStart) && TravelPortal->TranslatePoint(End, ExitEnd))
+		{
+			FQuat TravelQ = FQuat::Identity;
+			if (TravelPortal->GetTravelQuat(TravelQ))
+			{
+			InvTravelQ = TravelQ.Inverse();
+			ExitOrigin = ExitPortal->GetPlaneOrigin();
+
+			FCollisionQueryParams ExitParams(SCENE_QUERY_STAT(PortalExitMove), false, CharacterOwner);
+			FCollisionResponseParams ExitResponse;
+			InitCollisionParams(ExitParams, ExitResponse);
+			const ECollisionChannel Channel = UpdatedPrimitive->GetCollisionObjectType();
+			const FCollisionShape Shape = UpdatedPrimitive->GetCollisionShape();
+			const FQuat ExitRot = TravelQ * MoveRot;
+
+			for (int32 Attempt = 0; Attempt < 8; ++Attempt)
+			{
+				FHitResult Hit;
+				if (!GetWorld()->SweepSingleByChannel(Hit, ExitStart, ExitEnd, ExitRot, Channel, Shape, ExitParams, ExitResponse) || !Hit.bBlockingHit)
+				{
+					break;
+				}
+
+				UPrimitiveComponent* Component = Hit.GetComponent();
+				if (ExitPortal->IsPointBehindPlane(PortalContactPoint(Hit)))
+				{
+					if (Component)
+					{
+						ExitParams.AddIgnoredComponent(Component);
+						continue;
+					}
+					break;
+				}
+
+				ExitHit = Hit;
+				bExitBlocked = true;
+				if (Hit.bStartPenetrating)
+				{
+					const FVector EntryNormal = InvTravelQ.RotateVector(Hit.Normal).GetSafeNormal();
+					const float IntoSurface = FVector::DotProduct(ConstrainedDelta, EntryNormal);
+					if (!EntryNormal.IsNearlyZero() && IntoSurface < -KINDA_SMALL_NUMBER)
+					{
+						// Block only the direction into the obstacle, same as a normal surface hit.
+						AppliedDelta = ConstrainedDelta - EntryNormal * IntoSurface;
+						bClippedExitOverlap = true;
+						ExitClipNormal = EntryNormal;
+					}
+					else
+					{
+						bExitBlocked = false;
+					}
+				}
+				else
+				{
+					ExitLimit = FMath::Clamp(Hit.Time, 0.f, 1.f);
+					AppliedDelta = ConstrainedDelta * ExitLimit;
+				}
+				break;
+			}
+			}
+		}
+	}
+
+	const bool bMoved = Super::MoveUpdatedComponentImpl(AppliedDelta, NewRotation, bSweep, OutHit, Teleport);
+
+	for (UPrimitiveComponent* Component : Ignored)
+	{
+		if (Component)
+		{
+			UpdatedPrimitive->IgnoreComponentWhenMoving(Component, false);
+		}
+	}
+
+	if (OutHit)
+	{
+		if (OutHit->bBlockingHit && !OutHit->bStartPenetrating)
+		{
+			OutHit->Time *= ExitLimit;
+			OutHit->Distance = OutHit->Time * ConstrainedDelta.Size();
+			OutHit->TraceStart = Start;
+			OutHit->TraceEnd = End;
+		}
+
+		if (bClippedExitOverlap && (!OutHit->bBlockingHit || OutHit->Time >= 1.f - KINDA_SMALL_NUMBER))
+		{
+			MapExitHitToEntry(ExitHit, InvTravelQ, EntryOrigin, ExitOrigin, Start, End, *OutHit);
+			OutHit->bStartPenetrating = false;
+			OutHit->PenetrationDepth = 0.f;
+			OutHit->Normal = ExitClipNormal;
+			OutHit->ImpactNormal = ExitClipNormal;
+			if (AppliedDelta.IsNearlyZero())
+			{
+				OutHit->Time = 0.f;
+				OutHit->Distance = 0.f;
+				OutHit->Location = Start;
+			}
+			else
+			{
+				// The along-surface part already moved. Leave no remainder for another slide to reapply.
+				OutHit->Time = 1.f;
+				OutHit->Distance = ConstrainedDelta.Size();
+				OutHit->Location = UpdatedComponent->GetComponentLocation();
+			}
+		}
+		else if (bExitBlocked && (!OutHit->bBlockingHit || ExitHit.Time <= OutHit->Time + KINDA_SMALL_NUMBER))
+		{
+			MapExitHitToEntry(ExitHit, InvTravelQ, EntryOrigin, ExitOrigin, Start, End, *OutHit);
+		}
+	}
+
+	return bMoved;
+}
+
+bool UDemoMyCharacterMovementComponent::ResolvePenetrationImpl(const FVector& Adjustment, const FHitResult& Hit, const FQuat& NewRotation)
+{
+	return Super::ResolvePenetrationImpl(Adjustment, Hit, NewRotation);
+}
+
+bool UDemoMyCharacterMovementComponent::OverlapTest(const FVector& Location, const FQuat& RotationQuat, const ECollisionChannel CollisionChannel, const FCollisionShape& CollisionShape, const AActor* IgnoreActor) const
+{
+	return Super::OverlapTest(Location, RotationQuat, CollisionChannel, CollisionShape, IgnoreActor);
+}
+
+bool UDemoMyCharacterMovementComponent::FloorSweepTest(FHitResult& OutHit, const FVector& Start, const FVector& End, ECollisionChannel TraceChannel, const FCollisionShape& CollisionShape, const FCollisionQueryParams& Params, const FCollisionResponseParams& ResponseParam) const
+{
+	return Super::FloorSweepTest(OutHit, Start, End, TraceChannel, CollisionShape, Params, ResponseParam);
+}
+
+void UDemoMyCharacterMovementComponent::ComputeFloorDist(const FVector& CapsuleLocation, float LineDistance, float SweepDistance, FFindFloorResult& OutFloorResult, float SweepRadius, const FHitResult* DownwardSweepResult) const
+{
+	Super::ComputeFloorDist(CapsuleLocation, LineDistance, SweepDistance, OutFloorResult, SweepRadius, DownwardSweepResult);
+}
+#pragma endregion
+
 #pragma region Helper Functions
 bool UDemoMyCharacterMovementComponent::IsMovementMode(EMovementMode InMovementMode) const
 {

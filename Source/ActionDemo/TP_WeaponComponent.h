@@ -73,10 +73,7 @@ public:
 	class UInputAction* EmptyAction;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
-	TSubclassOf<AActor> BluePortalBP;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
-	TSubclassOf<AActor> OrangePortalBP;
+	TSubclassOf<AActor> PortalBP;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
 	TSubclassOf<AActor> BulletBP;
