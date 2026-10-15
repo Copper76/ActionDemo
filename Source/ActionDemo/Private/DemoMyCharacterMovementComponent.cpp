@@ -1657,9 +1657,139 @@ bool UDemoMyCharacterMovementComponent::MoveUpdatedComponentImpl(const FVector& 
 	return bMoved;
 }
 
-bool UDemoMyCharacterMovementComponent::ResolvePenetrationImpl(const FVector& Adjustment, const FHitResult& Hit, const FQuat& NewRotation)
+bool UDemoMyCharacterMovementComponent::ResolvePenetrationImpl(const FVector& ProposedAdjustment, const FHitResult& Hit, const FQuat& NewRotation)
 {
-	return Super::ResolvePenetrationImpl(Adjustment, Hit, NewRotation);
+	APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
+	if (!TravelPortal || !UpdatedComponent || !UpdatedPrimitive || !GetWorld())
+	{
+		return Super::ResolvePenetrationImpl(ProposedAdjustment, Hit, NewRotation);
+	}
+
+	const FVector Adjustment = ConstrainDirectionToPlane(ProposedAdjustment);
+	if (Adjustment.IsNearlyZero())
+	{
+		return Super::ResolvePenetrationImpl(ProposedAdjustment, Hit, NewRotation);
+	}
+
+	// The wall behind the plane is not a penetration. Pushing along its normal shoves the capsule out of the portal.
+	UPrimitiveComponent* HitComponent = Hit.GetComponent();
+	const bool bPortalOwned = HitComponent && HitComponent->GetOwner() && HitComponent->GetOwner()->IsA(APortal::StaticClass());
+	if (HitComponent && !bPortalOwned && TravelPortal->IsPointBehindPlane(PortalContactPoint(Hit)))
+	{
+		return false;
+	}
+
+	const FVector Start = UpdatedComponent->GetComponentLocation();
+	const FVector End = Start + Adjustment;
+	const FQuat MoveRot = UpdatedComponent->GetComponentQuat();
+
+	TArray<UPrimitiveComponent*> Ignored;
+	FComponentQueryParams QueryParams(SCENE_QUERY_STAT(PortalResolve), CharacterOwner);
+	for (int32 Attempt = 0; Attempt < 8; ++Attempt)
+	{
+		TArray<FHitResult> Hits;
+		if (!GetWorld()->ComponentSweepMulti(Hits, UpdatedPrimitive, Start, End, MoveRot, QueryParams))
+		{
+			break;
+		}
+
+		bool bIgnoredBehind = false;
+		for (const FHitResult& SweepHit : Hits)
+		{
+			UPrimitiveComponent* Component = SweepHit.GetComponent();
+			if (!SweepHit.bBlockingHit || !Component)
+			{
+				continue;
+			}
+
+			if (Component->GetOwner() && Component->GetOwner()->IsA(APortal::StaticClass()))
+			{
+				continue;
+			}
+
+			if (!TravelPortal->IsPointBehindPlane(PortalContactPoint(SweepHit)))
+			{
+				continue;
+			}
+
+			UpdatedPrimitive->IgnoreComponentWhenMoving(Component, true);
+			QueryParams.AddIgnoredComponent(Component);
+			Ignored.AddUnique(Component);
+			bIgnoredBehind = true;
+		}
+
+		if (!bIgnoredBehind)
+		{
+			break;
+		}
+	}
+
+	FVector AppliedAdjustment = Adjustment;
+	if (APortal* ExitPortal = TravelPortal->OtherPortal)
+	{
+		FVector ExitStart = FVector::ZeroVector;
+		FVector ExitEnd = FVector::ZeroVector;
+		FQuat TravelQ = FQuat::Identity;
+		if (TravelPortal->TranslatePoint(Start, ExitStart) && TravelPortal->TranslatePoint(End, ExitEnd) && TravelPortal->GetTravelQuat(TravelQ))
+		{
+			const FQuat InvTravelQ = TravelQ.Inverse();
+			FCollisionQueryParams ExitParams(SCENE_QUERY_STAT(PortalExitResolve), false, CharacterOwner);
+			FCollisionResponseParams ExitResponse;
+			InitCollisionParams(ExitParams, ExitResponse);
+			const ECollisionChannel Channel = UpdatedPrimitive->GetCollisionObjectType();
+			const FCollisionShape Shape = UpdatedPrimitive->GetCollisionShape();
+			const FQuat ExitRot = TravelQ * MoveRot;
+
+			for (int32 Attempt = 0; Attempt < 8; ++Attempt)
+			{
+				FHitResult ExitHit;
+				if (!GetWorld()->SweepSingleByChannel(ExitHit, ExitStart, ExitEnd, ExitRot, Channel, Shape, ExitParams, ExitResponse) || !ExitHit.bBlockingHit)
+				{
+					break;
+				}
+
+				UPrimitiveComponent* Component = ExitHit.GetComponent();
+				if (ExitPortal->IsPointBehindPlane(PortalContactPoint(ExitHit)))
+				{
+					if (Component)
+					{
+						ExitParams.AddIgnoredComponent(Component);
+						continue;
+					}
+					break;
+				}
+
+				if (ExitHit.bStartPenetrating)
+				{
+					const FVector EntryNormal = InvTravelQ.RotateVector(ExitHit.Normal).GetSafeNormal();
+					const float IntoSurface = FVector::DotProduct(Adjustment, EntryNormal);
+					if (!EntryNormal.IsNearlyZero() && IntoSurface < -KINDA_SMALL_NUMBER)
+					{
+						AppliedAdjustment = Adjustment - EntryNormal * IntoSurface;
+					}
+				}
+				else
+				{
+					AppliedAdjustment = Adjustment * FMath::Clamp(ExitHit.Time, 0.f, 1.f);
+				}
+				break;
+			}
+		}
+	}
+
+	const bool bResolved = AppliedAdjustment.IsNearlyZero()
+		? false
+		: Super::ResolvePenetrationImpl(AppliedAdjustment, Hit, NewRotation);
+
+	for (UPrimitiveComponent* Component : Ignored)
+	{
+		if (Component)
+		{
+			UpdatedPrimitive->IgnoreComponentWhenMoving(Component, false);
+		}
+	}
+
+	return bResolved;
 }
 
 bool UDemoMyCharacterMovementComponent::OverlapTest(const FVector& Location, const FQuat& RotationQuat, const ECollisionChannel CollisionChannel, const FCollisionShape& CollisionShape, const AActor* IgnoreActor) const

@@ -3,6 +3,7 @@
 
 #include "Portal.h"
 #include "../ActionDemoCharacter.h"
+#include "Components/CapsuleComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "ActionDemo/Public/Teleportor.h"
 #include "PhysicsEngine/PhysicsConstraintComponent.h"
@@ -157,20 +158,9 @@ void APortal::Tick(float DeltaTime)
 		OtherPortal->CaptureComponent->SetRelativeLocation(CameraOffset + PlayerOffset);
 	}
 
-	TArray<AActionDemoCharacter*> CharactersToTeleport;
-	for (const TPair<AActionDemoCharacter*, AActor*>& Pair : TeleportingCharacters)
+	if (LocalPlayer && LocalPlayer->GetCurrentPortal() == this && IsPointBehindPlane(LocalPlayer->GetActorLocation()))
 	{
-		if (Pair.Key && IsPointBehindPlane(Pair.Key->GetActorLocation()))
-		{
-			CharactersToTeleport.Add(Pair.Key);
-		}
-	}
-	for (AActionDemoCharacter* Character : CharactersToTeleport)
-	{
-		if (TeleportingCharacters.Contains(Character))
-		{
-			Teleport(Character);
-		}
+		Teleport(LocalPlayer);
 	}
 
 	TArray<AActor*> ToHandOff;
@@ -304,6 +294,9 @@ void APortal::Teleport(AActionDemoCharacter* Character)
 	const FQuat CaptureQ = OtherPortal->CaptureComponent->GetComponentQuat();
 	PlayerController->SetControlRotation(CaptureQ.Rotator());
 
+	// Enter the exit portal before the move, so the placement resolves against that plane.
+	OtherPortal->OnOverlapBegin(OtherPortal->ReverseCollider, Character, Character->GetCapsuleComponent(), INDEX_NONE, false, FHitResult());
+
 	Character->SetActorLocation(OtherPortal->CaptureComponent->GetComponentLocation() + ExitQ.RotateVector(-Character->CameraOffset), false, nullptr, ETeleportType::TeleportPhysics);
 
 	Character->AlignMovement(TravelQ, ExitQ);
@@ -344,8 +337,10 @@ void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherA
 	{
 		if (AActionDemoCharacter* OverlappedCharacter = Cast<AActionDemoCharacter>(OtherActor))
 		{
-			TeleportingCharacters.Add(OverlappedCharacter, nullptr);
-			OverlappedCharacter->SetCurrentPortal(this);
+			if (OverlappedCharacter == LocalPlayer)
+			{
+				OverlappedCharacter->SetCurrentPortal(this);
+			}
 			return;
 		}
 
@@ -416,8 +411,7 @@ void APortal::OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AAct
 
 	if (AActionDemoCharacter* OverlappedCharacter = Cast<AActionDemoCharacter>(OtherActor))
 	{
-		TeleportingCharacters.Remove(OverlappedCharacter);
-		if (OverlappedCharacter->GetCurrentPortal() == this)
+		if (OverlappedCharacter == LocalPlayer && OverlappedCharacter->GetCurrentPortal() == this)
 		{
 			OverlappedCharacter->SetCurrentPortal(nullptr);
 		}

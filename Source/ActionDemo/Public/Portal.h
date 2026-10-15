@@ -98,6 +98,4 @@ public:
 	APortal* OtherPortal; //set it on spawn if there is another
 
 	TMap<AActor*, AActor*> TeleportingObjects = TMap<AActor*, AActor*>();
-
-	TMap<AActionDemoCharacter*, AActor*> TeleportingCharacters = TMap<AActionDemoCharacter*, AActor*>();
 };
