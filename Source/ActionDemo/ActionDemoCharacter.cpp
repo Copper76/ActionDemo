@@ -229,7 +229,7 @@ void AActionDemoCharacter::SwapControl()
 
 void AActionDemoCharacter::Flash()
 {
-	if (FlashCoolDown <= 0.0f) {
+	if (FlashCoolDown <= 0.0f && (DemoMyCharacterMovementComponent->MovementMode == EMovementMode::MOVE_Falling || DemoMyCharacterMovementComponent->MovementMode == EMovementMode::MOVE_Walking)) {
 		this->AddActorWorldOffset(FlashOffset, true);
 		//DemoMyCharacterMovementComponent->AddForce(GetActorForwardVector() * 1000.0f);
 		FlashCoolDown = FlashMaxCoolDown;
@@ -429,6 +429,11 @@ bool AActionDemoCharacter::GetHasRifle()
 APortal* AActionDemoCharacter::GetPortal(bool isBlue)
 {
 	return isBlue ? BluePortal : OrangePortal;
+}
+
+bool AActionDemoCharacter::IsSprinting() const
+{
+	return DemoMyCharacterMovementComponent ? DemoMyCharacterMovementComponent->bIsSprinting : false;
 }
 
 void AActionDemoCharacter::ReturnToLastCheckpoint()

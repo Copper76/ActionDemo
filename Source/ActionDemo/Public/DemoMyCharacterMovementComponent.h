@@ -150,6 +150,7 @@ public:
 	bool bFellOff;
 	float bClimbTime;
 	bool bWantsToGrapple;
+	bool bIsSprinting = false;
 
 public:
 	UDemoMyCharacterMovementComponent();

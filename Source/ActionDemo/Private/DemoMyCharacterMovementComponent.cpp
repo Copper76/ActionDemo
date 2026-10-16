@@ -44,10 +44,12 @@ void UDemoMyCharacterMovementComponent::OnMovementUpdated(float DeltaSeconds, co
 		if (Safe_bWantsToSprint && (GetLastInputVector() | UpdatedComponent->GetForwardVector()) > 0.5f)
 		{
 			MaxWalkSpeed = Sprint_MaxWalkSpeed;
+			bIsSprinting = true;
 		}
 		else
 		{
 			MaxWalkSpeed = Walk_MaxWalkSpeed;
+			bIsSprinting = false;
 		}
 	}
 
@@ -57,6 +59,11 @@ void UDemoMyCharacterMovementComponent::OnMovementUpdated(float DeltaSeconds, co
 void UDemoMyCharacterMovementComponent::OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode)
 {
 	Super::OnMovementModeChanged(PreviousMovementMode, PreviousCustomMode);
+
+	if (PreviousMovementMode == MOVE_Walking)
+	{
+		bIsSprinting = false;
+	}
 
 	if (PreviousMovementMode == MOVE_Falling)
 	{

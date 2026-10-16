@@ -182,6 +182,8 @@ public:
 
 	inline void SetCurrentPortal(APortal* Portal) { CurrentPortal = Portal; }
 
+	bool IsSprinting() const;
+
 protected:
 	//Flash
 	float FlashReach = 1000.0f;
