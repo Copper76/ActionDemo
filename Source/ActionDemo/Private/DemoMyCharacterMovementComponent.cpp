@@ -1116,7 +1116,7 @@ void UDemoMyCharacterMovementComponent::PhysWallRun(float DeltaTime, int32 Itera
 		FVector TangentVelocity = FVector::VectorPlaneProject(Velocity, NormalisedGravity);
 		float TangentAccel = Acceleration.GetSafeNormal() | TangentVelocity.GetSafeNormal();
 		bool bVelUp = FVector::DotProduct(Acceleration, -NormalisedGravity) > 0.0f;
-		Velocity += GetGravityZ() * NormalisedGravity * WallRun_GravityScaleCurve->GetFloatValue(bVelUp ? 0.f : TangentAccel) * timeTick;
+		Velocity -= GetGravityZ() * NormalisedGravity * WallRun_GravityScaleCurve->GetFloatValue(bVelUp ? 0.f : TangentAccel) * timeTick;
 		if (TangentVelocity.SizeSquared() < pow(WallRun_MinSpeed, 2) || FVector::DotProduct(Acceleration, NormalisedGravity) > WallRun_MaxVerticalSpeed)
 		{
 			SetMovementMode(MOVE_Falling);
