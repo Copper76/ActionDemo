@@ -24,6 +24,7 @@
 #include "PhysicsEngine/BodyInstance.h"
 #include "Engine/Engine.h"
 #include "Misc/ScopeLock.h"
+#include "Camera/CameraComponent.h"
 
 struct FPortalTrackedBody
 {
@@ -1308,9 +1309,22 @@ void APortal::Tick(float DeltaTime)
 		OtherNormal = FLinearColor(OtherPortal->GetActorForwardVector());
 	}
 
+	CaptureComponent->ClipPlaneBase = GetPlaneOrigin();
+	CaptureComponent->ClipPlaneNormal = GetActorForwardVector();
+
+	if (LocalPlayer && LocalPlayer->GetCurrentPortal() == this && PlayerController && PlayerController->PlayerCameraManager)
+	{
+		const FVector CamLoc = PlayerController->PlayerCameraManager->GetCameraLocation();
+		const bool bCamBehind = IsPointBehindPlane(CamLoc, 0.f);
+		SetActorClip(LocalPlayer, Origin, Normal, bCamBehind);
+	}
+
 	for (const TPair<AActor*, AActor*>& Pair : TeleportingObjects)
 	{
-		SetActorClip(Pair.Key, Origin, Normal, true);
+		if (!Pair.Key->IsA<AActionDemoCharacter>())
+		{
+			SetActorClip(Pair.Key, Origin, Normal, true);
+		}
 		if (OtherPortal && Pair.Value)
 		{
 			SetActorClip(Pair.Value, OtherOrigin, OtherNormal, true);

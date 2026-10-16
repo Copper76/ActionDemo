@@ -100,6 +100,8 @@ void AActionDemoCharacter::BeginPlay()
 			//To be confirmed
 		}
 	}
+
+	CameraOffset = PlayerCamera->GetRelativeLocation();
 }
 
 //////////////////////////////////////////////////////////////////////////// Input

@@ -1342,6 +1342,9 @@ void UDemoMyCharacterMovementComponent::EnterGrapple()
 {
 	Grapple_TargetMovable = Grapple_Target->GetOwner()->IsRootComponentMovable();
 	Velocity += Velocity.GetSafeNormal() * Grapple_EnterImpulse;
+	const FVector Start = UpdatedComponent->GetComponentLocation() - GetNormalisedGravity() * Grapple_CamOffset;
+	const FVector PivotDir = (GetGrapplingPivot() - Start).GetSafeNormal();
+	Velocity += PivotDir* Grapple_EnterPullImpulse;
 	SetMovementMode(MOVE_Custom, CMOVE_Grapple);
 }
 
@@ -1405,14 +1408,14 @@ void UDemoMyCharacterMovementComponent::PhysGrapple(float DeltaTime, int32 Itera
 	}
 	AddImpulse(PivotDir * Grapple_PullForce);
 	Acceleration = Acceleration * Grapple_SteerFactor;
-	float SinPullAwayAngle = FMath::Sin(FMath::DegreesToRadians(Grapple_PullAwayAngle));
+	const float SinPullAwayAngle = FMath::Cos(FMath::DegreesToRadians(Grapple_PullAwayAngle));
 	float TowardsComponent = GetWorld()->GetFirstPlayerController()->PlayerCameraManager->GetCameraRotation().Vector().GetSafeNormal() | PivotDir;
 	bool bWantsToPullAway =  TowardsComponent < SinPullAwayAngle;
 	//UE_LOG(LogTemp, Warning, TEXT("Acceleration: %s"), *Acceleration.ToString())
 	// Apply acceleration
 	CalcVelocity(DeltaTime, 0.0f, false, GetMaxBrakingDeceleration());
 	//UE_LOG(LogTemp, Warning, TEXT("Velocity: %s"), *Velocity.ToString());
-	if (bWantsToPullAway)
+	if (bWantsToPullAway || (((-PivotDir) | Velocity) > Grapple_MaxTension && Grapple_MaxTension > 0.0f))
 	{
 		bWantsToGrapple = false;
 		return;
