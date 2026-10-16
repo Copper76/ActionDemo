@@ -1029,11 +1029,11 @@ bool UDemoMyCharacterMovementComponent::TryWallRun()
 {
 	const FVector NormalisedGravity = GetNormalisedGravity();
 
-	double DownVelocity = FVector::DotProduct(Velocity, NormalisedGravity);
+	double UpVelocity = FVector::DotProduct(Velocity, NormalisedGravity);
 
 	if (!IsFalling()) return false;
 	if (FVector::VectorPlaneProject(Velocity, NormalisedGravity).SizeSquared() < pow(WallRun_MinSpeed, 2)) return false;
-	if (DownVelocity > WallRun_MaxVerticalSpeed) return false;
+	if (UpVelocity < -WallRun_MaxVerticalSpeed) return false;
 	FVector Start = UpdatedComponent->GetComponentLocation();
 	FVector LeftEnd = Start - UpdatedComponent->GetRightVector() * CapR() * 2;
 	FVector RightEnd = Start + UpdatedComponent->GetRightVector() * CapR() * 2;
@@ -1062,7 +1062,7 @@ bool UDemoMyCharacterMovementComponent::TryWallRun()
 	if (FVector::VectorPlaneProject(ProjectedVelocity, NormalisedGravity).SizeSquared() < pow(WallRun_MinSpeed, 2)) return false;
 
 	Velocity = ProjectedVelocity;
-	Velocity += (FMath::Clamp(DownVelocity, 0.0f, WallRun_MaxVerticalSpeed) - DownVelocity) * NormalisedGravity;
+	Velocity -= (FMath::Clamp(UpVelocity, 0.0f, WallRun_MaxVerticalSpeed) - UpVelocity) * NormalisedGravity;
 	SetMovementMode(MOVE_Custom, CMOVE_WallRun);
 	return true;
 }
@@ -1115,7 +1115,7 @@ void UDemoMyCharacterMovementComponent::PhysWallRun(float DeltaTime, int32 Itera
 		Velocity = FVector::VectorPlaneProject(Velocity, WallHit.Normal);
 		FVector TangentVelocity = FVector::VectorPlaneProject(Velocity, NormalisedGravity);
 		float TangentAccel = Acceleration.GetSafeNormal() | TangentVelocity.GetSafeNormal();
-		bool bVelUp = FVector::DotProduct(Acceleration, -NormalisedGravity) > 0.0f;
+		bool bVelUp = FVector::DotProduct(Velocity, -NormalisedGravity) > 0.0f;
 		Velocity -= GetGravityZ() * NormalisedGravity * WallRun_GravityScaleCurve->GetFloatValue(bVelUp ? 0.f : TangentAccel) * timeTick;
 		if (TangentVelocity.SizeSquared() < pow(WallRun_MinSpeed, 2) || FVector::DotProduct(Acceleration, NormalisedGravity) > WallRun_MaxVerticalSpeed)
 		{
