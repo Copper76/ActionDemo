@@ -11,5 +11,7 @@ public class ActionDemo : ModuleRules
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "HeadMountedDisplay", "EnhancedInput", "CableComponent", "UMG" });
 
 		PrivateDependencyModuleNames.AddRange(new string[] { "CableComponent" });
+
+		SetupModulePhysicsSupport(Target);
     }
 }

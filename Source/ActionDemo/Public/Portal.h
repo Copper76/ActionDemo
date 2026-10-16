@@ -10,6 +10,13 @@
 #include "Portal.generated.h"
 
 class AActionDemoCharacter;
+class FPortalEntryContactCallback;
+class UPrimitiveComponent;
+
+namespace Chaos
+{
+	struct FPhysicsObject;
+}
 
 UCLASS(ClassGroup = (Custom), BlueprintType, Blueprintable, meta = (BlueprintSpawnableComponent))
 class ACTIONDEMO_API APortal : public AActor
@@ -24,6 +31,8 @@ protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
 	UFUNCTION()
 	void OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
@@ -37,6 +46,18 @@ protected:
 	AActor* CreatePortalClone(AActor* Original, const FTransform& SpawnTransform);
 
 	void UpdateCloneTransform(AActor* Original, AActor* Clone);
+
+	void RegisterPhysicsCallbacks();
+
+	void UnregisterPhysicsCallbacks();
+
+	void SetSimulatingThroughPortal(AActor* Actor, bool bEnable);
+
+	void TransferSimulatingThroughPortal(AActor* Actor, APortal* Destination);
+
+	void PushPhysicsCallbackInputs(float DeltaTime);
+
+	void CachePortalPhysicsObjects();
 
 protected:
 
@@ -63,8 +84,13 @@ protected:
 	void SetActorClip(AActor* Actor, const FLinearColor Origin, const FLinearColor Normal, const bool bEnable);
 
 private:
-	FVector CameraOffset;
-	FQuat CameraRotation;
+	FPortalEntryContactCallback* EntryContactCallback = nullptr;
+
+	TArray<TWeakObjectPtr<UPrimitiveComponent>> SimulatingComponents;
+
+	TArray<Chaos::FPhysicsObject*> CachedPortalPhysicsObjects;
+
+	bool bPortalPhysicsObjectsCached = false;
 
 public:	
 	// Called every frame
@@ -84,7 +110,7 @@ public:
 	bool TranslateDirection(const FVector& WorldDirection, FVector& OutDirection) const;
 
 	// True on the wall side of the portal, including contacts sitting on the surface.
-	bool IsPointBehindPlane(const FVector& Point) const;
+	bool IsPointBehindPlane(const FVector& Point, float Cutoff = 2.0f) const;
 
 	FVector GetPlaneOrigin() const
 	{
