@@ -59,6 +59,12 @@ protected:
 
 	void CachePortalPhysicsObjects();
 
+	void NotifyCurrentOverlaps();
+
+	void Teleport(AActionDemoCharacter* Character);
+
+	void SetActorClip(AActor* Actor, const FLinearColor Origin, const FLinearColor Normal, const bool bEnable);
+
 protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
@@ -79,9 +85,11 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Material, meta = (AllowPrivateAccess = "true"))
 	UTextureRenderTarget2D* OrangeTextureTarget;
 
-	void Teleport(AActionDemoCharacter* Character);
+	UPROPERTY(EditDefaultsOnly)
+	float FrontCutoff = 20.f;
 
-	void SetActorClip(AActor* Actor, const FLinearColor Origin, const FLinearColor Normal, const bool bEnable);
+	UPROPERTY(EditDefaultsOnly)
+	float BehindCutoff = -20.f;
 
 private:
 	FPortalEntryContactCallback* EntryContactCallback = nullptr;

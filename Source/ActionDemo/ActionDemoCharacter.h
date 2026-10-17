@@ -180,6 +180,9 @@ public:
 
 	inline APortal* GetCurrentPortal() const { return CurrentPortal; }
 
+	// Camera component location plus the crouch offset applied in CalcCamera.
+	FVector GetEyeLocation() const;
+
 	inline void SetCurrentPortal(APortal* Portal) { CurrentPortal = Portal; }
 
 	bool IsSprinting() const;

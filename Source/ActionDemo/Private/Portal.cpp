@@ -23,8 +23,9 @@
 #include "Physics/Experimental/PhysScene_Chaos.h"
 #include "PhysicsEngine/BodyInstance.h"
 #include "Engine/Engine.h"
-#include "Misc/ScopeLock.h"
+#include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
+#include "Misc/ScopeLock.h"
 
 struct FPortalTrackedBody
 {
@@ -58,31 +59,6 @@ struct FPortalEntryContactInput : public Chaos::FSimCallbackInput
 
 namespace
 {
-	Chaos::FContactPoint CopyContactPoint(const Chaos::FContactPointf& Src)
-	{
-		Chaos::FContactPoint Out;
-		Out.ShapeContactPoints[0] = Chaos::FVec3(Src.ShapeContactPoints[0]);
-		Out.ShapeContactPoints[1] = Chaos::FVec3(Src.ShapeContactPoints[1]);
-		Out.ShapeContactNormal = Chaos::FVec3(Src.ShapeContactNormal);
-		Out.Phi = Src.Phi;
-		Out.FaceIndex = Src.FaceIndex;
-		Out.ContactType = Src.ContactType;
-		return Out;
-	}
-
-	Chaos::FContactPoint SwapContactOrder(const Chaos::FContactPoint& In, const Chaos::FRigidTransform3& Shape0, const Chaos::FRigidTransform3& Shape1)
-	{
-		const Chaos::FVec3 WorldNormal = Shape1.TransformVectorNoScale(In.ShapeContactNormal);
-		Chaos::FContactPoint Out;
-		Out.ShapeContactPoints[0] = In.ShapeContactPoints[1];
-		Out.ShapeContactPoints[1] = In.ShapeContactPoints[0];
-		Out.ShapeContactNormal = Shape0.InverseTransformVectorNoScale(-WorldNormal);
-		Out.Phi = In.Phi;
-		Out.FaceIndex = In.FaceIndex;
-		Out.ContactType = In.ContactType;
-		return Out;
-	}
-
 	Chaos::FRigidTransform3 TranslateShape(const Chaos::FRigidTransform3& ShapeWorld, const FVector& EntryOrigin, const FVector& ExitOrigin, const FQuat& TravelQ)
 	{
 		const FVector ExitLocation = ExitOrigin + TravelQ.RotateVector(FVector(ShapeWorld.GetTranslation()) - EntryOrigin);
@@ -189,33 +165,6 @@ namespace
 		Out.Add(ShapeLeaf);
 	}
 
-	FPortalContactKey MakeContactKey(const Chaos::FContactPoint& Contact)
-	{
-		FPortalContactKey Key;
-		Key.Points[0] = FVector(Contact.ShapeContactPoints[0]);
-		Key.Points[1] = FVector(Contact.ShapeContactPoints[1]);
-		Key.Normal = FVector(Contact.ShapeContactNormal).GetSafeNormal();
-		return Key;
-	}
-
-	bool IsSameContactKey(const Chaos::FContactPoint& Contact, const FPortalContactKey& Key)
-	{
-		if (FVector::DotProduct(FVector(Contact.ShapeContactNormal).GetSafeNormal(), Key.Normal) < 0.9f)
-		{
-			return false;
-		}
-
-		constexpr float ToleranceSq = 1.f;
-		for (int32 Index = 0; Index < 2; ++Index)
-		{
-			if (FVector::DistSquared(FVector(Contact.ShapeContactPoints[Index]), Key.Points[Index]) <= ToleranceSq)
-			{
-				return true;
-			}
-		}
-		return false;
-	}
-
 	// The wall face lies on the portal plane, so a behind-the-plane test never sees it.
 	// That contact pushes the body back into the entry room and, because it is the deepest,
 	// it also fills the manifold and leaves the floor with no slot. A contact in front of
@@ -223,11 +172,6 @@ namespace
 	bool IsPortalSurfaceRejection(const float OtherSide, const FVector& PushOnCube, const FVector& PlaneNormal)
 	{
 		return OtherSide < 1.f && FVector::DotProduct(PushOnCube, PlaneNormal) > 0.7f;
-	}
-
-	FVector InverseTravelPoint(const FVector& ExitPoint, const FVector& ExitOrigin, const FVector& EntryOrigin, const FQuat& InvTravel)
-	{
-		return EntryOrigin + InvTravel.RotateVector(ExitPoint - ExitOrigin);
 	}
 
 	// Bounds of a static mesh are already scaled on the implicit. The leaf transform is only position and rotation.
@@ -272,148 +216,6 @@ namespace
 		return bHaveCorner;
 	}
 
-	void AppendRewrittenExitContacts(
-		const Chaos::FPBDCollisionConstraint& Detected,
-		Chaos::FGeometryParticleHandle* CubeParticle,
-		const Chaos::FRigidTransform3& ExitShape0,
-		const Chaos::FRigidTransform3& ExitShape1,
-		const Chaos::FRigidTransform3& RealShape0,
-		const Chaos::FRigidTransform3& RealShape1,
-		const FVector& ExitOrigin,
-		const FVector& EntryOrigin,
-		const FVector& EntryPlaneNormal,
-		const FQuat& InvTravel,
-		const Chaos::FReal CullDistance,
-		const float MaxPenetration,
-		TArray<Chaos::FContactPoint, TInlineAllocator<8>>& OutSupport)
-	{
-		const int32 CubeIndex = Detected.GetParticle0() == CubeParticle ? 0 : 1;
-		const int32 OtherIndex = 1 - CubeIndex;
-
-		for (int32 Index = 0; Index < Detected.NumManifoldPoints(); ++Index)
-		{
-			const Chaos::FManifoldPoint& ManifoldPoint = Detected.GetManifoldPoint(Index);
-			if (ManifoldPoint.Flags.bDisabled || !ManifoldPoint.ContactPoint.IsSet() || ManifoldPoint.ContactPoint.Phi >= CullDistance)
-			{
-				continue;
-			}
-
-			const Chaos::FVec3 ExitWorld0 = ExitShape0.TransformPositionNoScale(Chaos::FVec3(ManifoldPoint.ContactPoint.ShapeContactPoints[0]));
-			const Chaos::FVec3 ExitWorld1 = ExitShape1.TransformPositionNoScale(Chaos::FVec3(ManifoldPoint.ContactPoint.ShapeContactPoints[1]));
-			FVector EntryWorld0 = InverseTravelPoint(FVector(ExitWorld0), ExitOrigin, EntryOrigin, InvTravel);
-			FVector EntryWorld1 = InverseTravelPoint(FVector(ExitWorld1), ExitOrigin, EntryOrigin, InvTravel);
-			const Chaos::FVec3 ExitWorldNormal = ExitShape1.TransformVectorNoScale(Chaos::FVec3(ManifoldPoint.ContactPoint.ShapeContactNormal));
-			const FVector EntryNormal = InvTravel.RotateVector(FVector(ExitWorldNormal)).GetSafeNormal();
-			if (EntryNormal.IsNearlyZero())
-			{
-				continue;
-			}
-
-			// In front of the entry plane this is the exit wall. Behind it is the exit floor.
-			const FVector ExitOtherPoint = OtherIndex == 0 ? FVector(ExitWorld0) : FVector(ExitWorld1);
-			const FVector EntryOther = InverseTravelPoint(ExitOtherPoint, ExitOrigin, EntryOrigin, InvTravel);
-			const float EntrySide = FVector::DotProduct(EntryOther - EntryOrigin, EntryPlaneNormal);
-			const FVector PushOnCube = CubeIndex == 0 ? EntryNormal : -EntryNormal;
-			if (EntrySide > 1.f || IsPortalSurfaceRejection(EntrySide, PushOnCube, EntryPlaneNormal))
-			{
-				continue;
-			}
-
-			// These contacts are rebuilt every frame, so Chaos does not treat the overlap as initial
-			// and turns the whole penetration into velocity. A tip makes that penetration deep, and
-			// the body is launched. Leave a shallow contact alone and only shorten a deep one.
-			FVector& CubePoint = CubeIndex == 0 ? EntryWorld0 : EntryWorld1;
-			const FVector& OtherPoint = CubeIndex == 0 ? EntryWorld1 : EntryWorld0;
-			const float Separation = FVector::DotProduct(CubePoint - OtherPoint, PushOnCube);
-			if (Separation < -MaxPenetration)
-			{
-				CubePoint += PushOnCube * (-MaxPenetration - Separation);
-			}
-
-			// Shape points are in the real shape frames, so the solver feels this contact
-			// behind the entry portal even when it rebuilds the world points from the bodies.
-			Chaos::FContactPoint Contact = CopyContactPoint(ManifoldPoint.ContactPoint);
-			Contact.ShapeContactPoints[0] = RealShape0.InverseTransformPositionNoScale(Chaos::FVec3(EntryWorld0));
-			Contact.ShapeContactPoints[1] = RealShape1.InverseTransformPositionNoScale(Chaos::FVec3(EntryWorld1));
-			Contact.ShapeContactNormal = RealShape1.InverseTransformVectorNoScale(Chaos::FVec3(EntryNormal));
-			Contact.Phi = FMath::Max(ManifoldPoint.ContactPoint.Phi, Chaos::FReal(-MaxPenetration));
-			OutSupport.Add(Contact);
-		}
-	}
-
-	void WriteContacts(Chaos::FPBDCollisionConstraint& Constraint, TArray<Chaos::FContactPoint, TInlineAllocator<8>>& Contacts, const int32 NumSupport, const int32 NumExit, const TArray<FPortalContactKey>& PreviousKeys, TArray<FPortalContactKey>& FrameKeys, int32& OutNew, int32& OutKept)
-	{
-		if (Contacts.Num() == 0)
-		{
-			return;
-		}
-
-		// The manifold holds 4 points and keeps the deepest. A wall penetration is deeper than the
-		// floor, so a plain sort drops the exit floor and the body never feels it.
-		TArray<int32, TInlineAllocator<8>> Order;
-		auto TakeDeepest = [&Contacts, &Order](const int32 Begin, const int32 End)
-		{
-			TArray<int32, TInlineAllocator<8>> Indices;
-			for (int32 Index = Begin; Index < End; ++Index)
-			{
-				Indices.Add(Index);
-			}
-			Indices.Sort([&Contacts](const int32 A, const int32 B)
-			{
-				return Contacts[A].Phi < Contacts[B].Phi;
-			});
-			for (const int32 Index : Indices)
-			{
-				if (Order.Num() >= 4)
-				{
-					return;
-				}
-				Order.Add(Index);
-			}
-		};
-		TakeDeepest(0, NumSupport);
-		TakeDeepest(NumSupport, NumExit);
-		TakeDeepest(NumExit, Contacts.Num());
-
-		for (const int32 Index : Order)
-		{
-			bool bKept = false;
-			for (const FPortalContactKey& Key : PreviousKeys)
-			{
-				if (IsSameContactKey(Contacts[Index], Key))
-				{
-					bKept = true;
-					break;
-				}
-			}
-			if (bKept)
-			{
-				++OutKept;
-			}
-			else
-			{
-				++OutNew;
-			}
-			FrameKeys.Add(MakeContactKey(Contacts[Index]));
-		}
-
-		Constraint.SetCullDistance(FMath::Max(Constraint.GetCullDistance(), Chaos::FReal(1)));
-		Constraint.ResetActiveManifoldContacts();
-		for (const int32 Index : Order)
-		{
-			Constraint.AddOneshotManifoldContact(Contacts[Index]);
-		}
-		Constraint.SetDisabled(false);
-		Constraint.SetCCDEnabled(false);
-		Constraint.SetIsInitialContact(false);
-		for (int32 Index = 0; Index < Constraint.NumManifoldPoints(); ++Index)
-		{
-			Chaos::FManifoldPoint& Point = Constraint.GetManifoldPoint(Index);
-			Point.Flags.bInitialContact = false;
-			Point.InitialPhi = 0.f;
-		}
-	}
-
 	void SetExitBodyInfiniteMass(Chaos::FPBDCollisionConstraint& Constraint, Chaos::FGeometryParticleHandle* ExitParticle)
 	{
 		if (Constraint.GetParticle0() == ExitParticle)
@@ -450,6 +252,37 @@ namespace
 		int32 NewPoints = 0;
 		int32 KeptPoints = 0;
 	};
+
+	void NoteWorldContact(const Chaos::FContactPointf& Contact, const Chaos::FRigidTransform3& Shape0, const Chaos::FRigidTransform3& Shape1, const TArray<FPortalContactKey>& PreviousKeys, TArray<FPortalContactKey>& FrameKeys, FPortalCopyStats& Stats)
+	{
+		FPortalContactKey Key;
+		Key.Points[0] = FVector(Shape0.TransformPositionNoScale(Chaos::FVec3(Contact.ShapeContactPoints[0])));
+		Key.Points[1] = FVector(Shape1.TransformPositionNoScale(Chaos::FVec3(Contact.ShapeContactPoints[1])));
+		Key.Normal = FVector(Shape1.TransformVectorNoScale(Chaos::FVec3(Contact.ShapeContactNormal))).GetSafeNormal();
+
+		bool bKept = false;
+		for (const FPortalContactKey& Previous : PreviousKeys)
+		{
+			if (FVector::DotProduct(Key.Normal, Previous.Normal) < 0.9f)
+			{
+				continue;
+			}
+			if (FVector::DistSquared(Key.Points[0], Previous.Points[0]) <= 1.f || FVector::DistSquared(Key.Points[1], Previous.Points[1]) <= 1.f)
+			{
+				bKept = true;
+				break;
+			}
+		}
+		if (bKept)
+		{
+			++Stats.KeptPoints;
+		}
+		else
+		{
+			++Stats.NewPoints;
+		}
+		FrameKeys.Add(Key);
+	}
 
 	void InjectExitContacts(const TArray<FPortalTrackedBody>& Bodies, Chaos::FPBDRigidsSolver* Solver, const Chaos::FReal Dt, TArray<Chaos::FPBDCollisionConstraintPtr>& OwnedConstraints, TArray<FPortalContactKey>& ContactKeys, FPortalCopyStats& Stats)
 	{
@@ -535,7 +368,7 @@ namespace
 					}
 
 					TArray<FShapeLeaf, TInlineAllocator<16>> CubeLeaves;
-					CollectShapeLeaves(CubeParticle, CubeShape, true, Tracked.EntryOrigin, Tracked.ExitOrigin, Tracked.TravelQ, CubeLeaves);
+					CollectShapeLeaves(CubeParticle, CubeShape, false, Tracked.EntryOrigin, Tracked.ExitOrigin, Tracked.TravelQ, CubeLeaves);
 
 					for (const auto& ExitShapePtr : ExitParticle->ShapesArray())
 					{
@@ -551,14 +384,13 @@ namespace
 
 						for (const FShapeLeaf& CubeLeaf : CubeLeaves)
 						{
-							// Pulling the body out of the wall to find contacts drives a tipped corner into
-							// the static geometry. That contact is copied back onto the real body and the
-							// solver turns it into an upward velocity. Detect at the real overlap instead.
+							// The body is still entirely on the wall side of the exit, so it has not entered that room.
 							if (bStaticExit)
 							{
+								const Chaos::FRigidTransform3 TraveledCube = TranslateShape(CubeLeaf.World, Tracked.EntryOrigin, Tracked.ExitOrigin, Tracked.TravelQ);
 								float MinSide = 0.f;
 								float MaxSide = 0.f;
-								if (GetLeafPlaneInterval(CubeLeaf.Implicit, CubeLeaf.World, Tracked.ExitOrigin, Tracked.ExitPlaneNormal, MinSide, MaxSide)
+								if (GetLeafPlaneInterval(CubeLeaf.Implicit, TraveledCube, Tracked.ExitOrigin, Tracked.ExitPlaneNormal, MinSide, MaxSide)
 									&& MaxSide <= KINDA_SMALL_NUMBER)
 								{
 									continue;
@@ -567,6 +399,18 @@ namespace
 
 							for (const FShapeLeaf& ExitLeaf : ExitLeaves)
 							{
+								// The wall the exit portal is on. Moved into the entry room it would shove the body.
+								if (bStaticExit)
+								{
+									float MinSide = 0.f;
+									float MaxSide = 0.f;
+									if (GetLeafPlaneInterval(ExitLeaf.Implicit, ExitLeaf.World, Tracked.ExitOrigin, Tracked.ExitPlaneNormal, MinSide, MaxSide)
+										&& MaxSide <= KINDA_SMALL_NUMBER)
+									{
+										continue;
+									}
+								}
+
 								bool bSwapShapes = false;
 								const Chaos::EContactShapesType ShapeType = Chaos::Collisions::CalculateShapePairType(CubeParticle, CubeLeaf.Implicit, ExitParticle, ExitLeaf.Implicit, bSwapShapes);
 								if (ShapeType == Chaos::EContactShapesType::Unknown || !CubeLeaf.Implicit || !ExitLeaf.Implicit)
@@ -575,20 +419,18 @@ namespace
 									continue;
 								}
 
+								// Exit shape posed in the entry room. The traveler stays put. Chaos builds the manifold.
+								const Chaos::FRigidTransform3 MovedExit = InverseTravelShape(ExitLeaf.World, Tracked.ExitOrigin, Tracked.EntryOrigin, InvTravel);
 								Chaos::FGeometryParticleHandle* P0 = bSwapShapes ? ExitParticle : CubeParticle;
 								Chaos::FGeometryParticleHandle* P1 = bSwapShapes ? CubeParticle : ExitParticle;
 								const Chaos::FPerShapeData* S0 = bSwapShapes ? ExitShape : CubeShape;
 								const Chaos::FPerShapeData* S1 = bSwapShapes ? CubeShape : ExitShape;
 								const Chaos::FImplicitObject* Implicit0 = P0 == CubeParticle ? CubeLeaf.Implicit : ExitLeaf.Implicit;
 								const Chaos::FImplicitObject* Implicit1 = P1 == CubeParticle ? CubeLeaf.Implicit : ExitLeaf.Implicit;
-								const Chaos::FRigidTransform3 Detect0 = P0 == CubeParticle ? CubeLeaf.World : ExitLeaf.World;
-								const Chaos::FRigidTransform3 Detect1 = P1 == CubeParticle ? CubeLeaf.World : ExitLeaf.World;
-								// The cube leaf was detected at the exit. Its real pose is the inverse travel of the
-								// unshifted leaf. The other body stays where it is; the contact points move instead.
-								const Chaos::FRigidTransform3 Real0 = P0 == CubeParticle ? InverseTravelShape(CubeLeaf.World, Tracked.ExitOrigin, Tracked.EntryOrigin, InvTravel) : ExitLeaf.World;
-								const Chaos::FRigidTransform3 Real1 = P1 == CubeParticle ? InverseTravelShape(CubeLeaf.World, Tracked.ExitOrigin, Tracked.EntryOrigin, InvTravel) : ExitLeaf.World;
-								const Chaos::FRigidTransform3 Rel0 = Real0 * Chaos::FConstGenericParticleHandle(P0)->GetTransformPQ().Inverse();
-								const Chaos::FRigidTransform3 Rel1 = Real1 * Chaos::FConstGenericParticleHandle(P1)->GetTransformPQ().Inverse();
+								const Chaos::FRigidTransform3 Detect0 = P0 == CubeParticle ? CubeLeaf.World : MovedExit;
+								const Chaos::FRigidTransform3 Detect1 = P1 == CubeParticle ? CubeLeaf.World : MovedExit;
+								const Chaos::FRigidTransform3 Rel0 = Detect0 * Chaos::FConstGenericParticleHandle(P0)->GetTransformPQ().Inverse();
+								const Chaos::FRigidTransform3 Rel1 = Detect1 * Chaos::FConstGenericParticleHandle(P1)->GetTransformPQ().Inverse();
 
 								Chaos::FPBDCollisionConstraintPtr Scratch = ContextAllocator->CreateConstraint(
 									P0, Implicit0, S0, Chaos::FConstGenericParticleHandle(P0)->CollisionParticles().Get(), Rel0,
@@ -600,21 +442,24 @@ namespace
 								}
 								Scratch->SetCCDEnabled(false);
 								Chaos::Collisions::UpdateConstraint(*Scratch, Detect0, Detect1, Dt);
-								Stats.Detected += Scratch->NumManifoldPoints();
-
-								TArray<Chaos::FContactPoint, TInlineAllocator<8>> SupportContacts;
-								const float MaxPenetration = FMath::Max(static_cast<float>(Dt) * 50.f, 0.5f);
-								AppendRewrittenExitContacts(*Scratch, CubeParticle, Detect0, Detect1, Real0, Real1, Tracked.ExitOrigin, Tracked.EntryOrigin, Tracked.PlaneNormal, InvTravel, CullDistance, MaxPenetration, SupportContacts);
-								if (SupportContacts.Num() == 0)
+								if (Scratch->NumManifoldPoints() == 0)
 								{
 									continue;
 								}
+								Stats.Detected += Scratch->NumManifoldPoints();
 
-								TArray<Chaos::FContactPoint, TInlineAllocator<8>> Ordered;
-								Ordered.Append(SupportContacts);
-								const int32 NumSupport = Ordered.Num();
-								const int32 NumExit = Ordered.Num();
+								const int32 KeysBefore = FrameKeys.Num();
+								for (int32 PointIndex = 0; PointIndex < Scratch->NumManifoldPoints(); ++PointIndex)
+								{
+									const Chaos::FManifoldPoint& ManifoldPoint = Scratch->GetManifoldPoint(PointIndex);
+									if (!ManifoldPoint.Flags.bDisabled && ManifoldPoint.ContactPoint.IsSet())
+									{
+										NoteWorldContact(ManifoldPoint.ContactPoint, Detect0, Detect1, ContactKeys, FrameKeys, Stats);
+									}
+								}
 
+								// A pair that already touches in the entry room keeps that manifold. Injecting
+								// here would replace it. This constraint is the exit shape, posed beside the body.
 								Chaos::FPBDCollisionConstraint* Existing = nullptr;
 								MidPhase->VisitCollisions([&](Chaos::FPBDCollisionConstraint& Constraint)
 								{
@@ -628,59 +473,33 @@ namespace
 									return Chaos::ECollisionVisitorResult::Continue;
 								}, Chaos::ECollisionVisitorFlags::VisitAllCurrent);
 
-								const int32 KeysBefore = FrameKeys.Num();
-								if (Existing)
+								Scratch->SetShapeWorldTransforms(Detect0, Detect1);
+								bool bInjected = false;
+								if (!Existing)
 								{
-									const bool bSwapped = Existing->GetParticle0() != P0;
-									if (bSwapped)
-									{
-										for (Chaos::FContactPoint& Contact : Ordered)
-										{
-											Contact = SwapContactOrder(Contact, Real0, Real1);
-										}
-									}
-									WriteContacts(*Existing, Ordered, NumSupport, NumExit, ContactKeys, FrameKeys, Stats.NewPoints, Stats.KeptPoints);
-									Existing->SetShapeWorldTransforms(bSwapped ? Real1 : Real0, bSwapped ? Real0 : Real1);
-									ClearInitialOverlap(*Existing);
-								}
-								else
-								{
-									WriteContacts(*Scratch, Ordered, NumSupport, NumExit, ContactKeys, FrameKeys, Stats.NewPoints, Stats.KeptPoints);
-									if (Scratch->NumManifoldPoints() == 0)
-									{
-										continue;
-									}
-
-									Scratch->SetShapeWorldTransforms(Real0, Real1);
 									Context.MidPhase = MidPhase;
 									MidPhase->InjectCollision(*Scratch, Context);
-
-									bool bInjected = false;
 									MidPhase->VisitCollisions([&](Chaos::FPBDCollisionConstraint& Constraint)
 									{
 										if (Constraint.GetParticle0() == P0 && Constraint.GetParticle1() == P1 && Constraint.GetImplicit0() == Implicit0)
 										{
-											// Activate() marks every unmatched point as an initial overlap, which
-											// allows the whole penetration and never pushes the body back out.
 											ClearInitialOverlap(Constraint);
 											SetExitBodyInfiniteMass(Constraint, ExitParticle);
-											Constraint.SetShapeWorldTransforms(Real0, Real1);
+											Constraint.SetShapeWorldTransforms(Detect0, Detect1);
 											bInjected = true;
 											return Chaos::ECollisionVisitorResult::Stop;
 										}
 										return Chaos::ECollisionVisitorResult::Continue;
 									}, Chaos::ECollisionVisitorFlags::VisitAllCurrent);
+								}
 
-									// Generic midphases ignore InjectCollision, so the scratch constraint has to
-									// be activated directly or the exit contact never reaches the solver.
-									if (!bInjected)
-									{
-										ContextAllocator->ActivateConstraint(Scratch.Get());
-										ClearInitialOverlap(*Scratch);
-										SetExitBodyInfiniteMass(*Scratch, ExitParticle);
-										Scratch->SetShapeWorldTransforms(Real0, Real1);
-										OwnedConstraints.Add(MoveTemp(Scratch));
-									}
+								if (!bInjected)
+								{
+									ContextAllocator->ActivateConstraint(Scratch.Get());
+									ClearInitialOverlap(*Scratch);
+									SetExitBodyInfiniteMass(*Scratch, ExitParticle);
+									Scratch->SetShapeWorldTransforms(Detect0, Detect1);
+									OwnedConstraints.Add(MoveTemp(Scratch));
 								}
 								Stats.Written += FrameKeys.Num() - KeysBefore;
 							}
@@ -772,7 +591,6 @@ private:
 			return nullptr;
 		};
 
-		const float MaxPenetration = FMath::Max(static_cast<float>(GetDeltaTime_Internal()) * 50.f, 0.5f);
 		for (Chaos::FContactPairModifier& Pair : Modifier)
 		{
 			const Chaos::TVec2<Chaos::FGeometryParticleHandle*> Particles = Pair.GetParticlePair();
@@ -806,26 +624,10 @@ private:
 				const FVector PushOnCube = bTrackedIs0 ? WorldNormal : -WorldNormal;
 				// The frame is what the body stands on and what blocks the sides. Dropping an upward
 				// frame hit, or a floor point a few centimetres behind the plane, removes that support.
-				// The wall face on the plane is still ignored. A deep overlap is shortened below.
+				// The wall face on the plane is still ignored.
 				if (!bPortalSurface && (Side < 0.f || IsPortalSurfaceRejection(OtherSide, PushOnCube, Tracked->PlaneNormal)))
 				{
 					Pair.SetContactPointDisabled(Index);
-					continue;
-				}
-
-				const float Separation = Pair.GetSeparation(Index);
-				if (Separation < -MaxPenetration)
-				{
-					const FVector CubePoint = bTrackedIs0 ? FVector(Location0) : FVector(Location1);
-					const FVector Corrected = CubePoint + PushOnCube * (-MaxPenetration - Separation);
-					if (bTrackedIs0)
-					{
-						Pair.ModifyWorldContactLocations(Chaos::FVec3(Corrected), Location1, Index);
-					}
-					else
-					{
-						Pair.ModifyWorldContactLocations(Location0, Chaos::FVec3(Corrected), Index);
-					}
 				}
 			}
 		}
@@ -863,6 +665,8 @@ APortal::APortal()
 	ReverseCollider->SetRelativeLocation(FVector(0.0f, 0.f, 0.0f));
 	ReverseCollider->SetRelativeScale3D(FVector(0.1f, 1.5f, 3.25f));
 	ReverseCollider->SetGenerateOverlapEvents(true);
+	ReverseCollider->OnComponentBeginOverlap.AddDynamic(this, &APortal::OnOverlapBegin);
+	ReverseCollider->OnComponentEndOverlap.AddDynamic(this, &APortal::OnOverlapEnd);
 
 	Plane = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Plane"));
 	AddOwnedComponent(Plane);
@@ -882,9 +686,6 @@ void APortal::BeginPlay()
 		PlayerController = PC;
 		LocalPlayer = Cast<AActionDemoCharacter>(PC->GetCharacter());
 	}
-	//These are set in setup later
-	ReverseCollider->OnComponentBeginOverlap.AddDynamic(this, &APortal::OnOverlapBegin);
-	ReverseCollider->OnComponentEndOverlap.AddDynamic(this, &APortal::OnOverlapEnd);
 
 	CaptureComponent->bEnableClipPlane = true;
 	CaptureComponent->ClipPlaneBase = GetPlaneOrigin();
@@ -1193,6 +994,30 @@ void APortal::SetUp(AActor* TargetSurface, const bool bIsBlue, APortal* Portal)
 	{
 		Link(Portal);
 		OtherPortal->Link(this);
+		NotifyCurrentOverlaps();
+		OtherPortal->NotifyCurrentOverlaps();
+	}
+}
+
+void APortal::NotifyCurrentOverlaps()
+{
+	if (!ReverseCollider || !OtherPortal)
+	{
+		return;
+	}
+
+	ReverseCollider->UpdateOverlaps();
+	TArray<UPrimitiveComponent*> OverlappingComponents;
+	ReverseCollider->GetOverlappingComponents(OverlappingComponents);
+	for (UPrimitiveComponent* Component : OverlappingComponents)
+	{
+		AActor* Actor = Component ? Component->GetOwner() : nullptr;
+		if (!Actor || Actor == this || Actor == OtherPortal)
+		{
+			continue;
+		}
+
+		OnOverlapBegin(ReverseCollider, Actor, Component, INDEX_NONE, false, FHitResult());
 	}
 }
 
@@ -1255,28 +1080,46 @@ void APortal::Tick(float DeltaTime)
 
 	if (!(PlayerController == nullptr || LocalPlayer == nullptr))
 	{
-		const FQuat EntryQ = GetActorQuat();
-		const FQuat ExitQ = OtherPortal->GetActorQuat();
-		const FQuat CamQ = PlayerController->PlayerCameraManager->GetCameraRotation().Quaternion();
-		const FQuat FlipQ = FQuat(FVector::ZAxisVector, PI);
-
-		FVector PlayerOffset = Plane->GetComponentLocation() - PlayerController->PlayerCameraManager->GetCameraLocation();
-		PlayerOffset = EntryQ.UnrotateVector(PlayerOffset);
-
-		const FVector RefUp = LocalPlayer ? LocalPlayer->GetActorUpVector() : FVector::UpVector;
-		if (FMath::Abs(GetActorForwardVector() | RefUp.GetSafeNormal()) < 1.0f)
+		FQuat TravelQ = FQuat::Identity;
+		FVector ExitCameraLocation = FVector::ZeroVector;
+		const FVector CameraLocation = PlayerController->PlayerCameraManager->GetCameraLocation();
+		const FQuat CameraRotation = PlayerController->PlayerCameraManager->GetCameraRotation().Quaternion();
+		if (GetTravelQuat(TravelQ) && TranslatePoint(CameraLocation, ExitCameraLocation))
 		{
-			PlayerOffset.Z = -PlayerOffset.Z;
+			OtherPortal->CaptureComponent->SetWorldLocationAndRotation(ExitCameraLocation, TravelQ * CameraRotation);
 		}
 
-		const FQuat CaptureWorldQ = ExitQ * FlipQ * EntryQ.Inverse() * CamQ;
-		OtherPortal->CaptureComponent->SetWorldRotation(CaptureWorldQ);
-		OtherPortal->CaptureComponent->SetRelativeLocation(PlayerOffset);
+		// The game locks vertical FOV and lets horizontal FOV follow the viewport. A single FOV
+		// number on the capture keeps horizontal FOV instead, so the portal picture squeezes sideways.
+		if (ULocalPlayer* ViewportPlayer = PlayerController->GetLocalPlayer())
+		{
+			if (UGameViewportClient* GameViewport = ViewportPlayer->ViewportClient)
+			{
+				if (FViewport* Viewport = GameViewport->Viewport)
+				{
+					FSceneViewProjectionData ProjectionData;
+					if (ViewportPlayer->GetProjectionData(Viewport, ProjectionData))
+					{
+						OtherPortal->CaptureComponent->bUseCustomProjectionMatrix = true;
+						OtherPortal->CaptureComponent->CustomProjectionMatrix = ProjectionData.ProjectionMatrix;
+					}
+				}
+			}
+		}
 	}
 
-	if (LocalPlayer && LocalPlayer->GetCurrentPortal() == this && IsPointBehindPlane(LocalPlayer->GetActorLocation(), -2.0f))
+	if (LocalPlayer && LocalPlayer->GetCurrentPortal() == this)
 	{
-		Teleport(LocalPlayer);
+		const UCameraComponent* EyeCamera = LocalPlayer->GetFirstPersonCameraComponent();
+		const FVector CameraForward = EyeCamera ? EyeCamera->GetForwardVector() : LocalPlayer->GetActorForwardVector();
+		// +1 looks into the room, -1 looks through the portal. Looking through crosses while the eye is still
+		// in front. Looking back into the room waits until the eye is well behind the plane.
+		const float Facing = FMath::Clamp((FVector::DotProduct(CameraForward, GetActorForwardVector()) + 1.f) * 0.5f, 0.f, 1.f);
+		const float Cutoff = FMath::Lerp(FrontCutoff, BehindCutoff, Facing);
+		if (IsPointBehindPlane(LocalPlayer->GetEyeLocation(), Cutoff))
+		{
+			Teleport(LocalPlayer);
+		}
 	}
 
 	for (const TPair<AActor*, AActor*>& Pair : TeleportingObjects)
@@ -1284,17 +1127,17 @@ void APortal::Tick(float DeltaTime)
 		UpdateCloneTransform(Pair.Key, Pair.Value);
 	}
 
-	TArray<AActor*> ToHandOff;
-	for (const TPair<AActor*, AActor*>& Pair : TeleportingObjects)
-	{
-		if (Pair.Key && Pair.Value && !Pair.Key->IsA<AActionDemoCharacter>() && IsPointBehindPlane(Pair.Key->GetActorLocation(), -2.0f))
+		TArray<AActor*> ToHandOff;
+		for (const TPair<AActor*, AActor*>& Pair : TeleportingObjects)
 		{
-			ToHandOff.Add(Pair.Key);
+		if (Pair.Key && Pair.Value && !Pair.Key->IsA<AActionDemoCharacter>() && IsPointBehindPlane(Pair.Key->GetActorLocation(), -2.0f))
+			{
+				ToHandOff.Add(Pair.Key);
+			}
 		}
-	}
-	for (AActor* Original : ToHandOff)
-	{
-		HandOffTeleportingObject(Original);
+		for (AActor* Original : ToHandOff)
+		{
+			HandOffTeleportingObject(Original);
 	}
 
 	const FLinearColor Origin = FLinearColor(Plane->GetComponentLocation());
@@ -1322,8 +1165,8 @@ void APortal::Tick(float DeltaTime)
 	for (const TPair<AActor*, AActor*>& Pair : TeleportingObjects)
 	{
 		if (!Pair.Key->IsA<AActionDemoCharacter>())
-		{
-			SetActorClip(Pair.Key, Origin, Normal, true);
+	{
+		SetActorClip(Pair.Key, Origin, Normal, true);
 		}
 		if (OtherPortal && Pair.Value)
 		{

@@ -311,7 +311,20 @@ void AActionDemoCharacter::CalcCamera(float DeltaTime, struct FMinimalViewInfo& 
 		PlayerCamera->GetCameraView(DeltaTime, OutResult);
 		const FQuat GravityAlign = FQuat::FindBetweenNormals(FVector::UpVector, -DemoMyCharacterMovementComponent->GetGravityDirection());
 		OutResult.Location += GravityAlign.RotateVector(CrouchEyeOffset);
+		// The portal surface sits on the plane the eye is crossing. The default near plane deletes it.
+		if (CurrentPortal)
+		{
+			OutResult.PerspectiveNearClipPlane = 1.f;
+		}
 	}
+}
+
+FVector AActionDemoCharacter::GetEyeLocation() const
+{
+	const FVector CameraLocation = PlayerCamera ? PlayerCamera->GetComponentLocation() : GetActorLocation();
+	const FVector Gravity = GetCharacterMovement() ? GetCharacterMovement()->GetGravityDirection() : FVector(0.f, 0.f, -1.f);
+	const FQuat GravityAlign = FQuat::FindBetweenNormals(FVector::UpVector, -Gravity);
+	return CameraLocation + GravityAlign.RotateVector(CrouchEyeOffset);
 }
 
 void AActionDemoCharacter::Landed(const FHitResult& Hit)
