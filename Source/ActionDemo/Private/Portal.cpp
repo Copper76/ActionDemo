@@ -32,6 +32,12 @@ struct FPortalTrackedBody
 	Chaos::FPhysicsObjectHandle PhysicsObject = nullptr;
 	FVector PlaneOrigin = FVector::ZeroVector;
 	FVector PlaneNormal = FVector::ForwardVector;
+	FVector PlaneRight = FVector::RightVector;
+	FVector PlaneUp = FVector::UpVector;
+	float ApertureHalfWidth = 70.f;
+	float ApertureHalfHeight = 120.f;
+	/** Plane-slice fit — portal face stays solid when false so wide slabs cannot open the hole. */
+	bool bFitsAperture = true;
 	FVector EntryOrigin = FVector::ZeroVector;
 	FVector ExitOrigin = FVector::ZeroVector;
 	FVector ExitPlaneNormal = FVector::ForwardVector;
@@ -42,6 +48,15 @@ struct FPortalTrackedBody
 	{
 		PhysicsObject = nullptr;
 		ExitBodies.Reset();
+		bFitsAperture = true;
+	}
+
+	bool IsInAperture(const FVector& WorldPoint) const
+	{
+		const FVector Rel = WorldPoint - PlaneOrigin;
+		const float AlongRight = FVector::DotProduct(Rel, PlaneRight);
+		const float AlongUp = FVector::DotProduct(Rel, PlaneUp);
+		return FMath::Abs(AlongRight) <= ApertureHalfWidth && FMath::Abs(AlongUp) <= ApertureHalfHeight;
 	}
 };
 
@@ -171,6 +186,11 @@ namespace
 	// the plane still blocks. A contact that does not push back into the room stays.
 	bool IsPortalSurfaceRejection(const float OtherSide, const FVector& PushOnCube, const FVector& PlaneNormal)
 	{
+		// Floor/wall fillets near the throat can look wall-aligned; keep primarily upward support.
+		if (FVector::DotProduct(PushOnCube, FVector::UpVector) > 0.5f)
+		{
+			return false;
+		}
 		return OtherSide < 1.f && FVector::DotProduct(PushOnCube, PlaneNormal) > 0.7f;
 	}
 
@@ -251,6 +271,9 @@ namespace
 		int32 Written = 0;
 		int32 NewPoints = 0;
 		int32 KeptPoints = 0;
+		int32 DroppedBehindWall = 0;
+		int32 DroppedSurface = 0;
+		int32 KeptFloorBehind = 0;
 	};
 
 	void NoteWorldContact(const Chaos::FContactPointf& Contact, const Chaos::FRigidTransform3& Shape0, const Chaos::FRigidTransform3& Shape1, const TArray<FPortalContactKey>& PreviousKeys, TArray<FPortalContactKey>& FrameKeys, FPortalCopyStats& Stats)
@@ -399,13 +422,16 @@ namespace
 
 							for (const FShapeLeaf& ExitLeaf : ExitLeaves)
 							{
-								// The wall the exit portal is on. Moved into the entry room it would shove the body.
+								// The wall the exit portal is on (thin slab on/behind the plane). Moved into
+								// the entry room it shoves long straddling bodies. Floor / room geometry
+								// sits well in front (large MaxSide) and must still inject.
 								if (bStaticExit)
 								{
 									float MinSide = 0.f;
 									float MaxSide = 0.f;
+									constexpr float ExitWallFrontSlackCm = 12.f;
 									if (GetLeafPlaneInterval(ExitLeaf.Implicit, ExitLeaf.World, Tracked.ExitOrigin, Tracked.ExitPlaneNormal, MinSide, MaxSide)
-										&& MaxSide <= KINDA_SMALL_NUMBER)
+										&& MaxSide <= ExitWallFrontSlackCm)
 									{
 										continue;
 									}
@@ -591,6 +617,7 @@ private:
 			return nullptr;
 		};
 
+		FPortalCopyStats ModStats;
 		for (Chaos::FContactPairModifier& Pair : Modifier)
 		{
 			const Chaos::TVec2<Chaos::FGeometryParticleHandle*> Particles = Pair.GetParticlePair();
@@ -622,17 +649,63 @@ private:
 				const float OtherSide = FVector::DotProduct(OtherPoint - Tracked->PlaneOrigin, Tracked->PlaneNormal);
 				const FVector WorldNormal(Pair.GetWorldNormal(Index));
 				const FVector PushOnCube = bTrackedIs0 ? WorldNormal : -WorldNormal;
-				// The frame is what the body stands on and what blocks the sides. Dropping an upward
-				// frame hit, or a floor point a few centimetres behind the plane, removes that support.
-				// The wall face on the plane is still ignored.
-				if (!bPortalSurface && (Side < 0.f || IsPortalSurfaceRejection(OtherSide, PushOnCube, Tracked->PlaneNormal)))
+				const float WallAligned = FVector::DotProduct(PushOnCube, Tracked->PlaneNormal);
+				const float FloorAligned = FVector::DotProduct(PushOnCube, FVector::UpVector);
+				const bool bInAperture = Tracked->IsInAperture(Location);
+				// Behind the entry plane: traveler is on the exit side for walls/obstacles, but
+				// keep gravity support. When entry/exit floors differ, InjectExitContacts supplies
+				// the exit floor; same-height entry floor contacts still prevent straddling sink.
+				if (Side < 0.f)
+				{
+					if (FloorAligned > 0.5f)
+					{
+						++ModStats.KeptFloorBehind;
+					}
+					else
+					{
+						Pair.SetContactPointDisabled(Index);
+						++ModStats.DroppedBehindWall;
+					}
+					continue;
+				}
+				// Entry face, inside the opening: drop everything except floor (wall volume thrash).
+				// Slack covers a typical cube half-depth so high-speed approaches don't bounce off the wall face.
+				constexpr float ApertureFrontSlackCm = 30.f;
+				if (bInAperture && Side < ApertureFrontSlackCm)
+				{
+					if (FloorAligned > 0.5f)
+					{
+						++ModStats.KeptFloorBehind;
+					}
+					else
+					{
+						Pair.SetContactPointDisabled(Index);
+						++ModStats.DroppedSurface;
+					}
+					continue;
+				}
+				// Portal-owned face: only open when the traveler's plane-slice fits. The portal mesh
+				// IS the aperture quad — without the fit gate every face contact is "in aperture"
+				// and wide slabs would ghost straight through.
+				if (bPortalSurface)
+				{
+					if (Tracked->bFitsAperture && bInAperture && FloorAligned <= 0.5f && FMath::Abs(WallAligned) > 0.5f)
+					{
+						Pair.SetContactPointDisabled(Index);
+						++ModStats.DroppedSurface;
+					}
+					continue;
+				}
+				if (Tracked->bFitsAperture && bInAperture
+					&& IsPortalSurfaceRejection(OtherSide, PushOnCube, Tracked->PlaneNormal))
 				{
 					Pair.SetContactPointDisabled(Index);
+					++ModStats.DroppedSurface;
 				}
 			}
 		}
 
-		FPortalCopyStats Stats;
+		FPortalCopyStats Stats = ModStats;
 		InjectExitContacts(Input->Bodies, static_cast<Chaos::FPBDRigidsSolver*>(GetSolver()), GetDeltaTime_Internal(), OwnedConstraints, ContactKeys, Stats);
 		SetCopyDebug(Stats, true);
 	}
@@ -663,10 +736,55 @@ APortal::APortal()
 	AddOwnedComponent(ReverseCollider);
 	ReverseCollider->SetupAttachment(SceneRoot);
 	ReverseCollider->SetRelativeLocation(FVector(0.0f, 0.f, 0.0f));
-	ReverseCollider->SetRelativeScale3D(FVector(0.1f, 1.5f, 3.25f));
+	ReverseCollider->SetRelativeScale3D(FVector(1.f, 1.f, 1.f));
 	ReverseCollider->SetGenerateOverlapEvents(true);
+	ReverseCollider->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	ReverseCollider->SetCollisionResponseToAllChannels(ECR_Ignore);
+	ReverseCollider->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Overlap);
+	ReverseCollider->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Overlap);
+	ReverseCollider->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	ReverseCollider->OnComponentBeginOverlap.AddDynamic(this, &APortal::OnOverlapBegin);
 	ReverseCollider->OnComponentEndOverlap.AddDynamic(this, &APortal::OnOverlapEnd);
+
+	// Exact port of BP_Portal EdgeColliders / Top / Bottom / Left / Right.
+	EdgeColliders = CreateDefaultSubobject<USceneComponent>(TEXT("EdgeColliders"));
+	AddOwnedComponent(EdgeColliders);
+	EdgeColliders->SetupAttachment(SceneRoot);
+	EdgeColliders->SetRelativeLocation(FVector::ZeroVector);
+	EdgeColliders->SetRelativeRotation(FRotator::ZeroRotator);
+	EdgeColliders->SetRelativeScale3D(FVector::OneVector);
+
+	auto MakeRim = [this](const TCHAR* Name) -> UBoxComponent*
+	{
+		UBoxComponent* Box = CreateDefaultSubobject<UBoxComponent>(Name);
+		AddOwnedComponent(Box);
+		Box->SetupAttachment(EdgeColliders);
+		Box->SetRelativeRotation(FRotator::ZeroRotator);
+		Box->SetRelativeScale3D(FVector::OneVector);
+		// Geometry copied from BP_Portal. QueryAndPhysics so the rim actually collides
+		// (BP had QueryOnly+Custom; these need to block props that miss the plane mesh).
+		Box->SetGenerateOverlapEvents(true);
+		Box->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		Box->SetCollisionObjectType(ECC_WorldStatic);
+		Box->SetCollisionResponseToAllChannels(ECR_Block);
+		Box->SetCollisionResponseToChannel(ECC_Visibility, ECR_Ignore);
+		Box->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+		return Box;
+	};
+	Top = MakeRim(TEXT("Top"));
+	Bottom = MakeRim(TEXT("Bottom"));
+	Left = MakeRim(TEXT("Left"));
+	Right = MakeRim(TEXT("Right"));
+
+	// Exact BP_Portal rim layout (aperture cached from these in BeginPlay).
+	Top->SetBoxExtent(FVector(2.f, 64.f, 2.f));
+	Top->SetRelativeLocation(FVector(-1.f, 0.f, 114.f));
+	Bottom->SetBoxExtent(FVector(2.f, 64.f, 2.f));
+	Bottom->SetRelativeLocation(FVector(-1.f, 0.f, -114.f));
+	Left->SetBoxExtent(FVector(2.f, 2.f, 112.f));
+	Left->SetRelativeLocation(FVector(-1.f, 66.f, 0.f));
+	Right->SetBoxExtent(FVector(2.f, 2.f, 112.f));
+	Right->SetRelativeLocation(FVector(-1.f, -66.f, 0.f));
 
 	Plane = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Plane"));
 	AddOwnedComponent(Plane);
@@ -674,7 +792,14 @@ APortal::APortal()
 	//Plane->AttachToComponent(SceneRoot, FAttachmentTransformRules::KeepRelativeTransform);
 	Plane->SetRelativeScale3D(FVector(1.25f, 2.25f, 1.0f));
 	Plane->SetRelativeRotation(FRotator(0.0f, -90.0f, 90.0f));
+	// Solid for physics props until contact-mod ghosts the face for travelers that fit.
+	// Pawns stay ignored — character transit uses movement clipping, not this mesh.
+	Plane->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	Plane->SetCollisionResponseToAllChannels(ECR_Ignore);
+	Plane->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+	Plane->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
 
+	SyncReverseColliderToAperture();
 }
 
 // Called when the game starts or when spawned
@@ -690,6 +815,32 @@ void APortal::BeginPlay()
 	CaptureComponent->bEnableClipPlane = true;
 	CaptureComponent->ClipPlaneBase = GetPlaneOrigin();
 	CaptureComponent->ClipPlaneNormal = GetActorForwardVector();
+
+	GetApertureHalfExtents(ApertureHalfWidth, ApertureHalfHeight);
+	SyncReverseColliderToAperture();
+
+	// BP_Portal still carries SCS copies of EdgeColliders/Top/Bottom/Left/Right that
+	// clash with the C++ natives. Kill any extras so only the C++ rims remain.
+	{
+		TArray<UActorComponent*> Comps;
+		GetComponents(Comps);
+		for (UActorComponent* Comp : Comps)
+		{
+			if (!Comp || Comp == EdgeColliders || Comp == Top || Comp == Bottom || Comp == Left || Comp == Right)
+			{
+				continue;
+			}
+			const FString Name = Comp->GetName();
+			const bool bRimName =
+				Name.StartsWith(TEXT("Top")) || Name.StartsWith(TEXT("Bottom"))
+				|| Name.StartsWith(TEXT("Left")) || Name.StartsWith(TEXT("Right"))
+				|| Name.StartsWith(TEXT("EdgeColliders"));
+			if (bRimName)
+			{
+				Comp->DestroyComponent();
+			}
+		}
+	}
 
 	RegisterPhysicsCallbacks();
 	CachePortalPhysicsObjects();
@@ -810,6 +961,23 @@ void APortal::SetSimulatingThroughPortal(AActor* Actor, bool bEnable)
 	PushPhysicsCallbackInputs(GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.f);
 }
 
+bool APortal::IsSimulatingThroughPortal(const AActor* Actor) const
+{
+	if (!Actor)
+	{
+		return false;
+	}
+	for (const TWeakObjectPtr<UPrimitiveComponent>& WeakComp : SimulatingComponents)
+	{
+		const UPrimitiveComponent* Comp = WeakComp.Get();
+		if (Comp && Comp->GetOwner() == Actor)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 void APortal::TransferSimulatingThroughPortal(AActor* Actor, APortal* Destination)
 {
 	if (!Actor || !Destination)
@@ -920,10 +1088,21 @@ void APortal::PushPhysicsCallbackInputs(float DeltaTime)
 		Tracked.PhysicsObject = PhysicsObject;
 		Tracked.PlaneOrigin = EntryOrigin;
 		Tracked.PlaneNormal = EntryNormal;
+		Tracked.PlaneRight = GetActorRightVector();
+		Tracked.PlaneUp = GetActorUpVector();
+		{
+			float HalfW = 50.f;
+			float HalfH = 50.f;
+			GetApertureHalfExtents(HalfW, HalfH);
+			// Slightly shrink vs the visual quad so rim contacts just outside the hole stay solid.
+			Tracked.ApertureHalfWidth = HalfW * 0.9f;
+			Tracked.ApertureHalfHeight = HalfH * 0.9f;
+		}
 		Tracked.EntryOrigin = EntryOrigin;
 		Tracked.ExitOrigin = ExitOrigin;
 		Tracked.ExitPlaneNormal = ExitNormal;
 		Tracked.TravelQ = TravelQ;
+		Tracked.bFitsAperture = ActorFitsAperture(Comp->GetOwner());
 
 		const FTransform BodyTM = Body->GetUnrealWorldTransform();
 		FVector ExitLocation = FVector::ZeroVector;
@@ -992,8 +1171,8 @@ void APortal::SetUp(AActor* TargetSurface, const bool bIsBlue, APortal* Portal)
 
 	if (Portal)
 	{
-		Link(Portal);
-		OtherPortal->Link(this);
+	Link(Portal);
+	OtherPortal->Link(this);
 		NotifyCurrentOverlaps();
 		OtherPortal->NotifyCurrentOverlaps();
 	}
@@ -1019,6 +1198,119 @@ void APortal::NotifyCurrentOverlaps()
 
 		OnOverlapBegin(ReverseCollider, Actor, Component, INDEX_NONE, false, FHitResult());
 	}
+}
+
+void APortal::GetApertureHalfExtents(float& OutHalfWidth, float& OutHalfHeight) const
+{
+	OutHalfWidth = ApertureHalfWidth;
+	OutHalfHeight = ApertureHalfHeight;
+
+	const FVector PortalRight = GetActorRightVector();
+	const FVector PortalUp = GetActorUpVector();
+
+	auto HalfExtentAlong = [](const UBoxComponent* Box, const FVector& Axis) -> float
+	{
+		if (!Box || Axis.IsNearlyZero())
+		{
+			return 0.f;
+		}
+		const FVector Ext = Box->GetScaledBoxExtent();
+		const FTransform TM = Box->GetComponentTransform();
+		return FMath::Abs(FVector::DotProduct(TM.GetUnitAxis(EAxis::X), Axis)) * Ext.X
+			+ FMath::Abs(FVector::DotProduct(TM.GetUnitAxis(EAxis::Y), Axis)) * Ext.Y
+			+ FMath::Abs(FVector::DotProduct(TM.GetUnitAxis(EAxis::Z), Axis)) * Ext.Z;
+	};
+
+	// Width of the opening = length of the top/bottom rim strips along portal Right.
+	const float TopW = HalfExtentAlong(Top, PortalRight);
+	const float BottomW = HalfExtentAlong(Bottom, PortalRight);
+	const float Width = FMath::Max(TopW, BottomW);
+
+	// Height of the opening = length of the left/right rim strips along portal Up.
+	const float LeftH = HalfExtentAlong(Left, PortalUp);
+	const float RightH = HalfExtentAlong(Right, PortalUp);
+	const float Height = FMath::Max(LeftH, RightH);
+
+	if (Width > KINDA_SMALL_NUMBER)
+	{
+		OutHalfWidth = Width;
+	}
+	if (Height > KINDA_SMALL_NUMBER)
+	{
+		OutHalfHeight = Height;
+	}
+}
+
+void APortal::SyncReverseColliderToAperture()
+{
+	if (!ReverseCollider)
+	{
+		return;
+	}
+
+	float HalfW = ApertureHalfWidth;
+	float HalfH = ApertureHalfHeight;
+	GetApertureHalfExtents(HalfW, HalfH);
+	// Lateral = aperture. Depth must reach past a long/angled body's center while its near
+	// face is still in front of the solid portal plane (else it bounces before BeginOverlap).
+	const float HalfDepth = FMath::Max(HalfW, HalfH) * 2.f;
+	ReverseCollider->SetBoxExtent(FVector(HalfDepth, HalfW, HalfH));
+}
+
+float APortal::GetActorHalfExtentAlong(const AActor* Actor, const FVector& Dir) const
+{
+	if (!Actor || Dir.IsNearlyZero())
+	{
+		return 0.f;
+	}
+
+	const FVector N = Dir.GetSafeNormal();
+	float MaxAbs = 0.f;
+	TArray<UPrimitiveComponent*> Primitives;
+	Actor->GetComponents<UPrimitiveComponent>(Primitives);
+	for (const UPrimitiveComponent* Prim : Primitives)
+	{
+		if (!Prim || (!Prim->IsSimulatingPhysics() && !Prim->GetGenerateOverlapEvents()))
+		{
+			continue;
+		}
+
+		FVector LocalExt = Prim->Bounds.BoxExtent;
+		if (const UStaticMeshComponent* Mesh = Cast<UStaticMeshComponent>(Prim))
+		{
+			if (Mesh->GetStaticMesh())
+			{
+				LocalExt = Mesh->GetStaticMesh()->GetBoundingBox().GetExtent();
+			}
+		}
+		const FTransform TM = Prim->GetComponentTransform();
+		for (int32 Corner = 0; Corner < 8; ++Corner)
+		{
+			const FVector LocalCorner(
+				(Corner & 1) ? LocalExt.X : -LocalExt.X,
+				(Corner & 2) ? LocalExt.Y : -LocalExt.Y,
+				(Corner & 4) ? LocalExt.Z : -LocalExt.Z);
+			const FVector WorldCorner = TM.TransformPosition(LocalCorner);
+			MaxAbs = FMath::Max(MaxAbs, FMath::Abs(FVector::DotProduct(WorldCorner - Actor->GetActorLocation(), N)));
+		}
+	}
+	return MaxAbs;
+}
+
+bool APortal::ShouldKeepTransitAfterOverlapEnd(const AActor* Actor) const
+{
+	if (!Actor)
+	{
+		return false;
+	}
+
+	const FVector Origin = GetPlaneOrigin();
+	const FVector Normal = GetActorForwardVector();
+	const float Side = FVector::DotProduct(Actor->GetActorLocation() - Origin, Normal);
+	// Whole body is in front of the plane only once center is farther out than the OBB
+	// half-extent along the portal normal. Until then the actor still straddles / crosses.
+	const float HalfAlongNormal = GetActorHalfExtentAlong(Actor, Normal);
+	return Side <= HalfAlongNormal;
 }
 
 void APortal::Link(APortal* Portal)
@@ -1066,6 +1358,120 @@ bool APortal::IsPointBehindPlane(const FVector& Point, const float Cutoff) const
 {
 	const FVector Origin = Plane ? Plane->GetComponentLocation() : GetActorLocation();
 	return FVector::DotProduct(Point - Origin, GetActorForwardVector()) <= Cutoff;
+}
+
+bool APortal::ActorFitsAperture(const AActor* Actor) const
+{
+	if (!Actor || !Plane)
+	{
+		return true;
+	}
+
+	float HalfW = 50.f;
+	float HalfH = 50.f;
+	GetApertureHalfExtents(HalfW, HalfH);
+	const FVector Origin = GetPlaneOrigin();
+	const FVector Normal = GetActorForwardVector();
+	const FVector PlaneRight = GetActorRightVector();
+	const FVector PlaneUp = GetActorUpVector();
+	// Cross-section at the portal plane (not full silhouette) so long bodies can thread.
+	constexpr float SliceHalfDepthCm = 8.f;
+
+	float SliceMaxRight = 0.f;
+	float SliceMaxUp = 0.f;
+	float FullMaxRight = 0.f;
+	float FullMaxUp = 0.f;
+	bool bHaveSlice = false;
+	bool bHaveFull = false;
+
+	auto ConsiderFull = [&](const FVector& WorldPoint)
+	{
+		bHaveFull = true;
+		FullMaxRight = FMath::Max(FullMaxRight, FMath::Abs(FVector::DotProduct(WorldPoint - Origin, PlaneRight)));
+		FullMaxUp = FMath::Max(FullMaxUp, FMath::Abs(FVector::DotProduct(WorldPoint - Origin, PlaneUp)));
+	};
+	auto ConsiderSlice = [&](const FVector& WorldPoint)
+	{
+		const float Side = FVector::DotProduct(WorldPoint - Origin, Normal);
+		if (FMath::Abs(Side) > SliceHalfDepthCm)
+		{
+			return;
+		}
+		bHaveSlice = true;
+		SliceMaxRight = FMath::Max(SliceMaxRight, FMath::Abs(FVector::DotProduct(WorldPoint - Origin, PlaneRight)));
+		SliceMaxUp = FMath::Max(SliceMaxUp, FMath::Abs(FVector::DotProduct(WorldPoint - Origin, PlaneUp)));
+	};
+
+	TArray<UPrimitiveComponent*> Primitives;
+	Actor->GetComponents<UPrimitiveComponent>(Primitives);
+	for (const UPrimitiveComponent* Prim : Primitives)
+	{
+		if (!Prim || !Prim->IsSimulatingPhysics())
+		{
+			continue;
+		}
+
+		FVector LocalExt = Prim->Bounds.BoxExtent;
+		if (const UStaticMeshComponent* Mesh = Cast<UStaticMeshComponent>(Prim))
+		{
+			if (Mesh->GetStaticMesh())
+			{
+				LocalExt = Mesh->GetStaticMesh()->GetBoundingBox().GetExtent();
+			}
+		}
+		const FTransform TM = Prim->GetComponentTransform();
+		FVector Corners[8];
+		for (int32 Corner = 0; Corner < 8; ++Corner)
+		{
+			const FVector LocalCorner(
+				(Corner & 1) ? LocalExt.X : -LocalExt.X,
+				(Corner & 2) ? LocalExt.Y : -LocalExt.Y,
+				(Corner & 4) ? LocalExt.Z : -LocalExt.Z);
+			Corners[Corner] = TM.TransformPosition(LocalCorner);
+			ConsiderFull(Corners[Corner]);
+			ConsiderSlice(Corners[Corner]);
+		}
+
+		// Edge ∩ portal plane samples for a true cross-section while straddling.
+		static const int32 Edges[12][2] = {
+			{0,1},{2,3},{4,5},{6,7},
+			{0,2},{1,3},{4,6},{5,7},
+			{0,4},{1,5},{2,6},{3,7}
+		};
+		for (const int32* Edge : Edges)
+		{
+			const FVector& A = Corners[Edge[0]];
+			const FVector& B = Corners[Edge[1]];
+			const float SideA = FVector::DotProduct(A - Origin, Normal);
+			const float SideB = FVector::DotProduct(B - Origin, Normal);
+			if (SideA * SideB > 0.f && FMath::Abs(SideA) > SliceHalfDepthCm && FMath::Abs(SideB) > SliceHalfDepthCm)
+			{
+				continue;
+			}
+			const float Denom = SideA - SideB;
+			if (FMath::Abs(Denom) <= KINDA_SMALL_NUMBER)
+			{
+				ConsiderSlice(A);
+				ConsiderSlice(B);
+				continue;
+			}
+			const float T = SideA / Denom;
+			if (T >= 0.f && T <= 1.f)
+			{
+				ConsiderSlice(FMath::Lerp(A, B, T));
+			}
+		}
+	}
+
+	if (bHaveSlice)
+	{
+		return SliceMaxRight <= HalfW && SliceMaxUp <= HalfH;
+	}
+	if (!bHaveFull)
+	{
+		return true;
+	}
+	return FullMaxRight <= HalfW && FullMaxUp <= HalfH;
 }
 
 // Called every frame
@@ -1119,19 +1525,28 @@ void APortal::Tick(float DeltaTime)
 	for (const TPair<AActor*, AActor*>& Pair : TeleportingObjects)
 	{
 		UpdateCloneTransform(Pair.Key, Pair.Value);
+		// Deferred ghosting: enable once the body fits. Skip if already latched.
+		if (Pair.Key && !Pair.Key->IsA<AActionDemoCharacter>()
+			&& !IsSimulatingThroughPortal(Pair.Key)
+			&& ActorFitsAperture(Pair.Key))
+		{
+			SetSimulatingThroughPortal(Pair.Key, true);
+		}
 	}
 
-		TArray<AActor*> ToHandOff;
-		for (const TPair<AActor*, AActor*>& Pair : TeleportingObjects)
+	TArray<AActor*> ToHandOff;
+	for (const TPair<AActor*, AActor*>& Pair : TeleportingObjects)
+	{
+		if (Pair.Key && Pair.Value && !Pair.Key->IsA<AActionDemoCharacter>()
+			&& IsPointBehindPlane(Pair.Key->GetActorLocation(), -2.0f)
+			&& ActorFitsAperture(Pair.Key))
 		{
-		if (Pair.Key && Pair.Value && !Pair.Key->IsA<AActionDemoCharacter>() && IsPointBehindPlane(Pair.Key->GetActorLocation(), -2.0f))
-			{
-				ToHandOff.Add(Pair.Key);
-			}
+			ToHandOff.Add(Pair.Key);
 		}
-		for (AActor* Original : ToHandOff)
-		{
-			HandOffTeleportingObject(Original);
+	}
+	for (AActor* Original : ToHandOff)
+	{
+		HandOffTeleportingObject(Original);
 	}
 
 	const FLinearColor Origin = FLinearColor(Plane->GetComponentLocation());
@@ -1159,8 +1574,8 @@ void APortal::Tick(float DeltaTime)
 	for (const TPair<AActor*, AActor*>& Pair : TeleportingObjects)
 	{
 		if (!Pair.Key->IsA<AActionDemoCharacter>())
-		{
-			SetActorClip(Pair.Key, Origin, Normal, true);
+	{
+		SetActorClip(Pair.Key, Origin, Normal, true);
 		}
 		if (OtherPortal && Pair.Value)
 		{
@@ -1180,8 +1595,9 @@ void APortal::Tick(float DeltaTime)
 			const FColor Color = Stats.NewPoints > 0 ? FColor::Orange : (Stats.Detected > 0 ? FColor::Green : FColor::Red);
 			const TCHAR* State = Stats.NewPoints > 0 ? TEXT("new points added") : (Stats.Written > 0 ? TEXT("no new points") : TEXT("no contacts"));
 			GEngine->AddOnScreenDebugMessage(PortalCopyMessageKey, 0.f, Color,
-				FString::Printf(TEXT("%s copy: %s  bodies=%d exits=%d leaves=%d unk=%d det=%d new=%d kept=%d"),
-					*GetName(), State, Stats.Bodies, Stats.Exits, Stats.Leaves, Stats.Unknown, Stats.Detected, Stats.NewPoints, Stats.KeptPoints));
+				FString::Printf(TEXT("%s copy: %s  bodies=%d exits=%d leaves=%d unk=%d det=%d new=%d kept=%d dropW=%d dropS=%d keepF=%d"),
+					*GetName(), State, Stats.Bodies, Stats.Exits, Stats.Leaves, Stats.Unknown, Stats.Detected, Stats.NewPoints, Stats.KeptPoints,
+					Stats.DroppedBehindWall, Stats.DroppedSurface, Stats.KeptFloorBehind));
 		}
 	}
 #endif
@@ -1412,7 +1828,12 @@ void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherA
 		if (AActor* ClonedActor = CreatePortalClone(OtherActor, NewTrans))
 		{
 			TeleportingObjects.Add(OtherActor, ClonedActor);
-			SetSimulatingThroughPortal(OtherActor, true);
+			// Defer contact-mod until the body fits — otherwise a captured wide slab ghosts the
+			// aperture volume and falls through the wall hole without ever handing off.
+			if (ActorFitsAperture(OtherActor))
+			{
+				SetSimulatingThroughPortal(OtherActor, true);
+			}
 		}
 	}
 }
@@ -1427,7 +1848,13 @@ void APortal::OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AAct
 		}
 	}
 
-	if (!TeleportingObjects.Contains(OtherActor))
+	if (!OtherActor || !TeleportingObjects.Contains(OtherActor))
+	{
+		return;
+	}
+
+	// Overlap volume is finite; keep capture while the body still straddles the portal plane.
+	if (ShouldKeepTransitAfterOverlapEnd(OtherActor))
 	{
 		return;
 	}
@@ -1440,7 +1867,6 @@ void APortal::OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AAct
 
 	SetActorClip(OtherActor, FLinearColor(Plane->GetComponentLocation()), FLinearColor(GetActorForwardVector()), false);
 	SetSimulatingThroughPortal(OtherActor, false);
-
 	TeleportingObjects.Remove(OtherActor);
 }
 

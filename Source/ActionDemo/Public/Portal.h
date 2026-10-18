@@ -53,6 +53,8 @@ protected:
 
 	void SetSimulatingThroughPortal(AActor* Actor, bool bEnable);
 
+	bool IsSimulatingThroughPortal(const AActor* Actor) const;
+
 	void TransferSimulatingThroughPortal(AActor* Actor, APortal* Destination);
 
 	void PushPhysicsCallbackInputs(float DeltaTime);
@@ -60,6 +62,24 @@ protected:
 	void CachePortalPhysicsObjects();
 
 	void NotifyCurrentOverlaps();
+
+	/**
+	 * Half-extents of the passable opening from rim box colliders:
+	 * width = Top/Bottom extent along portal Right; height = Left/Right along Up.
+	 */
+	void GetApertureHalfExtents(float& OutHalfWidth, float& OutHalfHeight) const;
+
+	/** Match reverse trigger to cached aperture. */
+	void SyncReverseColliderToAperture();
+
+	/** OBB half-size of Actor along Dir (for plane-side transit tests). */
+	float GetActorHalfExtentAlong(const AActor* Actor, const FVector& Dir) const;
+
+	/**
+	 * Keep capture after EndOverlap while the body still straddles the portal plane
+	 * (center Side ≤ extent along normal). Release only once fully back in the entry room.
+	 */
+	bool ShouldKeepTransitAfterOverlapEnd(const AActor* Actor) const;
 
 	void Teleport(AActionDemoCharacter* Character);
 
@@ -76,8 +96,30 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Collider, meta = (AllowPrivateAccess = "true"))
 	UBoxComponent* ReverseCollider;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Collider, meta = (AllowPrivateAccess = "true"))
+	USceneComponent* EdgeColliders;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Collider, meta = (AllowPrivateAccess = "true"))
+	UBoxComponent* Top;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Collider, meta = (AllowPrivateAccess = "true"))
+	UBoxComponent* Bottom;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Collider, meta = (AllowPrivateAccess = "true"))
+	UBoxComponent* Left;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Collider, meta = (AllowPrivateAccess = "true"))
+	UBoxComponent* Right;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Plane, meta = (AllowPrivateAccess = "true"))
 	UStaticMeshComponent* Plane;
+
+	/** Cached opening half-size (local Y / Z). Filled in BeginPlay from rim colliders. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Portal)
+	float ApertureHalfWidth = 64.f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Portal)
+	float ApertureHalfHeight = 112.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Material, meta = (AllowPrivateAccess = "true"))
 	UMaterialInstance* OrangeMaterial;
@@ -113,6 +155,9 @@ public:
 
 	// True on the wall side of the portal, including contacts sitting on the surface.
 	bool IsPointBehindPlane(const FVector& Point, float Cutoff = 2.0f) const;
+
+	// True when the actor's oriented bounds fit through this portal's aperture.
+	bool ActorFitsAperture(const AActor* Actor) const;
 
 	FVector GetPlaneOrigin() const
 	{
