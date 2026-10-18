@@ -1325,6 +1325,17 @@ void APortal::Teleport(AActionDemoCharacter* Character)
 	const FQuat CaptureQ = OtherPortal->CaptureComponent->GetComponentQuat();
 	PlayerController->SetControlRotation(CaptureQ.Rotator());
 
+	// Move the existing image to this side before the character arrives, so the exit overlap does not spawn another one in front of the camera.
+	if (AActor* Clone = TeleportingObjects.FindRef(Character))
+	{
+		const FTransform StayTransform = Character->GetActorTransform();
+		TeleportingObjects.Remove(Character);
+		OtherPortal->TeleportingObjects.Add(Character, Clone);
+		Clone->SetActorTransform(StayTransform, false, nullptr, ETeleportType::TeleportPhysics);
+		SetActorClip(Clone, FLinearColor(GetPlaneOrigin()), FLinearColor(GetActorForwardVector()), true);
+		TransferSimulatingThroughPortal(Character, OtherPortal);
+	}
+
 	const FQuat ExitRotation = TravelQ * Character->GetActorQuat();
 	Character->SetActorLocationAndRotation(ExitLocation, ExitRotation, false, nullptr, ETeleportType::TeleportPhysics);
 
@@ -1400,7 +1411,7 @@ void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherA
 		const FTransform NewTrans(TravelQ * OtherActor->GetActorQuat(), Location, OtherActor->GetActorScale3D());
 		if (AActor* ClonedActor = CreatePortalClone(OtherActor, NewTrans))
 		{
-		TeleportingObjects.Add(OtherActor, ClonedActor);
+			TeleportingObjects.Add(OtherActor, ClonedActor);
 			SetSimulatingThroughPortal(OtherActor, true);
 		}
 	}
@@ -1408,8 +1419,6 @@ void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherA
 
 void APortal::OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
-	UE_LOG(LogTemp, Warning, TEXT("EXIT: %s"), *OtherActor->GetActorLabel())
-
 	if (AActionDemoCharacter* OverlappedCharacter = Cast<AActionDemoCharacter>(OtherActor))
 	{
 		if (OverlappedCharacter == LocalPlayer && OverlappedCharacter->GetCurrentPortal() == this)
@@ -1418,19 +1427,21 @@ void APortal::OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AAct
 		}
 	}
 
-	if (TeleportingObjects.Contains(OtherActor))
+	if (!TeleportingObjects.Contains(OtherActor))
 	{
-		AActor* Clone = TeleportingObjects[OtherActor];
-		if (Clone)
-		{
-			VDestroy(Clone);
-		}
-
-		SetActorClip(OtherActor, FLinearColor(Plane->GetComponentLocation()), FLinearColor(GetActorForwardVector()), false);
-		SetSimulatingThroughPortal(OtherActor, false);
-
-		TeleportingObjects.Remove(OtherActor);
+		return;
 	}
+
+	AActor* Clone = TeleportingObjects[OtherActor];
+	if (Clone)
+	{
+		VDestroy(Clone);
+	}
+
+	SetActorClip(OtherActor, FLinearColor(Plane->GetComponentLocation()), FLinearColor(GetActorForwardVector()), false);
+	SetSimulatingThroughPortal(OtherActor, false);
+
+	TeleportingObjects.Remove(OtherActor);
 }
 
 void APortal::VDestroy(AActor* ToDestroy)
