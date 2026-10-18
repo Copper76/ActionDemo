@@ -319,14 +319,6 @@ void AActionDemoCharacter::CalcCamera(float DeltaTime, struct FMinimalViewInfo& 
 	}
 }
 
-FVector AActionDemoCharacter::GetEyeLocation() const
-{
-	const FVector CameraLocation = PlayerCamera ? PlayerCamera->GetComponentLocation() : GetActorLocation();
-	const FVector Gravity = GetCharacterMovement() ? GetCharacterMovement()->GetGravityDirection() : FVector(0.f, 0.f, -1.f);
-	const FQuat GravityAlign = FQuat::FindBetweenNormals(FVector::UpVector, -Gravity);
-	return CameraLocation + GravityAlign.RotateVector(CrouchEyeOffset);
-}
-
 void AActionDemoCharacter::Landed(const FHitResult& Hit)
 {
 	DemoMyCharacterMovementComponent->bFellOff = false;

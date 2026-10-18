@@ -85,12 +85,6 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Material, meta = (AllowPrivateAccess = "true"))
 	UTextureRenderTarget2D* OrangeTextureTarget;
 
-	UPROPERTY(EditDefaultsOnly)
-	float FrontCutoff = 20.f;
-
-	UPROPERTY(EditDefaultsOnly)
-	float BehindCutoff = -20.f;
-
 private:
 	FPortalEntryContactCallback* EntryContactCallback = nullptr;
 

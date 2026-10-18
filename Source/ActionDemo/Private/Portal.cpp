@@ -1110,13 +1110,7 @@ void APortal::Tick(float DeltaTime)
 
 	if (LocalPlayer && LocalPlayer->GetCurrentPortal() == this)
 	{
-		const UCameraComponent* EyeCamera = LocalPlayer->GetFirstPersonCameraComponent();
-		const FVector CameraForward = EyeCamera ? EyeCamera->GetForwardVector() : LocalPlayer->GetActorForwardVector();
-		// +1 looks into the room, -1 looks through the portal. Looking through crosses while the eye is still
-		// in front. Looking back into the room waits until the eye is well behind the plane.
-		const float Facing = FMath::Clamp((FVector::DotProduct(CameraForward, GetActorForwardVector()) + 1.f) * 0.5f, 0.f, 1.f);
-		const float Cutoff = FMath::Lerp(FrontCutoff, BehindCutoff, Facing);
-		if (IsPointBehindPlane(LocalPlayer->GetEyeLocation(), Cutoff))
+		if (IsPointBehindPlane(LocalPlayer->GetActorLocation(), -2.0f))
 		{
 			Teleport(LocalPlayer);
 		}
@@ -1165,8 +1159,8 @@ void APortal::Tick(float DeltaTime)
 	for (const TPair<AActor*, AActor*>& Pair : TeleportingObjects)
 	{
 		if (!Pair.Key->IsA<AActionDemoCharacter>())
-	{
-		SetActorClip(Pair.Key, Origin, Normal, true);
+		{
+			SetActorClip(Pair.Key, Origin, Normal, true);
 		}
 		if (OtherPortal && Pair.Value)
 		{
@@ -1331,13 +1325,15 @@ void APortal::Teleport(AActionDemoCharacter* Character)
 	const FQuat CaptureQ = OtherPortal->CaptureComponent->GetComponentQuat();
 	PlayerController->SetControlRotation(CaptureQ.Rotator());
 
-	// Enter the exit portal before the move, so the placement resolves against that plane.
-	// OtherPortal->OnOverlapBegin(OtherPortal->ReverseCollider, Character, Character->GetCapsuleComponent(), INDEX_NONE, false, FHitResult());
-
 	const FQuat ExitRotation = TravelQ * Character->GetActorQuat();
 	Character->SetActorLocationAndRotation(ExitLocation, ExitRotation, false, nullptr, ETeleportType::TeleportPhysics);
 
 	Character->AlignMovement(TravelQ, ExitQ);
+
+	if (PlayerController->PlayerCameraManager)
+	{
+		PlayerController->PlayerCameraManager->UpdateCamera(0.f);
+	}
 }
 
 void APortal::SetActorClip(AActor* Actor, const FLinearColor Origin, const FLinearColor Normal, const bool bEnable)
