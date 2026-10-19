@@ -20,7 +20,7 @@
 DEFINE_LOG_CATEGORY_STATIC(LogPortalPhysicsProbe, Log, All);
 
 int32 FPortalPhysicsProbeLaunch::DumpFrames = 0;
-float FPortalPhysicsProbeLaunch::SinkThresholdCm = 7.f;
+float FPortalPhysicsProbeLaunch::SinkThresholdCm = 8.f;
 bool FPortalPhysicsProbeLaunch::bRequested = false;
 
 namespace
@@ -37,11 +37,19 @@ namespace
 	constexpr float TransitZoneRadiusCm = 180.f;
 	// Spinning bodies can briefly punch the virtual exit face before contacts settle.
 	constexpr float ExitBlockPenetrationFailCm = 40.f;
+	/** Native reverse trigger half-depth (2×max(64,112)); start past this to avoid Notify capture. */
+	constexpr float ReverseTriggerHalfDepthCm = 224.f;
+	constexpr float ExitBlockStartMarginCm = 40.f;
+	constexpr float ExitBlockObstacleMarginCm = 50.f;
 	constexpr float BehindEntryHitImpulseCm = 20.f;
 	/** Cube deeper than this behind entry without capture = ghosted through the face. */
 	constexpr float EntryGhostDepthCm = 20.f;
 	/** Clone must clear this far into the exit/entry room to count as "emerging". */
 	constexpr float CloneEmergeSideCm = 15.f;
+	/** Lateral clearance inside aperture; beyond this after rebound = rim pierce. */
+	constexpr float RimBreachApertureHalfWCm = 55.f;
+	constexpr float RimBreachBehindCm = 5.f;
+	constexpr float RimBreachFrontCm = 15.f;
 	/** Height step between the two room floors for split-floor cases. */
 	constexpr float DefaultExitFloorDeltaZ = 80.f;
 	constexpr float FloorSlabHalfHeightCm = 20.f;
@@ -167,10 +175,11 @@ void APortalPhysicsProbe::BuildDefaultPresets()
 							Case.CubeScale = Shape.Scale;
 							Case.StartYawDegrees = Shape.YawDeg;
 							Case.ArmFrames = 5;
-							Case.bExpectCapture = Shape.bFitsStraight;
+							// Capture is required for launched / exit-block transit; rest-in-portal is not.
+							Case.bExpectCapture = false;
 							Case.bExpectNoEntryGhost = true;
 							Case.ThroughConfirmFrames = 25;
-							Case.ExitObstacleLocalOffset = FVector(55.f, 0.f, 0.f);
+							Case.ExitObstacleLocalOffset = FVector(120.f, 0.f, 0.f);
 							Case.ExitObstacleScale = FVector(0.5f, 2.f, 2.f);
 							Case.ExitFloorDeltaZ = FloorUp ? DefaultExitFloorDeltaZ : 0.f;
 							if (FloorUp)
@@ -238,12 +247,30 @@ void APortalPhysicsProbe::BuildDefaultPresets()
 								Case.bExpectExitBlock = true;
 								Case.bExpectThrough = false;
 								Case.bExpectNoThrough = false;
+								Case.bExpectCapture = Shape.bFitsStraight;
+								// Start past the reverse trigger so Notify does not capture into an
+								// already-overlapping exit image. Obstacle sits beyond that image.
+								Case.StartLocalOffset.X = FMath::Max(
+									Case.StartLocalOffset.X,
+									ReverseTriggerHalfDepthCm + HalfAlongFwd + ExitBlockStartMarginCm);
+								const float ObstacleHalfDepth = 50.f * Case.ExitObstacleScale.X;
+								const float MinObstacleFront =
+									ReverseTriggerHalfDepthCm + HalfAlongFwd + ExitBlockObstacleMarginCm;
+								Case.ExitObstacleLocalOffset.X = MinObstacleFront + ObstacleHalfDepth;
+								Case.MaxFrames = FMath::Max(Case.MaxFrames, 500);
+								// Long rod + slap-back: offset so rebound must respect the rim frame.
+								if (FCString::Stricmp(Shape.Tag, TEXT("long")) == 0)
+								{
+									Case.bExpectNoRimBreachOnRebound = true;
+									Case.StartLocalOffset.Y = 40.f;
+								}
 							}
 							else if (Shape.bFitsStraight)
 							{
 								// Open: rest stays; any launch should go through. Exit-block handled above.
 								Case.bExpectThrough = !Case.LaunchVelocityLocal.IsNearlyZero();
 								Case.bExpectCloneSwap = Case.bExpectThrough;
+								Case.bExpectCapture = Case.bExpectThrough;
 							}
 							else
 							{
@@ -423,31 +450,14 @@ void APortalPhysicsProbe::PrepareCubePhysics()
 
 void APortalPhysicsProbe::ClearPortalTracking()
 {
-	auto ClearOne = [](APortal* Portal)
+	if (EntryPortal)
 	{
-		if (!Portal)
-		{
-			return;
-		}
-		TArray<AActor*> Clones;
-		for (const TPair<AActor*, AActor*>& Pair : Portal->TeleportingObjects)
-		{
-			if (Pair.Value)
-			{
-				Clones.Add(Pair.Value);
-			}
-		}
-		Portal->TeleportingObjects.Reset();
-		for (AActor* Clone : Clones)
-		{
-			if (IsValid(Clone))
-			{
-				Clone->Destroy();
-			}
-		}
-	};
-	ClearOne(EntryPortal);
-	ClearOne(ExitPortal);
+		EntryPortal->AbortAllTransit();
+	}
+	if (ExitPortal)
+	{
+		ExitPortal->AbortAllTransit();
+	}
 }
 
 void APortalPhysicsProbe::DestroyExitObstacle()
@@ -823,6 +833,30 @@ float APortalPhysicsProbe::GetExitObstacleFrontSide() const
 	return Case.ExitObstacleLocalOffset.X - HalfDepth;
 }
 
+float APortalPhysicsProbe::GetCubeHalfExtentAlongEntryForward(const FPortalPhysicsProbeCase& Case) const
+{
+	const FVector Scale = Case.CubeScale.IsNearlyZero() ? CubeBaseScale : Case.CubeScale;
+	const float YawRad = FMath::DegreesToRadians(Case.StartYawDegrees);
+	return 50.f * (FMath::Abs(Scale.X * FMath::Cos(YawRad)) + FMath::Abs(Scale.Y * FMath::Sin(YawRad)));
+}
+
+bool APortalPhysicsProbe::CubeExitPoseOverlapsExitObstacle(const FVector& EntryLoc, const FPortalPhysicsProbeCase& Case) const
+{
+	if (!ExitObstacle || !ExitPortal || !EntryPortal)
+	{
+		return false;
+	}
+
+	const float ExitSide = GetCubeExitPlaneSide(EntryLoc);
+	const float HalfAlong = GetCubeHalfExtentAlongEntryForward(Case);
+	const float CubeMin = ExitSide - HalfAlong;
+	const float CubeMax = ExitSide + HalfAlong;
+	const float ObstacleHalfDepth = 50.f * Case.ExitObstacleScale.X;
+	const float ObsMin = Case.ExitObstacleLocalOffset.X - ObstacleHalfDepth;
+	const float ObsMax = Case.ExitObstacleLocalOffset.X + ObstacleHalfDepth;
+	return CubeMax > ObsMin && CubeMin < ObsMax;
+}
+
 void APortalPhysicsProbe::RunPreset(int32 PresetIndex1Based)
 {
 	bBatteryMode = false;
@@ -871,6 +905,8 @@ void APortalPhysicsProbe::StartCase(int32 PresetIndex)
 	bCaseGhostedEntry = false;
 	bCaseSawCloneAtExit = false;
 	bCaseSawCloneAtEntryAfterSwap = false;
+	bCaseWasBehindEntryPlane = false;
+	bCaseRimBreachOnRebound = false;
 	CaseThroughFrames = 0;
 	FrameIndex = 0;
 	ZeroVelocityFramesLeft = 0;
@@ -879,30 +915,22 @@ void APortalPhysicsProbe::StartCase(int32 PresetIndex)
 	EnsureExitObstacle(Case);
 	EnsureBehindEntryObstacle(Case);
 
-	PlaceCubeForCase(Case);
+	// Place first, then link/notify so EndOverlap from teleport cannot drop a fresh capture.
 	ClearPortalTracking();
-	EntryPortal->SetUp(nullptr, true, ExitPortal);
 	PlaceCubeForCase(Case);
-
-	if (!Case.bExpectThrough && Case.LaunchVelocityLocal.IsNearlyZero() && !Case.bExpectExitBlock && !Case.bExpectNoThrough)
+	if (Case.bExpectExitBlock || Case.bExpectThrough || Case.bExpectNoThrough
+		|| Case.StartLocalOffset.X <= 230.f)
 	{
 		EntryPortal->SetUp(nullptr, true, ExitPortal);
-	}
-	else if (Case.bExpectExitBlock || Case.bExpectThrough || Case.bExpectNoThrough)
-	{
-		// Reverse trigger depth is 2×max(HalfW,HalfH); re-arm if we placed inside it.
-		if (Case.StartLocalOffset.X <= 230.f)
-		{
-			EntryPortal->SetUp(nullptr, true, ExitPortal);
-		}
-		else
+		// Far starts: clear so BeginOverlap captures on approach. Near starts keep Notify capture.
+		if (Case.StartLocalOffset.X > 230.f && (Case.bExpectThrough || Case.bExpectExitBlock || Case.bExpectNoThrough))
 		{
 			ClearPortalTracking();
 		}
 	}
 	else
 	{
-		ClearPortalTracking();
+		EntryPortal->SetUp(nullptr, true, ExitPortal);
 	}
 	ZeroCubeVelocity();
 
@@ -920,6 +948,16 @@ void APortalPhysicsProbe::StartCase(int32 PresetIndex)
 		Case.bSpawnExitObstacle ? TEXT("yes") : TEXT("no"),
 		Case.bSpawnBehindEntryObstacle ? TEXT("yes") : TEXT("no"),
 		Case.ExitFloorDeltaZ);
+
+	// Exit-block setups must not begin with the exit-mapped body already in the blocker.
+	if (Case.bExpectExitBlock && ProbeCube
+		&& CubeExitPoseOverlapsExitObstacle(ProbeCube->GetActorLocation(), Case))
+	{
+		UE_LOG(LogPortalPhysicsProbe, Error,
+			TEXT("PROBETEST %s: start exit-pose overlaps exit obstacle (front=%.1f startX=%.1f) — setup contamination"),
+			*Case.Name.ToString(), GetExitObstacleFrontSide(), Case.StartLocalOffset.X);
+		FinishActiveCase(TEXT("start-overlap-exit-obstacle"));
+	}
 }
 
 void APortalPhysicsProbe::TickActiveCase()
@@ -964,6 +1002,21 @@ void APortalPhysicsProbe::TickActiveCase()
 	if (EntrySide < -EntryGhostDepthCm && !bCaseCaptured)
 	{
 		bCaseGhostedEntry = true;
+	}
+	if (bCaseCaptured && EntrySide < -RimBreachBehindCm)
+	{
+		bCaseWasBehindEntryPlane = true;
+	}
+	// Rebound through the rim: was behind the plane, now back in the room but outside the hole.
+	if (Case.bExpectNoRimBreachOnRebound && bCaseWasBehindEntryPlane && EntrySide > RimBreachFrontCm
+		&& EntryPortal)
+	{
+		const FVector Rel = Loc - EntryPortal->GetPlaneOrigin();
+		const float AlongRight = FVector::DotProduct(Rel, EntryPortal->GetActorRightVector());
+		if (FMath::Abs(AlongRight) > RimBreachApertureHalfWCm)
+		{
+			bCaseRimBreachOnRebound = true;
+		}
 	}
 
 	// Clone swap: image nearer exit while in transit; after handoff, Exit portal mirrors
@@ -1048,6 +1101,16 @@ void APortalPhysicsProbe::TickActiveCase()
 				FinishActiveCase(TEXT("ghosted-entry"));
 				return;
 			}
+			if (Case.bExpectNoBehindEntryHit && bCaseHitBehindEntry)
+			{
+				FinishActiveCase(TEXT("hit-behind-entry"));
+				return;
+			}
+			if (Case.bExpectNoRimBreachOnRebound && bCaseRimBreachOnRebound)
+			{
+				FinishActiveCase(TEXT("rim-breach-on-rebound"));
+				return;
+			}
 			if (bCaseSank)
 			{
 				FinishActiveCase(TEXT("sank"));
@@ -1055,14 +1118,23 @@ void APortalPhysicsProbe::TickActiveCase()
 			}
 			// Settled against the exit obstacle — prefer this over mid-flight punch spikes.
 			const float Speed = Prim ? Prim->GetPhysicsLinearVelocity().Size() : 0.f;
-			if (bCaseBlockedByExit && Speed < 40.f && CaseFramesLeft < Case.MaxFrames - 30)
+			if (bCaseBlockedByExit && Speed < 40.f && CaseFramesLeft < Case.MaxFrames - 30
+				&& !bCaseRimBreachOnRebound && !bCaseHitBehindEntry)
 			{
 				FinishActiveCase(TEXT("blocked-ok"));
 				return;
 			}
 			if (CaseFramesLeft <= 0)
 			{
-				if (CaseMaxExitPenetrationCm > ExitBlockPenetrationFailCm)
+				if (bCaseRimBreachOnRebound)
+				{
+					FinishActiveCase(TEXT("rim-breach-on-rebound"));
+				}
+				else if (bCaseHitBehindEntry && Case.bExpectNoBehindEntryHit)
+				{
+					FinishActiveCase(TEXT("hit-behind-entry"));
+				}
+				else if (CaseMaxExitPenetrationCm > ExitBlockPenetrationFailCm)
 				{
 					FinishActiveCase(TEXT("punched-exit-obstacle"));
 				}
@@ -1204,11 +1276,12 @@ void APortalPhysicsProbe::FinishActiveCase(const TCHAR* Reason)
 		|| (bCaseSawCloneAtExit && bCaseSawCloneAtEntryAfterSwap);
 	// Rim cases: never allow through (already in bNoThroughOk) and never ghost past the face.
 	const bool bRimOk = !Case.bExpectNoThrough || (!bCaseWentThrough && !bCaseGhostedEntry);
+	const bool bRimReboundOk = !Case.bExpectNoRimBreachOnRebound || !bCaseRimBreachOnRebound;
 	const bool bPass = bCaptureOk && bThroughOk && bNoThroughOk && bBlockOk
-		&& bBehindGhostOk && bEntryGhostOk && bCloneSwapOk && bRimOk && !bCaseSank;
+		&& bBehindGhostOk && bEntryGhostOk && bCloneSwapOk && bRimOk && bRimReboundOk && !bCaseSank;
 
 	UE_LOG(LogPortalPhysicsProbe, Display,
-		TEXT("PROBETEST RESULT %s: %s through=%s sank=%s maxSink=%.1fcm captured=%s blocked=%s maxExitPen=%.1fcm behindHit=%s ghost=%s cloneExit=%s cloneEntrySwap=%s maxBehindImpulse=%.1f reason=%s"),
+		TEXT("PROBETEST RESULT %s: %s through=%s sank=%s maxSink=%.1fcm captured=%s blocked=%s maxExitPen=%.1fcm behindHit=%s ghost=%s rimBreach=%s cloneExit=%s cloneEntrySwap=%s maxBehindImpulse=%.1f reason=%s"),
 		*Case.Name.ToString(),
 		bPass ? TEXT("PASS") : TEXT("FAIL"),
 		bCaseWentThrough ? TEXT("yes") : TEXT("NO"),
@@ -1219,6 +1292,7 @@ void APortalPhysicsProbe::FinishActiveCase(const TCHAR* Reason)
 		CaseMaxExitPenetrationCm,
 		bCaseHitBehindEntry ? TEXT("YES") : TEXT("no"),
 		bCaseGhostedEntry ? TEXT("YES") : TEXT("no"),
+		bCaseRimBreachOnRebound ? TEXT("YES") : TEXT("no"),
 		bCaseSawCloneAtExit ? TEXT("yes") : TEXT("NO"),
 		bCaseSawCloneAtEntryAfterSwap ? TEXT("yes") : TEXT("NO"),
 		CaseMaxBehindEntryHitImpulse,

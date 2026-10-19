@@ -69,9 +69,6 @@ protected:
 	 */
 	void GetApertureHalfExtents(float& OutHalfWidth, float& OutHalfHeight) const;
 
-	/** Match reverse trigger to cached aperture. */
-	void SyncReverseColliderToAperture();
-
 	/** OBB half-size of Actor along Dir (for plane-side transit tests). */
 	float GetActorHalfExtentAlong(const AActor* Actor, const FVector& Dir) const;
 
@@ -150,6 +147,9 @@ public:
 	void SetUp(AActor* TargetSurface, const bool bIsBlue = true,  APortal* OtherPortal = nullptr);
 
 	void Link(APortal* Portal);
+
+	/** Drop all captured props (destroys clones, clears contact-mod). Probe/reset use this. */
+	void AbortAllTransit();
 
 	/**
 	 * Fixed handoff rotation derived at Link() from the two portal actor quats

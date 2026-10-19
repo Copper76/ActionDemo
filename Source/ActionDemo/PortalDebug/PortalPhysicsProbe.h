@@ -103,11 +103,17 @@ struct FPortalPhysicsProbeCase
 	FVector ExitObstacleScale = FVector(0.5f, 1.5f, 1.5f);
 
 	/**
-	 * Behind-entry obstacle: physical collider past the entry plane. Traveler must go through
-	 * without hitting it (already teleported) — fail if a physics hit is recorded.
+	 * Behind-entry obstacle must not physically block transit — fail if a hit impulse is recorded.
 	 */
 	UPROPERTY(EditAnywhere, Category = "Probe")
 	bool bExpectNoBehindEntryHit = false;
+
+	/**
+	 * After being behind the entry plane, returning to the entry room outside the aperture
+	 * laterally means the body pierced the rim frame (e.g. exit-block slap-back).
+	 */
+	UPROPERTY(EditAnywhere, Category = "Probe")
+	bool bExpectNoRimBreachOnRebound = false;
 
 	UPROPERTY(EditAnywhere, Category = "Probe")
 	bool bSpawnBehindEntryObstacle = false;
@@ -183,6 +189,9 @@ private:
 	bool IsInPortalTransitZone(const FVector& Loc) const;
 	float GetCubeExitPlaneSide(const FVector& Loc) const;
 	float GetExitObstacleFrontSide() const;
+	float GetCubeHalfExtentAlongEntryForward(const FPortalPhysicsProbeCase& Case) const;
+	/** True if the exit-mapped cube OBB intersects the exit obstacle (setup contamination). */
+	bool CubeExitPoseOverlapsExitObstacle(const FVector& EntryLoc, const FPortalPhysicsProbeCase& Case) const;
 	float GetExpectedFloorTopZ(const FVector& Loc) const;
 	float GetSinkCm(const FVector& Loc) const;
 
@@ -254,4 +263,6 @@ private:
 	bool bCaseGhostedEntry = false;
 	bool bCaseSawCloneAtExit = false;
 	bool bCaseSawCloneAtEntryAfterSwap = false;
+	bool bCaseWasBehindEntryPlane = false;
+	bool bCaseRimBreachOnRebound = false;
 };
