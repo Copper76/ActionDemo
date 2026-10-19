@@ -115,6 +115,9 @@ public:
 
 	bool CheckValidLoc(FVector& PortalCentre, FQuat& OutRotation, AActor*& TargetSurface, bool isBlue);
 
+	/** True if Actor is a portal of the opposite colour (same colour is relocating, so not a block). */
+	bool IsOtherColourPortal(const AActor* Actor, bool bIsBlue) const;
+
 protected:
 	/** Ends gameplay for this component. */
 	UFUNCTION()

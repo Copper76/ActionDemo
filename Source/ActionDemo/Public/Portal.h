@@ -133,11 +133,6 @@ private:
 
 	bool bPortalPhysicsObjectsCached = false;
 
-	/** Valid after Link(); maps this portal's space onto OtherPortal (180° handoff). */
-	FQuat CachedTravelQuat = FQuat::Identity;
-
-	bool bCachedTravelQuatValid = false;
-
 public:	
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
@@ -150,8 +145,8 @@ public:
 	void AbortAllTransit();
 
 	/**
-	 * Fixed handoff rotation derived at Link() from the two portal actor quats
-	 * (exit * 180° yaw * entry⁻¹). Not recomputed per tick from live poses.
+	 * Live handoff rotation from the two portal actor quats
+	 * (exit * 180° yaw * entry⁻¹). Recomputed from current poses each call.
 	 */
 	bool GetTravelQuat(FQuat& OutTravelQ) const;
 

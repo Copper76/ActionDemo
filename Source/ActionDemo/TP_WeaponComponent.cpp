@@ -204,8 +204,7 @@ void UTP_WeaponComponent::BluePortalFire()
 	}
 	else
 	{
-		m_Character->BluePortal->GetRootComponent()->SetWorldLocation(PortalCentre);
-		m_Character->BluePortal->GetRootComponent()->SetWorldRotation(PortalRotation);
+		m_Character->BluePortal->SetActorLocationAndRotation(PortalCentre, PortalRotation, false, nullptr, ETeleportType::TeleportPhysics);
 	}
 }
 
@@ -257,8 +256,7 @@ void UTP_WeaponComponent::OrangePortalFire()
 	}
 	else
 	{
-		m_Character->OrangePortal->GetRootComponent()->SetWorldLocation(PortalCentre);
-		m_Character->OrangePortal->GetRootComponent()->SetWorldRotation(PortalRotation);
+		m_Character->OrangePortal->SetActorLocationAndRotation(PortalCentre, PortalRotation, false, nullptr, ETeleportType::TeleportPhysics);
 	}
 }
 
@@ -291,9 +289,19 @@ void UTP_WeaponComponent::TogglePortal()
 	}
 }
 
+bool UTP_WeaponComponent::IsOtherColourPortal(const AActor* Actor, bool bIsBlue) const
+{
+	const APortal* HitPortal = Cast<APortal>(Actor);
+	if (!HitPortal || !m_Character)
+	{
+		return false;
+	}
+	const APortal* SameColour = bIsBlue ? m_Character->BluePortal : m_Character->OrangePortal;
+	return HitPortal != SameColour;
+}
+
 bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FQuat& PortalRotation, AActor*& TargetSurface, bool isBlue)
 {
-	if (m_Character->GetPortal(isBlue) != nullptr && m_Character->GetPortal(isBlue)->TeleportingObjects.Num() > 0) return false;
 	FCollisionQueryParams QueryParams = m_Character->GetIgnorePortalParams(isBlue);
 	FVector Start = PlayerController->PlayerCameraManager->GetCameraLocation();
 	FVector Fwd = PlayerController->PlayerCameraManager->GetCameraRotation().Vector();
@@ -419,12 +427,9 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FQuat& PortalRota
 	{
 		PortalCentre += FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::LeftVector), PortalSurface).GetSafeNormal() * (RightFaceHit.Distance - Portal_Width / 2);
 	}
-	else
+	else if (IsOtherColourPortal(EdgeHit.GetActor(), isBlue))
 	{
-		if (EdgeHit.GetActor()->IsA<APortal>())
-		{
-			return false;
-		}
+		return false;
 	}
 
 	FVector LeftEdge = PortalCentre - SurfaceRight * (Portal_Width / 2 + 10.0f);
@@ -433,12 +438,9 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FQuat& PortalRota
 	{
 		PortalCentre += FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::RightVector), PortalSurface).GetSafeNormal() * (LeftFaceHit.Distance - Portal_Width / 2);
 	}
-	else
+	else if (IsOtherColourPortal(EdgeHit.GetActor(), isBlue))
 	{
-		if (EdgeHit.GetActor()->IsA<APortal>())
-		{
-			return false;
-		}
+		return false;
 	}
 
 	FVector UpEdge = PortalCentre + SurfaceUp * (Portal_Height / 2 + 10.0f);
@@ -447,12 +449,9 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FQuat& PortalRota
 	{
 		PortalCentre += FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::DownVector), PortalSurface).GetSafeNormal() * (TopFaceHit.Distance - Portal_Height / 2);
 	}
-	else
+	else if (IsOtherColourPortal(EdgeHit.GetActor(), isBlue))
 	{
-		if (EdgeHit.GetActor()->IsA<APortal>())
-		{
-			return false;
-		}
+		return false;
 	}
 
 	FVector DownEdge = PortalCentre - SurfaceUp * (Portal_Height / 2.0f + 10.0f);
@@ -461,38 +460,35 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FQuat& PortalRota
 	{
 		PortalCentre += FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::UpVector), PortalSurface).GetSafeNormal() * (BottomFaceHit.Distance - Portal_Height / 2);
 	}
-	else
+	else if (IsOtherColourPortal(EdgeHit.GetActor(), isBlue))
 	{
-		if (EdgeHit.GetActor()->IsA<APortal>())
-		{
-			return false;
-		}
+		return false;
 	}
 
 	FVector TopRightCorner = PortalCentre + SurfaceUp * (Portal_Height / 2 + 10.0f) + SurfaceRight * (Portal_Width/2 + 10.0f);
 	GetWorld()->LineTraceSingleByChannel(EdgeHit, TopRightCorner + PortalSurface * Portal_EdgeCheckDelta, TopRightCorner - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
-	if (EdgeHit.IsValidBlockingHit() && EdgeHit.GetActor()->IsA<APortal>())
+	if (EdgeHit.IsValidBlockingHit() && IsOtherColourPortal(EdgeHit.GetActor(), isBlue))
 	{
 		return false;
 	}
 
 	FVector BottomRightCorner = PortalCentre - SurfaceUp * (Portal_Height / 2 + 10.0f) + SurfaceRight * (Portal_Width / 2 + 10.0f);
 	GetWorld()->LineTraceSingleByChannel(EdgeHit, BottomRightCorner + PortalSurface * Portal_EdgeCheckDelta, BottomRightCorner - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
-	if (EdgeHit.IsValidBlockingHit() && EdgeHit.GetActor()->IsA<APortal>())
+	if (EdgeHit.IsValidBlockingHit() && IsOtherColourPortal(EdgeHit.GetActor(), isBlue))
 	{
 		return false;
 	}
 
 	FVector TopLeftCorner = PortalCentre + SurfaceUp * (Portal_Height / 2 + 10.0f) - SurfaceRight * (Portal_Width / 2 + 10.0f);
 	GetWorld()->LineTraceSingleByChannel(EdgeHit, TopLeftCorner + PortalSurface * Portal_EdgeCheckDelta, TopLeftCorner - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
-	if (EdgeHit.IsValidBlockingHit() && EdgeHit.GetActor()->IsA<APortal>())
+	if (EdgeHit.IsValidBlockingHit() && IsOtherColourPortal(EdgeHit.GetActor(), isBlue))
 	{
 		return false;
 	}
 
 	FVector BottomLeftCorner = PortalCentre - SurfaceUp * (Portal_Height / 2 + 10.0f) - SurfaceRight * (Portal_Width / 2 + 10.0f);
 	GetWorld()->LineTraceSingleByChannel(EdgeHit, BottomLeftCorner + PortalSurface * Portal_EdgeCheckDelta, BottomLeftCorner - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
-	if (EdgeHit.IsValidBlockingHit() && EdgeHit.GetActor()->IsA<APortal>())
+	if (EdgeHit.IsValidBlockingHit() && IsOtherColourPortal(EdgeHit.GetActor(), isBlue))
 	{
 		return false;
 	}

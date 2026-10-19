@@ -624,9 +624,9 @@ APortal::APortal()
 	ReverseCollider->OnComponentBeginOverlap.AddDynamic(this, &APortal::OnOverlapBegin);
 	ReverseCollider->OnComponentEndOverlap.AddDynamic(this, &APortal::OnOverlapEnd);
 
-	// Unique native names — BP_Portal SCS still has EdgeColliders/Top/… which were
-	// attaching the instance to Default__BP_Portal_C's Scene Root (template mismatch).
-	EdgeColliders = CreateDefaultSubobject<USceneComponent>(TEXT("PortalEdgeColliders"));
+	// Subobject names must match UPROPERTY names — renaming CreateDefaultSubobject
+	// left PortalEdgeColliders/PortalRim* ghosts on BP_Portal beside EdgeColliders/Top/….
+	EdgeColliders = CreateDefaultSubobject<USceneComponent>(TEXT("EdgeColliders"));
 	EdgeColliders->SetupAttachment(SceneRoot);
 	EdgeColliders->SetRelativeLocation(FVector::ZeroVector);
 	EdgeColliders->SetRelativeRotation(FRotator::ZeroRotator);
@@ -646,10 +646,10 @@ APortal::APortal()
 		Box->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 		return Box;
 	};
-	Top = MakeRim(TEXT("PortalRimTop"));
-	Bottom = MakeRim(TEXT("PortalRimBottom"));
-	Left = MakeRim(TEXT("PortalRimLeft"));
-	Right = MakeRim(TEXT("PortalRimRight"));
+	Top = MakeRim(TEXT("Top"));
+	Bottom = MakeRim(TEXT("Bottom"));
+	Left = MakeRim(TEXT("Left"));
+	Right = MakeRim(TEXT("Right"));
 
 	// Exact BP_Portal rim layout (aperture cached from these in BeginPlay).
 	Top->SetBoxExtent(FVector(2.f, 64.f, 2.f));
@@ -952,13 +952,6 @@ void APortal::PushPhysicsCallbackInputs(float DeltaTime)
 		return;
 	}
 
-	// Keep the cached handoff quat in sync whenever we push sim inputs.
-	if (!bCachedTravelQuatValid)
-	{
-		CachedTravelQuat = OtherPortal->GetActorQuat() * FQuat(FVector::ZAxisVector, PI) * GetActorQuat().Inverse();
-		bCachedTravelQuatValid = true;
-	}
-
 	FQuat TravelQ = FQuat::Identity;
 	if (!GetTravelQuat(TravelQ))
 	{
@@ -1069,8 +1062,8 @@ void APortal::SetUp(AActor* TargetSurface, const bool bIsBlue, APortal* Portal)
 
 	if (Portal)
 	{
-		Link(Portal);
-		OtherPortal->Link(this);
+	Link(Portal);
+	OtherPortal->Link(this);
 		NotifyCurrentOverlaps();
 		OtherPortal->NotifyCurrentOverlaps();
 	}
@@ -1198,17 +1191,6 @@ bool APortal::ShouldKeepTransitAfterOverlapEnd(const AActor* Actor) const
 void APortal::Link(APortal* Portal)
 {
 	OtherPortal = Portal;
-	if (OtherPortal)
-	{
-		// Derive once from the linked poses — consumers must not invent alternate maps.
-		CachedTravelQuat = OtherPortal->GetActorQuat() * FQuat(FVector::ZAxisVector, PI) * GetActorQuat().Inverse();
-		bCachedTravelQuatValid = true;
-	}
-	else
-	{
-		CachedTravelQuat = FQuat::Identity;
-		bCachedTravelQuatValid = false;
-	}
 	UMaterialInstanceDynamic* PortalMID = Plane->CreateDynamicMaterialInstance(0);
 	PortalMID->SetScalarParameterValue(TEXT("Linked"), 1.f);
 }
@@ -1254,13 +1236,9 @@ bool APortal::GetTravelQuat(FQuat& OutTravelQ) const
 	{
 		return false;
 	}
-	if (bCachedTravelQuatValid)
-	{
-		OutTravelQ = CachedTravelQuat;
-		return true;
-	}
-	// Link() should have cached this; derive the same fixed handoff if not yet.
-	OutTravelQ = OtherPortal->GetActorQuat() * FQuat(FVector::ZAxisVector, PI) * GetActorQuat().Inverse();
+	// Live from current poses (same as pre-cache). Flip is 180° about portal local up
+	// so handoff stays correct when portals sit on differently oriented walls.
+	OutTravelQ = OtherPortal->GetActorQuat() * FQuat(FVector::UpVector, PI) * GetActorQuat().Inverse();
 	return true;
 }
 
@@ -1708,21 +1686,21 @@ void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherA
 
 	if (!OtherActor || OtherActor->IsA<AActionDemoCharacter>())
 	{
-		return;
-	}
+			return;
+		}
 
-	if (TeleportingObjects.Contains(OtherActor))
-	{
-		return;
-	}
-
-	for (const TPair<AActor*, AActor*>& Pair : OtherPortal->TeleportingObjects)
-	{
-		if (Pair.Value == OtherActor) //This is a clone of the original
+		if (TeleportingObjects.Contains(OtherActor))
 		{
 			return;
 		}
-	}
+
+		for (const TPair<AActor*, AActor*>& Pair : OtherPortal->TeleportingObjects)
+		{
+			if (Pair.Value == OtherActor) //This is a clone of the original
+			{
+				return;
+			}
+		}
 
 	FQuat TravelQ = FQuat::Identity;
 	FVector Location = FVector::ZeroVector;
