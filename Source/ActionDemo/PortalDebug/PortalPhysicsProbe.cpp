@@ -38,6 +38,10 @@ namespace
 	// Spinning bodies can briefly punch the virtual exit face before contacts settle.
 	constexpr float ExitBlockPenetrationFailCm = 40.f;
 	constexpr float BehindEntryHitImpulseCm = 20.f;
+	/** Cube deeper than this behind entry without capture = ghosted through the face. */
+	constexpr float EntryGhostDepthCm = 20.f;
+	/** Clone must clear this far into the exit/entry room to count as "emerging". */
+	constexpr float CloneEmergeSideCm = 15.f;
 	/** Height step between the two room floors for split-floor cases. */
 	constexpr float DefaultExitFloorDeltaZ = 80.f;
 	constexpr float FloorSlabHalfHeightCm = 20.f;
@@ -164,6 +168,7 @@ void APortalPhysicsProbe::BuildDefaultPresets()
 							Case.StartYawDegrees = Shape.YawDeg;
 							Case.ArmFrames = 5;
 							Case.bExpectCapture = Shape.bFitsStraight;
+							Case.bExpectNoEntryGhost = true;
 							Case.ThroughConfirmFrames = 25;
 							Case.ExitObstacleLocalOffset = FVector(55.f, 0.f, 0.f);
 							Case.ExitObstacleScale = FVector(0.5f, 2.f, 2.f);
@@ -238,12 +243,14 @@ void APortalPhysicsProbe::BuildDefaultPresets()
 							{
 								// Open: rest stays; any launch should go through. Exit-block handled above.
 								Case.bExpectThrough = !Case.LaunchVelocityLocal.IsNearlyZero();
+								Case.bExpectCloneSwap = Case.bExpectThrough;
 							}
 							else
 							{
-								// Wide vs rim: must not fit.
+								// Wide vs rim: must not fit (and must not ghost behind the face).
 								Case.bExpectThrough = false;
 								Case.bExpectNoThrough = true;
+								Case.bExpectCloneSwap = false;
 								Case.MaxFrames = FMath::Max(Case.MaxFrames, 200);
 							}
 
@@ -861,6 +868,9 @@ void APortalPhysicsProbe::StartCase(int32 PresetIndex)
 	bCaseWentThrough = false;
 	bCaseBlockedByExit = false;
 	bCaseHitBehindEntry = false;
+	bCaseGhostedEntry = false;
+	bCaseSawCloneAtExit = false;
+	bCaseSawCloneAtEntryAfterSwap = false;
 	CaseThroughFrames = 0;
 	FrameIndex = 0;
 	ZeroVelocityFramesLeft = 0;
@@ -949,6 +959,41 @@ void APortalPhysicsProbe::TickActiveCase()
 		bCaseWentThrough = true;
 	}
 
+	// Ghost: deep behind the entry face without ever entering transit.
+	const float EntrySide = PlaneSide(EntryPortal, Loc);
+	if (EntrySide < -EntryGhostDepthCm && !bCaseCaptured)
+	{
+		bCaseGhostedEntry = true;
+	}
+
+	// Clone swap: image nearer exit while in transit; after handoff, Exit portal mirrors
+	// the original so the clone sits nearer the entry (flying out of the entry face).
+	AActor* Clone = EntryPortal->TeleportingObjects.FindRef(ProbeCube);
+	if (!Clone)
+	{
+		Clone = ExitPortal->TeleportingObjects.FindRef(ProbeCube);
+	}
+	if (Clone)
+	{
+		const FVector CloneLoc = Clone->GetActorLocation();
+		const float DistEntry = FVector::Dist(CloneLoc, EntryPortal->GetPlaneOrigin());
+		const float DistExit = FVector::Dist(CloneLoc, ExitPortal->GetPlaneOrigin());
+		if (DistExit + CloneEmergeSideCm < DistEntry)
+		{
+			bCaseSawCloneAtExit = true;
+		}
+		if (DistEntry + CloneEmergeSideCm < DistExit)
+		{
+			bCaseSawCloneAtEntryAfterSwap = true;
+		}
+	}
+	// Same-frame handoff: Probe may only see the post-swap mirror at entry. That still
+	// implies the pre-swap image was at exit (HandOff copies clone pose onto the original).
+	if (bOnExit && bCaseSawCloneAtEntryAfterSwap)
+	{
+		bCaseSawCloneAtExit = true;
+	}
+
 	if (Case.bExpectExitBlock && ExitObstacle && bCaseCaptured)
 	{
 		const float ExitSide = GetCubeExitPlaneSide(Loc);
@@ -998,6 +1043,11 @@ void APortalPhysicsProbe::TickActiveCase()
 
 		if (Case.bExpectExitBlock)
 		{
+			if (Case.bExpectNoEntryGhost && bCaseGhostedEntry)
+			{
+				FinishActiveCase(TEXT("ghosted-entry"));
+				return;
+			}
 			if (bCaseSank)
 			{
 				FinishActiveCase(TEXT("sank"));
@@ -1030,11 +1080,19 @@ void APortalPhysicsProbe::TickActiveCase()
 				FinishActiveCase(TEXT("hit-behind-entry"));
 				return;
 			}
+			if (Case.bExpectNoEntryGhost && bCaseGhostedEntry)
+			{
+				FinishActiveCase(TEXT("ghosted-entry"));
+				return;
+			}
 			if (bCaseWentThrough)
 			{
 				++CaseThroughFrames;
 			}
-			if (bCaseWentThrough && CaseThroughFrames >= Case.ThroughConfirmFrames && !bCaseSank && !bCaseHitBehindEntry)
+			const bool bCloneSwapOk = !Case.bExpectCloneSwap
+				|| (bCaseSawCloneAtExit && bCaseSawCloneAtEntryAfterSwap);
+			if (bCaseWentThrough && CaseThroughFrames >= Case.ThroughConfirmFrames
+				&& !bCaseSank && !bCaseHitBehindEntry && !bCaseGhostedEntry && bCloneSwapOk)
 			{
 				FinishActiveCase(TEXT("through-ok"));
 				return;
@@ -1046,7 +1104,19 @@ void APortalPhysicsProbe::TickActiveCase()
 			}
 			if (CaseFramesLeft <= 0)
 			{
-				FinishActiveCase(bCaseWentThrough ? TEXT("through-timeout") : TEXT("timeout"));
+				if (bCaseGhostedEntry)
+				{
+					FinishActiveCase(TEXT("ghosted-entry"));
+				}
+				else if (Case.bExpectCloneSwap && bCaseWentThrough
+					&& !(bCaseSawCloneAtExit && bCaseSawCloneAtEntryAfterSwap))
+				{
+					FinishActiveCase(TEXT("clone-swap-incomplete"));
+				}
+				else
+				{
+					FinishActiveCase(bCaseWentThrough ? TEXT("through-timeout") : TEXT("timeout"));
+				}
 				return;
 			}
 		}
@@ -1057,9 +1127,14 @@ void APortalPhysicsProbe::TickActiveCase()
 				FinishActiveCase(TEXT("unexpected-through"));
 				return;
 			}
+			if (Case.bExpectNoEntryGhost && bCaseGhostedEntry)
+			{
+				FinishActiveCase(TEXT("ghosted-entry"));
+				return;
+			}
 			// Ignore shallow void-falls after tunneling the wall hole; rim-block cares about
 			// not teleporting, not about floor under the non-playable behind-wall cavity.
-			if (bCaseSank && PlaneSide(EntryPortal, Loc) > -5.f)
+			if (bCaseSank && EntrySide > -5.f)
 			{
 				FinishActiveCase(TEXT("sank"));
 				return;
@@ -1072,14 +1147,17 @@ void APortalPhysicsProbe::TickActiveCase()
 			}
 			if (CaseFramesLeft <= 0)
 			{
-				// Never handed off = rim held for scoring, even if the body later fell in the
-				// non-playable cavity behind the wall hole.
 				FinishActiveCase(bCaseWentThrough ? TEXT("unexpected-through") : TEXT("rim-block-ok"));
 				return;
 			}
 		}
 		else
 		{
+			if (Case.bExpectNoEntryGhost && bCaseGhostedEntry)
+			{
+				FinishActiveCase(TEXT("ghosted-entry"));
+				return;
+			}
 			if (bCaseSank)
 			{
 				FinishActiveCase(TEXT("sank"));
@@ -1121,10 +1199,16 @@ void APortalPhysicsProbe::FinishActiveCase(const TCHAR* Reason)
 			&& (CaseMaxExitPenetrationCm <= ExitBlockPenetrationFailCm
 				|| FCString::Strcmp(Reason, TEXT("blocked-ok")) == 0));
 	const bool bBehindGhostOk = !Case.bExpectNoBehindEntryHit || !bCaseHitBehindEntry;
-	const bool bPass = bCaptureOk && bThroughOk && bNoThroughOk && bBlockOk && bBehindGhostOk && !bCaseSank;
+	const bool bEntryGhostOk = !Case.bExpectNoEntryGhost || !bCaseGhostedEntry;
+	const bool bCloneSwapOk = !Case.bExpectCloneSwap
+		|| (bCaseSawCloneAtExit && bCaseSawCloneAtEntryAfterSwap);
+	// Rim cases: never allow through (already in bNoThroughOk) and never ghost past the face.
+	const bool bRimOk = !Case.bExpectNoThrough || (!bCaseWentThrough && !bCaseGhostedEntry);
+	const bool bPass = bCaptureOk && bThroughOk && bNoThroughOk && bBlockOk
+		&& bBehindGhostOk && bEntryGhostOk && bCloneSwapOk && bRimOk && !bCaseSank;
 
 	UE_LOG(LogPortalPhysicsProbe, Display,
-		TEXT("PROBETEST RESULT %s: %s through=%s sank=%s maxSink=%.1fcm captured=%s blocked=%s maxExitPen=%.1fcm behindHit=%s maxBehindImpulse=%.1f reason=%s"),
+		TEXT("PROBETEST RESULT %s: %s through=%s sank=%s maxSink=%.1fcm captured=%s blocked=%s maxExitPen=%.1fcm behindHit=%s ghost=%s cloneExit=%s cloneEntrySwap=%s maxBehindImpulse=%.1f reason=%s"),
 		*Case.Name.ToString(),
 		bPass ? TEXT("PASS") : TEXT("FAIL"),
 		bCaseWentThrough ? TEXT("yes") : TEXT("NO"),
@@ -1134,6 +1218,9 @@ void APortalPhysicsProbe::FinishActiveCase(const TCHAR* Reason)
 		bCaseBlockedByExit ? TEXT("yes") : TEXT("NO"),
 		CaseMaxExitPenetrationCm,
 		bCaseHitBehindEntry ? TEXT("YES") : TEXT("no"),
+		bCaseGhostedEntry ? TEXT("YES") : TEXT("no"),
+		bCaseSawCloneAtExit ? TEXT("yes") : TEXT("NO"),
+		bCaseSawCloneAtEntryAfterSwap ? TEXT("yes") : TEXT("NO"),
 		CaseMaxBehindEntryHitImpulse,
 		Reason);
 

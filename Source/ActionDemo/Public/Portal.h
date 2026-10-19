@@ -134,7 +134,14 @@ private:
 
 	TArray<Chaos::FPhysicsObject*> CachedPortalPhysicsObjects;
 
+	TArray<Chaos::FPhysicsObject*> CachedRimPhysicsObjects;
+
 	bool bPortalPhysicsObjectsCached = false;
+
+	/** Valid after Link(); maps this portal's space onto OtherPortal (180° handoff). */
+	FQuat CachedTravelQuat = FQuat::Identity;
+
+	bool bCachedTravelQuatValid = false;
 
 public:	
 	// Called every frame
@@ -144,7 +151,10 @@ public:
 
 	void Link(APortal* Portal);
 
-	// Rotation that takes this portal's space onto the linked portal. False when there is no linked portal.
+	/**
+	 * Fixed handoff rotation derived at Link() from the two portal actor quats
+	 * (exit * 180° yaw * entry⁻¹). Not recomputed per tick from live poses.
+	 */
 	bool GetTravelQuat(FQuat& OutTravelQ) const;
 
 	// Maps a world point through this portal onto the linked portal.

@@ -69,6 +69,20 @@ struct FPortalPhysicsProbeCase
 	bool bExpectNoThrough = false;
 
 	/**
+	 * Fail if the cube reaches the wall/cavity side of the entry plane without ever being
+	 * captured (ghosted through the portal face instead of entering transit).
+	 */
+	UPROPERTY(EditAnywhere, Category = "Probe")
+	bool bExpectNoEntryGhost = true;
+
+	/**
+	 * For through cases: while captured on entry, clone must appear on the exit side;
+	 * after handoff swap, clone must appear on the entry room side (original flies out exit).
+	 */
+	UPROPERTY(EditAnywhere, Category = "Probe")
+	bool bExpectCloneSwap = false;
+
+	/**
 	 * Expect exit-side obstacle contact: cube must not sink, and must not pass through
 	 * the obstacle (stays on entry or stops in front of the exit blocker).
 	 */
@@ -237,4 +251,7 @@ private:
 	bool bCaseWentThrough = false;
 	bool bCaseBlockedByExit = false;
 	bool bCaseHitBehindEntry = false;
+	bool bCaseGhostedEntry = false;
+	bool bCaseSawCloneAtExit = false;
+	bool bCaseSawCloneAtEntryAfterSwap = false;
 };

@@ -64,11 +64,14 @@ struct FPortalEntryContactInput : public Chaos::FSimCallbackInput
 {
 	TArray<FPortalTrackedBody> Bodies;
 	TArray<Chaos::FPhysicsObjectHandle> PortalObjects;
+	/** Rim frame boxes — contact-mod never disables these (side collision must stay solid). */
+	TArray<Chaos::FPhysicsObjectHandle> RimObjects;
 
 	void Reset()
 	{
 		Bodies.Reset();
 		PortalObjects.Reset();
+		RimObjects.Reset();
 	}
 };
 
@@ -617,11 +620,29 @@ private:
 			return nullptr;
 		};
 
+		auto IsInObjectList = [&Physics](const Chaos::FGeometryParticleHandle* Particle, const TArray<Chaos::FPhysicsObjectHandle>& Objects) mutable
+		{
+			for (Chaos::FPhysicsObjectHandle Object : Objects)
+			{
+				if (Physics.GetParticle(Object) == Particle)
+				{
+					return true;
+				}
+			}
+			return false;
+		};
+
 		FPortalCopyStats ModStats;
 		for (Chaos::FContactPairModifier& Pair : Modifier)
 		{
 			const Chaos::TVec2<Chaos::FGeometryParticleHandle*> Particles = Pair.GetParticlePair();
 			if (!Particles[0] || !Particles[1])
+			{
+				continue;
+			}
+
+			// Rim colliders stay solid — never strip side/top/bottom hits (prevents rim-jam ghosts).
+			if (IsInObjectList(Particles[0], Input->RimObjects) || IsInObjectList(Particles[1], Input->RimObjects))
 			{
 				continue;
 			}
@@ -653,8 +674,7 @@ private:
 				const float FloorAligned = FVector::DotProduct(PushOnCube, FVector::UpVector);
 				const bool bInAperture = Tracked->IsInAperture(Location);
 				// Behind the entry plane: traveler is on the exit side for walls/obstacles, but
-				// keep gravity support. When entry/exit floors differ, InjectExitContacts supplies
-				// the exit floor; same-height entry floor contacts still prevent straddling sink.
+				// keep gravity support. Rim contacts never reach here (RimObjects early-out).
 				if (Side < 0.f)
 				{
 					if (FloorAligned > 0.5f)
@@ -668,10 +688,10 @@ private:
 					}
 					continue;
 				}
-				// Entry face, inside the opening: drop everything except floor (wall volume thrash).
-				// Slack covers a typical cube half-depth so high-speed approaches don't bounce off the wall face.
+				// Fitting travelers only: ghost the open face. Non-fitting keep the face solid.
+				// Rim pairs never enter this loop (listed in RimObjects).
 				constexpr float ApertureFrontSlackCm = 30.f;
-				if (bInAperture && Side < ApertureFrontSlackCm)
+				if (Tracked->bFitsAperture && bInAperture && Side < ApertureFrontSlackCm)
 				{
 					if (FloorAligned > 0.5f)
 					{
@@ -722,18 +742,16 @@ APortal::APortal()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
+	// CreateDefaultSubobject already owns these — do not AddOwnedComponent (causes
+	// template/instance attach ensures when the BP/level is duplicated for PIE).
 	SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("Scene Root"));
-	AddOwnedComponent(SceneRoot);
 	SetRootComponent(SceneRoot);
 
 	CaptureComponent = CreateDefaultSubobject<USceneCaptureComponent2D>(TEXT("OtherPortalView"));
-	AddOwnedComponent(CaptureComponent);
 	CaptureComponent->SetupAttachment(SceneRoot);
-	//CaptureComponent->AttachToComponent(SceneRoot, FAttachmentTransformRules::KeepRelativeTransform);
 	CaptureComponent->SetRelativeRotation(FRotator(0.0f, 0.0f, 90.0f).Quaternion());
 
 	ReverseCollider = CreateDefaultSubobject<UBoxComponent>(TEXT("ReverseCollider"));
-	AddOwnedComponent(ReverseCollider);
 	ReverseCollider->SetupAttachment(SceneRoot);
 	ReverseCollider->SetRelativeLocation(FVector(0.0f, 0.f, 0.0f));
 	ReverseCollider->SetRelativeScale3D(FVector(1.f, 1.f, 1.f));
@@ -746,9 +764,9 @@ APortal::APortal()
 	ReverseCollider->OnComponentBeginOverlap.AddDynamic(this, &APortal::OnOverlapBegin);
 	ReverseCollider->OnComponentEndOverlap.AddDynamic(this, &APortal::OnOverlapEnd);
 
-	// Exact port of BP_Portal EdgeColliders / Top / Bottom / Left / Right.
-	EdgeColliders = CreateDefaultSubobject<USceneComponent>(TEXT("EdgeColliders"));
-	AddOwnedComponent(EdgeColliders);
+	// Unique native names — BP_Portal SCS still has EdgeColliders/Top/… which were
+	// attaching the instance to Default__BP_Portal_C's Scene Root (template mismatch).
+	EdgeColliders = CreateDefaultSubobject<USceneComponent>(TEXT("PortalEdgeColliders"));
 	EdgeColliders->SetupAttachment(SceneRoot);
 	EdgeColliders->SetRelativeLocation(FVector::ZeroVector);
 	EdgeColliders->SetRelativeRotation(FRotator::ZeroRotator);
@@ -757,12 +775,9 @@ APortal::APortal()
 	auto MakeRim = [this](const TCHAR* Name) -> UBoxComponent*
 	{
 		UBoxComponent* Box = CreateDefaultSubobject<UBoxComponent>(Name);
-		AddOwnedComponent(Box);
 		Box->SetupAttachment(EdgeColliders);
 		Box->SetRelativeRotation(FRotator::ZeroRotator);
 		Box->SetRelativeScale3D(FVector::OneVector);
-		// Geometry copied from BP_Portal. QueryAndPhysics so the rim actually collides
-		// (BP had QueryOnly+Custom; these need to block props that miss the plane mesh).
 		Box->SetGenerateOverlapEvents(true);
 		Box->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 		Box->SetCollisionObjectType(ECC_WorldStatic);
@@ -771,10 +786,10 @@ APortal::APortal()
 		Box->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 		return Box;
 	};
-	Top = MakeRim(TEXT("Top"));
-	Bottom = MakeRim(TEXT("Bottom"));
-	Left = MakeRim(TEXT("Left"));
-	Right = MakeRim(TEXT("Right"));
+	Top = MakeRim(TEXT("PortalRimTop"));
+	Bottom = MakeRim(TEXT("PortalRimBottom"));
+	Left = MakeRim(TEXT("PortalRimLeft"));
+	Right = MakeRim(TEXT("PortalRimRight"));
 
 	// Exact BP_Portal rim layout (aperture cached from these in BeginPlay).
 	Top->SetBoxExtent(FVector(2.f, 64.f, 2.f));
@@ -787,9 +802,7 @@ APortal::APortal()
 	Right->SetRelativeLocation(FVector(-1.f, -66.f, 0.f));
 
 	Plane = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Plane"));
-	AddOwnedComponent(Plane);
 	Plane->SetupAttachment(SceneRoot);
-	//Plane->AttachToComponent(SceneRoot, FAttachmentTransformRules::KeepRelativeTransform);
 	Plane->SetRelativeScale3D(FVector(1.25f, 2.25f, 1.0f));
 	Plane->SetRelativeRotation(FRotator(0.0f, -90.0f, 90.0f));
 	// Solid for physics props until contact-mod ghosts the face for travelers that fit.
@@ -818,29 +831,6 @@ void APortal::BeginPlay()
 
 	GetApertureHalfExtents(ApertureHalfWidth, ApertureHalfHeight);
 	SyncReverseColliderToAperture();
-
-	// BP_Portal still carries SCS copies of EdgeColliders/Top/Bottom/Left/Right that
-	// clash with the C++ natives. Kill any extras so only the C++ rims remain.
-	{
-		TArray<UActorComponent*> Comps;
-		GetComponents(Comps);
-		for (UActorComponent* Comp : Comps)
-		{
-			if (!Comp || Comp == EdgeColliders || Comp == Top || Comp == Bottom || Comp == Left || Comp == Right)
-			{
-				continue;
-			}
-			const FString Name = Comp->GetName();
-			const bool bRimName =
-				Name.StartsWith(TEXT("Top")) || Name.StartsWith(TEXT("Bottom"))
-				|| Name.StartsWith(TEXT("Left")) || Name.StartsWith(TEXT("Right"))
-				|| Name.StartsWith(TEXT("EdgeColliders"));
-			if (bRimName)
-			{
-				Comp->DestroyComponent();
-			}
-		}
-	}
 
 	RegisterPhysicsCallbacks();
 	CachePortalPhysicsObjects();
@@ -1016,21 +1006,29 @@ void APortal::TransferSimulatingThroughPortal(AActor* Actor, APortal* Destinatio
 
 void APortal::CachePortalPhysicsObjects()
 {
-	if (bPortalPhysicsObjectsCached)
-	{
-		return;
-	}
+	CachedPortalPhysicsObjects.Reset();
+	CachedRimPhysicsObjects.Reset();
 
-	TArray<UPrimitiveComponent*> Primitives;
-	GetComponents<UPrimitiveComponent>(Primitives);
-	for (UPrimitiveComponent* Primitive : Primitives)
+	// Face only in PortalObjects (aperture-gated). Rims listed separately so contact-mod
+	// never disables them — otherwise Side≈-1 rim hits get stripped and bodies jam/ghost.
+	if (Plane)
 	{
-		if (Chaos::FPhysicsObject* Object = Primitive ? Primitive->GetPhysicsObjectByName(NAME_None) : nullptr)
+		if (Chaos::FPhysicsObject* Object = Plane->GetPhysicsObjectByName(NAME_None))
 		{
 			CachedPortalPhysicsObjects.Add(Object);
 		}
 	}
-	bPortalPhysicsObjectsCached = true;
+	for (UBoxComponent* Rim : { Top, Bottom, Left, Right })
+	{
+		if (Rim)
+		{
+			if (Chaos::FPhysicsObject* Object = Rim->GetPhysicsObjectByName(NAME_None))
+			{
+				CachedRimPhysicsObjects.Add(Object);
+			}
+		}
+	}
+	bPortalPhysicsObjectsCached = CachedPortalPhysicsObjects.Num() > 0 || CachedRimPhysicsObjects.Num() > 0;
 }
 
 void APortal::PushPhysicsCallbackInputs(float DeltaTime)
@@ -1050,17 +1048,28 @@ void APortal::PushPhysicsCallbackInputs(float DeltaTime)
 	{
 		EntryInput->Bodies.Reset();
 		EntryInput->PortalObjects.Reset();
+		EntryInput->RimObjects.Reset();
+		CachePortalPhysicsObjects();
 		EntryInput->PortalObjects.Append(CachedPortalPhysicsObjects);
+		EntryInput->RimObjects.Append(CachedRimPhysicsObjects);
 		if (OtherPortal)
 		{
 			OtherPortal->CachePortalPhysicsObjects();
 			EntryInput->PortalObjects.Append(OtherPortal->CachedPortalPhysicsObjects);
+			EntryInput->RimObjects.Append(OtherPortal->CachedRimPhysicsObjects);
 		}
 	}
 
 	if (!OtherPortal)
 	{
 		return;
+	}
+
+	// Keep the cached handoff quat in sync whenever we push sim inputs.
+	if (!bCachedTravelQuatValid)
+	{
+		CachedTravelQuat = OtherPortal->GetActorQuat() * FQuat(FVector::ZAxisVector, PI) * GetActorQuat().Inverse();
+		bCachedTravelQuatValid = true;
 	}
 
 	FQuat TravelQ = FQuat::Identity;
@@ -1316,6 +1325,17 @@ bool APortal::ShouldKeepTransitAfterOverlapEnd(const AActor* Actor) const
 void APortal::Link(APortal* Portal)
 {
 	OtherPortal = Portal;
+	if (OtherPortal)
+	{
+		// Derive once from the linked poses — consumers must not invent alternate maps.
+		CachedTravelQuat = OtherPortal->GetActorQuat() * FQuat(FVector::ZAxisVector, PI) * GetActorQuat().Inverse();
+		bCachedTravelQuatValid = true;
+	}
+	else
+	{
+		CachedTravelQuat = FQuat::Identity;
+		bCachedTravelQuatValid = false;
+	}
 	UMaterialInstanceDynamic* PortalMID = Plane->CreateDynamicMaterialInstance(0);
 	PortalMID->SetScalarParameterValue(TEXT("Linked"), 1.f);
 }
@@ -1326,6 +1346,12 @@ bool APortal::GetTravelQuat(FQuat& OutTravelQ) const
 	{
 		return false;
 	}
+	if (bCachedTravelQuatValid)
+	{
+		OutTravelQ = CachedTravelQuat;
+		return true;
+	}
+	// Link() should have cached this; derive the same fixed handoff if not yet.
 	OutTravelQ = OtherPortal->GetActorQuat() * FQuat(FVector::ZAxisVector, PI) * GetActorQuat().Inverse();
 	return true;
 }
@@ -1534,19 +1560,19 @@ void APortal::Tick(float DeltaTime)
 		}
 	}
 
-	TArray<AActor*> ToHandOff;
-	for (const TPair<AActor*, AActor*>& Pair : TeleportingObjects)
-	{
+		TArray<AActor*> ToHandOff;
+		for (const TPair<AActor*, AActor*>& Pair : TeleportingObjects)
+		{
 		if (Pair.Key && Pair.Value && !Pair.Key->IsA<AActionDemoCharacter>()
 			&& IsPointBehindPlane(Pair.Key->GetActorLocation(), -2.0f)
 			&& ActorFitsAperture(Pair.Key))
-		{
-			ToHandOff.Add(Pair.Key);
+			{
+				ToHandOff.Add(Pair.Key);
+			}
 		}
-	}
-	for (AActor* Original : ToHandOff)
-	{
-		HandOffTeleportingObject(Original);
+		for (AActor* Original : ToHandOff)
+		{
+			HandOffTeleportingObject(Original);
 	}
 
 	const FLinearColor Origin = FLinearColor(Plane->GetComponentLocation());
