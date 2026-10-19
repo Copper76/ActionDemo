@@ -3,9 +3,6 @@
 
 #include "Portal.h"
 #include "../ActionDemoCharacter.h"
-#include "Components/CapsuleComponent.h"
-#include "Kismet/GameplayStatics.h"
-#include "ActionDemo/Public/Teleportor.h"
 #include "Components/StaticMeshComponent.h"
 #include "Chaos/ContactModification.h"
 #include "Chaos/Collision/CollisionConstraintAllocator.h"
@@ -22,10 +19,7 @@
 #include "Engine/OverlapResult.h"
 #include "Physics/Experimental/PhysScene_Chaos.h"
 #include "PhysicsEngine/BodyInstance.h"
-#include "Engine/Engine.h"
 #include "Engine/LocalPlayer.h"
-#include "Camera/CameraComponent.h"
-#include "Misc/ScopeLock.h"
 
 struct FPortalTrackedBody
 {
@@ -43,13 +37,6 @@ struct FPortalTrackedBody
 	FVector ExitPlaneNormal = FVector::ForwardVector;
 	FQuat TravelQ = FQuat::Identity;
 	TArray<Chaos::FPhysicsObjectHandle> ExitBodies;
-
-	void Reset()
-	{
-		PhysicsObject = nullptr;
-		ExitBodies.Reset();
-		bFitsAperture = true;
-	}
 
 	bool IsInAperture(const FVector& WorldPoint) const
 	{
@@ -95,12 +82,6 @@ namespace
 	{
 		const Chaos::FImplicitObject* Implicit = nullptr;
 		Chaos::FRigidTransform3 World = Chaos::FRigidTransform3::Identity;
-	};
-
-	struct FPortalContactKey
-	{
-		FVector Points[2];
-		FVector Normal = FVector::UpVector;
 	};
 
 	void AppendShapeLeaves(const Chaos::FImplicitObject* Implicit, const Chaos::FRigidTransform3& World, TArray<FShapeLeaf, TInlineAllocator<16>>& Out)
@@ -264,63 +245,10 @@ namespace
 		}
 	}
 
-	struct FPortalCopyStats
+	void InjectExitContacts(const TArray<FPortalTrackedBody>& Bodies, Chaos::FPBDRigidsSolver* Solver, const Chaos::FReal Dt, TArray<Chaos::FPBDCollisionConstraintPtr>& OwnedConstraints)
 	{
-		int32 Bodies = 0;
-		int32 Exits = 0;
-		int32 Leaves = 0;
-		int32 Unknown = 0;
-		int32 Detected = 0;
-		int32 Written = 0;
-		int32 NewPoints = 0;
-		int32 KeptPoints = 0;
-		int32 DroppedBehindWall = 0;
-		int32 DroppedSurface = 0;
-		int32 KeptFloorBehind = 0;
-	};
-
-	void NoteWorldContact(const Chaos::FContactPointf& Contact, const Chaos::FRigidTransform3& Shape0, const Chaos::FRigidTransform3& Shape1, const TArray<FPortalContactKey>& PreviousKeys, TArray<FPortalContactKey>& FrameKeys, FPortalCopyStats& Stats)
-	{
-		FPortalContactKey Key;
-		Key.Points[0] = FVector(Shape0.TransformPositionNoScale(Chaos::FVec3(Contact.ShapeContactPoints[0])));
-		Key.Points[1] = FVector(Shape1.TransformPositionNoScale(Chaos::FVec3(Contact.ShapeContactPoints[1])));
-		Key.Normal = FVector(Shape1.TransformVectorNoScale(Chaos::FVec3(Contact.ShapeContactNormal))).GetSafeNormal();
-
-		bool bKept = false;
-		for (const FPortalContactKey& Previous : PreviousKeys)
-		{
-			if (FVector::DotProduct(Key.Normal, Previous.Normal) < 0.9f)
-			{
-				continue;
-			}
-			if (FVector::DistSquared(Key.Points[0], Previous.Points[0]) <= 1.f || FVector::DistSquared(Key.Points[1], Previous.Points[1]) <= 1.f)
-			{
-				bKept = true;
-				break;
-			}
-		}
-		if (bKept)
-		{
-			++Stats.KeptPoints;
-		}
-		else
-		{
-			++Stats.NewPoints;
-		}
-		FrameKeys.Add(Key);
-	}
-
-	void InjectExitContacts(const TArray<FPortalTrackedBody>& Bodies, Chaos::FPBDRigidsSolver* Solver, const Chaos::FReal Dt, TArray<Chaos::FPBDCollisionConstraintPtr>& OwnedConstraints, TArray<FPortalContactKey>& ContactKeys, FPortalCopyStats& Stats)
-	{
-		TArray<FPortalContactKey> FrameKeys;
-		Stats.Bodies = Bodies.Num();
-		for (const FPortalTrackedBody& Tracked : Bodies)
-		{
-			Stats.Exits += Tracked.ExitBodies.Num();
-		}
 		if (!Solver || !Solver->GetEvolution() || Dt <= KINDA_SMALL_NUMBER)
 		{
-			ContactKeys.Reset();
 			return;
 		}
 
@@ -330,7 +258,6 @@ namespace
 		Chaos::Private::FCollisionContextAllocator* ContextAllocator = Allocator.GetContextAllocator(0);
 		if (!ContextAllocator)
 		{
-			ContactKeys.Reset();
 			return;
 		}
 
@@ -406,7 +333,6 @@ namespace
 
 						TArray<FShapeLeaf, TInlineAllocator<16>> ExitLeaves;
 						CollectShapeLeaves(ExitParticle, ExitShape, false, Tracked.EntryOrigin, Tracked.ExitOrigin, Tracked.TravelQ, ExitLeaves);
-						Stats.Leaves += CubeLeaves.Num() + ExitLeaves.Num();
 
 						for (const FShapeLeaf& CubeLeaf : CubeLeaves)
 						{
@@ -444,7 +370,6 @@ namespace
 								const Chaos::EContactShapesType ShapeType = Chaos::Collisions::CalculateShapePairType(CubeParticle, CubeLeaf.Implicit, ExitParticle, ExitLeaf.Implicit, bSwapShapes);
 								if (ShapeType == Chaos::EContactShapesType::Unknown || !CubeLeaf.Implicit || !ExitLeaf.Implicit)
 								{
-									++Stats.Unknown;
 									continue;
 								}
 
@@ -474,17 +399,6 @@ namespace
 								if (Scratch->NumManifoldPoints() == 0)
 								{
 									continue;
-								}
-								Stats.Detected += Scratch->NumManifoldPoints();
-
-								const int32 KeysBefore = FrameKeys.Num();
-								for (int32 PointIndex = 0; PointIndex < Scratch->NumManifoldPoints(); ++PointIndex)
-								{
-									const Chaos::FManifoldPoint& ManifoldPoint = Scratch->GetManifoldPoint(PointIndex);
-									if (!ManifoldPoint.Flags.bDisabled && ManifoldPoint.ContactPoint.IsSet())
-									{
-										NoteWorldContact(ManifoldPoint.ContactPoint, Detect0, Detect1, ContactKeys, FrameKeys, Stats);
-									}
 								}
 
 								// A pair that already touches in the entry room keeps that manifold. Injecting
@@ -530,7 +444,6 @@ namespace
 									Scratch->SetShapeWorldTransforms(Detect0, Detect1);
 									OwnedConstraints.Add(MoveTemp(Scratch));
 								}
-								Stats.Written += FrameKeys.Num() - KeysBefore;
 							}
 						}
 					}
@@ -538,7 +451,6 @@ namespace
 			}
 		}
 
-		ContactKeys = MoveTemp(FrameKeys);
 		Allocator.ProcessInjectedConstraints();
 	}
 }
@@ -551,28 +463,10 @@ public:
 		return TEXT("PortalEntryContact");
 	}
 
-	void SetCopyDebug(const FPortalCopyStats& Stats, bool bActive)
-	{
-		FScopeLock Lock(&CopyDebugLock);
-		CopyDebug = Stats;
-		bCopyDebugActive = bActive;
-	}
-
-	void GetCopyDebug(FPortalCopyStats& Stats, bool& bActive) const
-	{
-		FScopeLock Lock(&CopyDebugLock);
-		Stats = CopyDebug;
-		bActive = bCopyDebugActive;
-	}
-
 private:
 	// Constraints the generic midphase will not own. Freed one step after the graph drops them.
 	TArray<Chaos::FPBDCollisionConstraintPtr> OwnedConstraints;
 	TArray<Chaos::FPBDCollisionConstraintPtr> RetiredConstraints;
-	TArray<FPortalContactKey> ContactKeys;
-	mutable FCriticalSection CopyDebugLock;
-	FPortalCopyStats CopyDebug;
-	bool bCopyDebugActive = false;
 
 	virtual void OnPreSimulate_Internal() override
 	{
@@ -589,18 +483,16 @@ private:
 		const FPortalEntryContactInput* Input = GetConsumerInput_Internal();
 		if (!Input || Input->Bodies.Num() == 0)
 		{
-			ContactKeys.Reset();
-			SetCopyDebug(FPortalCopyStats(), false);
 			return;
 		}
 
 		Chaos::FReadPhysicsObjectInterface_Internal Physics = Chaos::FPhysicsObjectInternalInterface::GetRead();
 
-		auto IsPortalParticle = [&Physics, Input](const Chaos::FGeometryParticleHandle* Particle) mutable
+		auto IsInObjectList = [&Physics](const Chaos::FGeometryParticleHandle* Particle, const TArray<Chaos::FPhysicsObjectHandle>& Objects) mutable
 		{
-			for (Chaos::FPhysicsObjectHandle PortalObject : Input->PortalObjects)
+			for (Chaos::FPhysicsObjectHandle Object : Objects)
 			{
-				if (Physics.GetParticle(PortalObject) == Particle)
+				if (Physics.GetParticle(Object) == Particle)
 				{
 					return true;
 				}
@@ -620,19 +512,6 @@ private:
 			return nullptr;
 		};
 
-		auto IsInObjectList = [&Physics](const Chaos::FGeometryParticleHandle* Particle, const TArray<Chaos::FPhysicsObjectHandle>& Objects) mutable
-		{
-			for (Chaos::FPhysicsObjectHandle Object : Objects)
-			{
-				if (Physics.GetParticle(Object) == Particle)
-				{
-					return true;
-				}
-			}
-			return false;
-		};
-
-		FPortalCopyStats ModStats;
 		for (Chaos::FContactPairModifier& Pair : Modifier)
 		{
 			const Chaos::TVec2<Chaos::FGeometryParticleHandle*> Particles = Pair.GetParticlePair();
@@ -658,7 +537,7 @@ private:
 			}
 
 			const bool bTrackedIs0 = Particles[0] == Physics.GetParticle(Tracked->PhysicsObject);
-			const bool bPortalSurface = IsPortalParticle(Particles[0]) || IsPortalParticle(Particles[1]);
+			const bool bPortalSurface = IsInObjectList(Particles[0], Input->PortalObjects) || IsInObjectList(Particles[1], Input->PortalObjects);
 			const int32 NumContacts = Pair.GetNumContacts();
 			for (int32 Index = 0; Index < NumContacts; ++Index)
 			{
@@ -677,14 +556,9 @@ private:
 				// keep floor support. Rim pairs never reach here (RimObjects early-out).
 				if (Side < 0.f)
 				{
-					if (FloorAligned > 0.5f)
-					{
-						++ModStats.KeptFloorBehind;
-					}
-					else
+					if (FloorAligned <= 0.5f)
 					{
 						Pair.SetContactPointDisabled(Index);
-						++ModStats.DroppedBehindWall;
 					}
 					continue;
 				}
@@ -692,14 +566,9 @@ private:
 				constexpr float ApertureFrontSlackCm = 30.f;
 				if (Tracked->bFitsAperture && bInAperture && Side < ApertureFrontSlackCm)
 				{
-					if (FloorAligned > 0.5f)
-					{
-						++ModStats.KeptFloorBehind;
-					}
-					else
+					if (FloorAligned <= 0.5f)
 					{
 						Pair.SetContactPointDisabled(Index);
-						++ModStats.DroppedSurface;
 					}
 					continue;
 				}
@@ -710,7 +579,6 @@ private:
 						&& FMath::Abs(WallAligned) > 0.5f)
 					{
 						Pair.SetContactPointDisabled(Index);
-						++ModStats.DroppedSurface;
 					}
 					continue;
 				}
@@ -718,22 +586,13 @@ private:
 					&& IsPortalSurfaceRejection(OtherSide, PushOnCube, Tracked->PlaneNormal))
 				{
 					Pair.SetContactPointDisabled(Index);
-					++ModStats.DroppedSurface;
 				}
 			}
 		}
 
-		FPortalCopyStats Stats = ModStats;
-		InjectExitContacts(Input->Bodies, static_cast<Chaos::FPBDRigidsSolver*>(GetSolver()), GetDeltaTime_Internal(), OwnedConstraints, ContactKeys, Stats);
-		SetCopyDebug(Stats, true);
+		InjectExitContacts(Input->Bodies, static_cast<Chaos::FPBDRigidsSolver*>(GetSolver()), GetDeltaTime_Internal(), OwnedConstraints);
 	}
 };
-
-static constexpr int32 PortalCopyMessageKey = 0x434F5059;
-
-#define POINT(x, c) DrawDebugPoint(GetWorld(), x, 10, c, !5.0f, 5.0f);
-#define LINE(x1, x2, c) DrawDebugLine(GetWorld(), x1, x2, c, !5.0f, 5.0f);
-#define PortalChannel ECC_GameTraceChannel2
 
 // Sets default values
 APortal::APortal()
@@ -1036,6 +895,7 @@ void APortal::CachePortalPhysicsObjects()
 
 	// BP_Portal may still own SCS duplicates (Top/Bottom/Left/Right) alongside PortalRim*.
 	// Those are what props actually hit — include every rim-shaped box on this actor.
+	// Re-scan each push: SCS bodies can appear after BeginPlay.
 	TArray<UBoxComponent*> Boxes;
 	GetComponents<UBoxComponent>(Boxes);
 	for (UBoxComponent* Box : Boxes)
@@ -1107,8 +967,16 @@ void APortal::PushPhysicsCallbackInputs(float DeltaTime)
 
 	const FVector EntryOrigin = GetPlaneOrigin();
 	const FVector EntryNormal = GetActorForwardVector();
+	const FVector EntryRight = GetActorRightVector();
+	const FVector EntryUp = GetActorUpVector();
 	const FVector ExitOrigin = OtherPortal->GetPlaneOrigin();
 	const FVector ExitNormal = OtherPortal->GetActorForwardVector();
+	float HalfW = ApertureHalfWidth;
+	float HalfH = ApertureHalfHeight;
+	GetApertureHalfExtents(HalfW, HalfH);
+	// Slightly shrink vs the visual quad so rim contacts just outside the hole stay solid.
+	const float ApertureHalfW = HalfW * 0.9f;
+	const float ApertureHalfH = HalfH * 0.9f;
 
 	for (const TWeakObjectPtr<UPrimitiveComponent>& WeakComp : SimulatingComponents)
 	{
@@ -1124,16 +992,10 @@ void APortal::PushPhysicsCallbackInputs(float DeltaTime)
 		Tracked.PhysicsObject = PhysicsObject;
 		Tracked.PlaneOrigin = EntryOrigin;
 		Tracked.PlaneNormal = EntryNormal;
-		Tracked.PlaneRight = GetActorRightVector();
-		Tracked.PlaneUp = GetActorUpVector();
-		{
-			float HalfW = 50.f;
-			float HalfH = 50.f;
-			GetApertureHalfExtents(HalfW, HalfH);
-			// Slightly shrink vs the visual quad so rim contacts just outside the hole stay solid.
-			Tracked.ApertureHalfWidth = HalfW * 0.9f;
-			Tracked.ApertureHalfHeight = HalfH * 0.9f;
-		}
+		Tracked.PlaneRight = EntryRight;
+		Tracked.PlaneUp = EntryUp;
+		Tracked.ApertureHalfWidth = ApertureHalfW;
+		Tracked.ApertureHalfHeight = ApertureHalfH;
 		Tracked.EntryOrigin = EntryOrigin;
 		Tracked.ExitOrigin = ExitOrigin;
 		Tracked.ExitPlaneNormal = ExitNormal;
@@ -1207,8 +1069,8 @@ void APortal::SetUp(AActor* TargetSurface, const bool bIsBlue, APortal* Portal)
 
 	if (Portal)
 	{
-	Link(Portal);
-	OtherPortal->Link(this);
+		Link(Portal);
+		OtherPortal->Link(this);
 		NotifyCurrentOverlaps();
 		OtherPortal->NotifyCurrentOverlaps();
 	}
@@ -1439,8 +1301,8 @@ bool APortal::ActorFitsAperture(const AActor* Actor) const
 		return true;
 	}
 
-	float HalfW = 50.f;
-	float HalfH = 50.f;
+	float HalfW = ApertureHalfWidth;
+	float HalfH = ApertureHalfHeight;
 	GetApertureHalfExtents(HalfW, HalfH);
 	const FVector Origin = GetPlaneOrigin();
 	const FVector Normal = GetActorForwardVector();
@@ -1594,43 +1456,10 @@ void APortal::Tick(float DeltaTime)
 		}
 	}
 
-	for (const TPair<AActor*, AActor*>& Pair : TeleportingObjects)
-	{
-		UpdateCloneTransform(Pair.Key, Pair.Value);
-		// Keep contact-mod on for all captured props (behind-entry ghost + rim-safe aperture).
-		if (Pair.Key && !Pair.Key->IsA<AActionDemoCharacter>()
-			&& !IsSimulatingThroughPortal(Pair.Key))
-		{
-			SetSimulatingThroughPortal(Pair.Key, true);
-		}
-	}
-
-		TArray<AActor*> ToHandOff;
-		for (const TPair<AActor*, AActor*>& Pair : TeleportingObjects)
-		{
-		if (Pair.Key && Pair.Value && !Pair.Key->IsA<AActionDemoCharacter>()
-			&& IsPointBehindPlane(Pair.Key->GetActorLocation(), -2.0f)
-			&& ActorFitsAperture(Pair.Key))
-			{
-				ToHandOff.Add(Pair.Key);
-			}
-		}
-		for (AActor* Original : ToHandOff)
-		{
-			HandOffTeleportingObject(Original);
-	}
-
 	const FLinearColor Origin = FLinearColor(Plane->GetComponentLocation());
 	const FLinearColor Normal = FLinearColor(GetActorForwardVector());
-
-	FLinearColor OtherOrigin;
-	FLinearColor OtherNormal;
-
-	if (OtherPortal)
-	{
-		OtherOrigin = FLinearColor(OtherPortal->Plane->GetComponentLocation());
-		OtherNormal = FLinearColor(OtherPortal->GetActorForwardVector());
-	}
+	const FLinearColor OtherOrigin = FLinearColor(OtherPortal->Plane->GetComponentLocation());
+	const FLinearColor OtherNormal = FLinearColor(OtherPortal->GetActorForwardVector());
 
 	CaptureComponent->ClipPlaneBase = GetPlaneOrigin();
 	CaptureComponent->ClipPlaneNormal = GetActorForwardVector();
@@ -1638,40 +1467,39 @@ void APortal::Tick(float DeltaTime)
 	if (LocalPlayer && LocalPlayer->GetCurrentPortal() == this && PlayerController && PlayerController->PlayerCameraManager)
 	{
 		const FVector CamLoc = PlayerController->PlayerCameraManager->GetCameraLocation();
-		const bool bCamBehind = IsPointBehindPlane(CamLoc, 0.f);
-		SetActorClip(LocalPlayer, Origin, Normal, bCamBehind);
+		SetActorClip(LocalPlayer, Origin, Normal, IsPointBehindPlane(CamLoc, 0.f));
 	}
 
+	TArray<AActor*> ToHandOff;
 	for (const TPair<AActor*, AActor*>& Pair : TeleportingObjects)
 	{
-		if (!Pair.Key->IsA<AActionDemoCharacter>())
-	{
-		SetActorClip(Pair.Key, Origin, Normal, true);
+		UpdateCloneTransform(Pair.Key, Pair.Value);
+		if (!Pair.Key || Pair.Key->IsA<AActionDemoCharacter>())
+		{
+			continue;
 		}
-		if (OtherPortal && Pair.Value)
+
+		// Keep contact-mod on for all captured props (behind-entry ghost + rim-safe aperture).
+		if (!IsSimulatingThroughPortal(Pair.Key))
+		{
+			SetSimulatingThroughPortal(Pair.Key, true);
+		}
+		SetActorClip(Pair.Key, Origin, Normal, true);
+		if (Pair.Value)
 		{
 			SetActorClip(Pair.Value, OtherOrigin, OtherNormal, true);
 		}
+		if (Pair.Value && IsPointBehindPlane(Pair.Key->GetActorLocation(), -2.0f) && ActorFitsAperture(Pair.Key))
+		{
+			ToHandOff.Add(Pair.Key);
+		}
+	}
+	for (AActor* Original : ToHandOff)
+	{
+		HandOffTeleportingObject(Original);
 	}
 
 	PushPhysicsCallbackInputs(DeltaTime);
-#ifdef WITH_EDITOR
-	if (EntryContactCallback && GEngine)
-	{
-		FPortalCopyStats Stats;
-		bool bActive = false;
-		EntryContactCallback->GetCopyDebug(Stats, bActive);
-		if (bActive)
-		{
-			const FColor Color = Stats.NewPoints > 0 ? FColor::Orange : (Stats.Detected > 0 ? FColor::Green : FColor::Red);
-			const TCHAR* State = Stats.NewPoints > 0 ? TEXT("new points added") : (Stats.Written > 0 ? TEXT("no new points") : TEXT("no contacts"));
-			GEngine->AddOnScreenDebugMessage(PortalCopyMessageKey, 0.f, Color,
-				FString::Printf(TEXT("%s copy: %s  bodies=%d exits=%d leaves=%d unk=%d det=%d new=%d kept=%d dropW=%d dropS=%d keepF=%d"),
-					*GetName(), State, Stats.Bodies, Stats.Exits, Stats.Leaves, Stats.Unknown, Stats.Detected, Stats.NewPoints, Stats.KeptPoints,
-					Stats.DroppedBehindWall, Stats.DroppedSurface, Stats.KeptFloorBehind));
-		}
-	}
-#endif
 }
 
 AActor* APortal::CreatePortalClone(AActor* Original, const FTransform& SpawnTransform)
@@ -1880,21 +1708,21 @@ void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherA
 
 	if (!OtherActor || OtherActor->IsA<AActionDemoCharacter>())
 	{
-			return;
-		}
+		return;
+	}
 
-		if (TeleportingObjects.Contains(OtherActor))
+	if (TeleportingObjects.Contains(OtherActor))
+	{
+		return;
+	}
+
+	for (const TPair<AActor*, AActor*>& Pair : OtherPortal->TeleportingObjects)
+	{
+		if (Pair.Value == OtherActor) //This is a clone of the original
 		{
 			return;
 		}
-
-		for (const TPair<AActor*, AActor*>& Pair : OtherPortal->TeleportingObjects)
-		{
-			if (Pair.Value == OtherActor) //This is a clone of the original
-			{
-				return;
-			}
-		}
+	}
 
 	FQuat TravelQ = FQuat::Identity;
 	FVector Location = FVector::ZeroVector;
@@ -1935,23 +1763,12 @@ void APortal::OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AAct
 	}
 
 	AActor* Clone = TeleportingObjects[OtherActor];
-	if (Clone)
+	if (IsValid(Clone))
 	{
-		VDestroy(Clone);
+		Clone->Destroy();
 	}
 
 	SetActorClip(OtherActor, FLinearColor(Plane->GetComponentLocation()), FLinearColor(GetActorForwardVector()), false);
 	SetSimulatingThroughPortal(OtherActor, false);
 	TeleportingObjects.Remove(OtherActor);
-}
-
-void APortal::VDestroy(AActor* ToDestroy)
-{
-	if (!ToDestroy) return;
-	if (!ToDestroy->IsValidLowLevel()) return;
-
-	ToDestroy->K2_DestroyActor();
-	ToDestroy = NULL;
-
-	GEngine->ForceGarbageCollection(true);
 }

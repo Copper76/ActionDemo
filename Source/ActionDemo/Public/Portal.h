@@ -39,8 +39,6 @@ protected:
 	UFUNCTION()
 	void OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
 
-	void VDestroy(AActor* ToDestroy);
-
 	void HandOffTeleportingObject(AActor* Original);
 
 	AActor* CreatePortalClone(AActor* Original, const FTransform& SpawnTransform);
