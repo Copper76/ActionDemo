@@ -751,10 +751,11 @@ APortal::APortal()
 
 	ReverseCollider = CreateDefaultSubobject<UBoxComponent>(TEXT("ReverseCollider"));
 	ReverseCollider->SetupAttachment(SceneRoot);
-	ReverseCollider->SetRelativeLocation(FVector(0.0f, 0.f, 0.0f));
 	ReverseCollider->SetRelativeScale3D(FVector(1.f, 1.f, 1.f));
-	// Extent is setup (CDO / BP). Depth = 2×max(HalfW,HalfH) for the native 64×112 opening.
-	ReverseCollider->SetBoxExtent(FVector(224.f, 64.f, 112.f));
+	// Shallow slab in front of the plane — capture/clone only while near the opening.
+	constexpr float ReverseHalfDepthCm = 20.f;
+	ReverseCollider->SetBoxExtent(FVector(ReverseHalfDepthCm, 64.f, 112.f));
+	ReverseCollider->SetRelativeLocation(FVector(ReverseHalfDepthCm, 0.f, 0.f));
 	ReverseCollider->SetGenerateOverlapEvents(true);
 	ReverseCollider->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 	ReverseCollider->SetCollisionResponseToAllChannels(ECR_Ignore);
@@ -1206,8 +1207,8 @@ void APortal::SetUp(AActor* TargetSurface, const bool bIsBlue, APortal* Portal)
 
 	if (Portal)
 	{
-		Link(Portal);
-		OtherPortal->Link(this);
+	Link(Portal);
+	OtherPortal->Link(this);
 		NotifyCurrentOverlaps();
 		OtherPortal->NotifyCurrentOverlaps();
 	}
@@ -1327,10 +1328,9 @@ bool APortal::ShouldKeepTransitAfterOverlapEnd(const AActor* Actor) const
 	const FVector Normal = GetActorForwardVector();
 	const float Side = FVector::DotProduct(Actor->GetActorLocation() - Origin, Normal);
 	const float HalfAlongNormal = GetActorHalfExtentAlong(Actor, Normal);
-	// Keep capture across PlaceCube teleports / overlap flicker while still inside the
-	// reverse trigger volume (extent comes from portal setup, not recomputed here).
-	const float ReverseHalfDepth = ReverseCollider ? ReverseCollider->GetScaledBoxExtent().X : HalfAlongNormal;
-	return Side <= FMath::Max(HalfAlongNormal, ReverseHalfDepth);
+	// Reverse is shallow; once EndOverlap fires, keep only while the body still straddles
+	// the plane (crossing / just behind). Fully back in the room → drop clone.
+	return Side <= HalfAlongNormal;
 }
 
 void APortal::Link(APortal* Portal)
@@ -1880,21 +1880,21 @@ void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherA
 
 	if (!OtherActor || OtherActor->IsA<AActionDemoCharacter>())
 	{
-		return;
-	}
+			return;
+		}
 
-	if (TeleportingObjects.Contains(OtherActor))
-	{
-		return;
-	}
-
-	for (const TPair<AActor*, AActor*>& Pair : OtherPortal->TeleportingObjects)
-	{
-		if (Pair.Value == OtherActor) //This is a clone of the original
+		if (TeleportingObjects.Contains(OtherActor))
 		{
 			return;
 		}
-	}
+
+		for (const TPair<AActor*, AActor*>& Pair : OtherPortal->TeleportingObjects)
+		{
+			if (Pair.Value == OtherActor) //This is a clone of the original
+			{
+				return;
+			}
+		}
 
 	FQuat TravelQ = FQuat::Identity;
 	FVector Location = FVector::ZeroVector;

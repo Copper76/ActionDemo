@@ -187,6 +187,7 @@ private:
 	FVector EntryLocalVectorToWorld(const FVector& LocalVector) const;
 	void PlaceCubeForCase(const FPortalPhysicsProbeCase& Case);
 	bool IsInPortalTransitZone(const FVector& Loc) const;
+	bool IsOverlappingPortalReverse(const APortal* Portal, const AActor* Actor) const;
 	float GetCubeExitPlaneSide(const FVector& Loc) const;
 	float GetExitObstacleFrontSide() const;
 	float GetCubeHalfExtentAlongEntryForward(const FPortalPhysicsProbeCase& Case) const;

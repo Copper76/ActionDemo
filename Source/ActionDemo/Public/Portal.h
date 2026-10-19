@@ -73,8 +73,8 @@ protected:
 	float GetActorHalfExtentAlong(const AActor* Actor, const FVector& Dir) const;
 
 	/**
-	 * Keep capture after EndOverlap while the body still straddles the portal plane
-	 * (center Side ≤ extent along normal). Release only once fully back in the entry room.
+	 * After ReverseCollider EndOverlap, keep capture only while the body still straddles
+	 * the plane (center Side ≤ OBB half-extent along normal). Otherwise drop the clone.
 	 */
 	bool ShouldKeepTransitAfterOverlapEnd(const AActor* Actor) const;
 

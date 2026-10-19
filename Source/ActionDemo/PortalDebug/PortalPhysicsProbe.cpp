@@ -37,8 +37,8 @@ namespace
 	constexpr float TransitZoneRadiusCm = 180.f;
 	// Spinning bodies can briefly punch the virtual exit face before contacts settle.
 	constexpr float ExitBlockPenetrationFailCm = 40.f;
-	/** Native reverse trigger half-depth (2×max(64,112)); start past this to avoid Notify capture. */
-	constexpr float ReverseTriggerHalfDepthCm = 224.f;
+	/** Matches APortal reverse slab (half-depth 20, centered 20cm in front → covers ~0..40). */
+	constexpr float ReverseTriggerFrontCm = 40.f;
 	constexpr float ExitBlockStartMarginCm = 40.f;
 	constexpr float ExitBlockObstacleMarginCm = 50.f;
 	constexpr float BehindEntryHitImpulseCm = 20.f;
@@ -248,14 +248,14 @@ void APortalPhysicsProbe::BuildDefaultPresets()
 								Case.bExpectThrough = false;
 								Case.bExpectNoThrough = false;
 								Case.bExpectCapture = Shape.bFitsStraight;
-								// Start past the reverse trigger so Notify does not capture into an
-								// already-overlapping exit image. Obstacle sits beyond that image.
+								// Start past the shallow reverse slab so Notify does not capture early.
+								// Obstacle sits beyond the exit image at that start pose.
 								Case.StartLocalOffset.X = FMath::Max(
 									Case.StartLocalOffset.X,
-									ReverseTriggerHalfDepthCm + HalfAlongFwd + ExitBlockStartMarginCm);
+									ReverseTriggerFrontCm + HalfAlongFwd + ExitBlockStartMarginCm);
 								const float ObstacleHalfDepth = 50.f * Case.ExitObstacleScale.X;
 								const float MinObstacleFront =
-									ReverseTriggerHalfDepthCm + HalfAlongFwd + ExitBlockObstacleMarginCm;
+									Case.StartLocalOffset.X + HalfAlongFwd + ExitBlockObstacleMarginCm;
 								Case.ExitObstacleLocalOffset.X = MinObstacleFront + ObstacleHalfDepth;
 								Case.MaxFrames = FMath::Max(Case.MaxFrames, 500);
 								// Long rod + slap-back: offset so rebound must respect the rim frame.
@@ -808,6 +808,19 @@ bool APortalPhysicsProbe::IsInPortalTransitZone(const FVector& Loc) const
 		|| FVector::Dist(Loc, ExitPortal->GetActorLocation()) < TransitZoneRadiusCm;
 }
 
+bool APortalPhysicsProbe::IsOverlappingPortalReverse(const APortal* Portal, const AActor* Actor) const
+{
+	if (!Portal || !Actor || !Presets.IsValidIndex(ActivePresetIndex))
+	{
+		return false;
+	}
+	// Shallow reverse covers ~0..ReverseTriggerFrontCm along portal forward.
+	const FPortalPhysicsProbeCase& Case = Presets[ActivePresetIndex];
+	const float Side = PlaneSide(Portal, Actor->GetActorLocation());
+	const float HalfAlong = GetCubeHalfExtentAlongEntryForward(Case);
+	return (Side - HalfAlong) < ReverseTriggerFrontCm && (Side + HalfAlong) > 0.f;
+}
+
 float APortalPhysicsProbe::GetCubeExitPlaneSide(const FVector& Loc) const
 {
 	if (!EntryPortal || !ExitPortal)
@@ -918,19 +931,14 @@ void APortalPhysicsProbe::StartCase(int32 PresetIndex)
 	// Place first, then link/notify so EndOverlap from teleport cannot drop a fresh capture.
 	ClearPortalTracking();
 	PlaceCubeForCase(Case);
-	if (Case.bExpectExitBlock || Case.bExpectThrough || Case.bExpectNoThrough
-		|| Case.StartLocalOffset.X <= 230.f)
+	EntryPortal->SetUp(nullptr, true, ExitPortal);
+	// If the OBB is already in the shallow reverse (long/angled tips), keep Notify capture —
+	// clearing would leave no BeginOverlap and the body bounces on a still-solid face.
+	// Only clear when fully outside so approach can re-capture via BeginOverlap.
+	if ((Case.bExpectThrough || Case.bExpectExitBlock || Case.bExpectNoThrough)
+		&& !IsOverlappingPortalReverse(EntryPortal, ProbeCube))
 	{
-		EntryPortal->SetUp(nullptr, true, ExitPortal);
-		// Far starts: clear so BeginOverlap captures on approach. Near starts keep Notify capture.
-		if (Case.StartLocalOffset.X > 230.f && (Case.bExpectThrough || Case.bExpectExitBlock || Case.bExpectNoThrough))
-		{
-			ClearPortalTracking();
-		}
-	}
-	else
-	{
-		EntryPortal->SetUp(nullptr, true, ExitPortal);
+		ClearPortalTracking();
 	}
 	ZeroCubeVelocity();
 
