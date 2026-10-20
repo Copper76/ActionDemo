@@ -2,17 +2,18 @@
 
 
 #include "ActionDemoController.h"
-#include "EnhancedInputSubsystems.h"
-#include "Engine/LocalPlayer.h"
-#include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
 #include "ActionDemoCharacter.h"
-#include "EngineUtils.h"
-#include "Camera/CameraComponent.h"
 
 void AActionDemoController::UpdateRotation(float DeltaTime)
 {
+	if (!MovementComponent.IsValid())
+	{
+		Super::UpdateRotation(DeltaTime);
+		return;
+	}
+
 	const FVector GravityDirection = MovementComponent->GetGravityDirection();
 
 	FRotator ViewRotation = GetControlRotation();
@@ -47,16 +48,42 @@ void AActionDemoController::UpdateRotation(float DeltaTime)
 	}
 }
 
-void AActionDemoController::BeginPlay()
+void AActionDemoController::OnPossess(APawn* InPawn)
 {
-	Super::BeginPlay();
+	Super::OnPossess(InPawn);
+	InitPossessedPawn(InPawn);
+}
 
-	if (AActionDemoCharacter* MyCharacter = Cast<AActionDemoCharacter>(GetPawn()))
+void AActionDemoController::OnUnPossess()
+{
+	MovementComponent.Reset();
+	Super::OnUnPossess();
+}
+
+void AActionDemoController::AcknowledgePossession(APawn* P)
+{
+	Super::AcknowledgePossession(P);
+	InitPossessedPawn(P);
+}
+
+void AActionDemoController::InitPossessedPawn(APawn* InPawn)
+{
+	AActionDemoCharacter* MyCharacter = Cast<AActionDemoCharacter>(InPawn);
+	if (!MyCharacter)
 	{
-		MovementComponent = Cast<UCharacterMovementComponent>(MyCharacter->GetMovementComponent());
-		MovementComponent->SetGravityDirection(-MyCharacter->GetActorUpVector());
-		SetControlRotation(MyCharacter->GetActorRotation());
+		MovementComponent.Reset();
+		return;
 	}
+
+	MovementComponent = Cast<UCharacterMovementComponent>(MyCharacter->GetMovementComponent());
+	if (!MovementComponent.IsValid())
+	{
+		return;
+	}
+
+	// Owning client and server both need this; SetGravityDirection is not replicated.
+	MovementComponent->SetGravityDirection(-MyCharacter->GetActorUpVector());
+	SetControlRotation(MyCharacter->GetActorRotation());
 }
 
 FQuat AActionDemoController::GetGravityRelativeRotation(FQuat Rotation, FVector GravityDirection)

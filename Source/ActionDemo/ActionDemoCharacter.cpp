@@ -88,19 +88,20 @@ void AActionDemoCharacter::BeginPlay()
 	{
 		GEngine->GameViewport->GetViewportSize(ViewportSize);
 	}
-	if (m_FlattenCamera)
-	{
-		m_FlattenCamera->TextureTarget->InitAutoFormat(ViewportSize.X, ViewportSize.Y);
-	}
+	// if (m_FlattenCamera)
+	// {
+	// 	m_FlattenCamera->TextureTarget->InitAutoFormat(ViewportSize.X, ViewportSize.Y);
+	// }
 
-	if (UCheckpointManager* CheckpointManager = GetWorld()->GetSubsystem<UCheckpointManager>())
-	{
-		CheckpointManager->AddCheckpoint(0, GetActorTransform());
-		if (CheckpointManager->GetCheckpointIndex() != 0)
-		{
-			//To be confirmed
-		}
-	}
+	// Temporarily disabled: CheckpointManager is world-global / not multiplayer-safe.
+	// if (UCheckpointManager* CheckpointManager = GetWorld()->GetSubsystem<UCheckpointManager>())
+	// {
+	// 	CheckpointManager->AddCheckpoint(0, GetActorTransform());
+	// 	if (CheckpointManager->GetCheckpointIndex() != 0)
+	// 	{
+	// 		//To be confirmed
+	// 	}
+	// }
 
 	CameraOffset = PlayerCamera->GetRelativeLocation();
 }

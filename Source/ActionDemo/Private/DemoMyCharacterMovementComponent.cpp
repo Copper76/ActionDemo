@@ -4,6 +4,7 @@
 #include "DemoMyCharacterMovementComponent.h"
 #include "PortalTraceLibrary.h"
 #include "Components/CapsuleComponent.h"
+#include "Engine/NetSerialization.h"
 #include "Engine/OverlapResult.h"
 #include "GameFramework/Character.h"
 #include "CableComponent.h"
@@ -38,6 +39,27 @@ void UDemoMyCharacterMovementComponent::UpdateFromCompressedFlags(uint8 Flags)
 	Safe_bPressedFlash = (Flags & FSavedMove_Demo::FLAG_Flash) != 0;
 
 	Safe_bWantsToGrapple = (Flags & FSavedMove_Demo::FLAG_Grapple) != 0;
+}
+
+void UDemoMyCharacterMovementComponent::MoveAutonomous(float ClientTimeStamp, float DeltaTime, uint8 CompressedFlags, const FVector& NewAccel)
+{
+	if (const FCharacterNetworkMoveData_Demo* MoveData = static_cast<const FCharacterNetworkMoveData_Demo*>(GetCurrentNetworkMoveData()))
+	{
+		SetGravityDirection(MoveData->GravityDirection);
+	}
+
+	Super::MoveAutonomous(ClientTimeStamp, DeltaTime, CompressedFlags, NewAccel);
+}
+
+void UDemoMyCharacterMovementComponent::ClientHandleMoveResponse(const FCharacterMoveResponseDataContainer& MoveResponse)
+{
+	// Base CMC serializes GravityDirection on corrections but does not apply it.
+	if (!MoveResponse.IsGoodMove())
+	{
+		SetGravityDirection(MoveResponse.ClientAdjustment.GravityDirection);
+	}
+
+	Super::ClientHandleMoveResponse(MoveResponse);
 }
 
 void UDemoMyCharacterMovementComponent::OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity)
@@ -477,7 +499,7 @@ bool UDemoMyCharacterMovementComponent::IsCustomMovementMode(ECustomMovementMode
 
 UDemoMyCharacterMovementComponent::UDemoMyCharacterMovementComponent() : Super()
 {
-
+	SetNetworkMoveDataContainer(DemoNetworkMoveDataContainer);
 }
 
 void UDemoMyCharacterMovementComponent::InitializeComponent()
@@ -487,7 +509,9 @@ void UDemoMyCharacterMovementComponent::InitializeComponent()
 	DemoCharacterOwner = Cast<AActionDemoCharacter>(GetOwner());
 }
 
-UDemoMyCharacterMovementComponent::FSavedMove_Demo::FSavedMove_Demo() : Super()
+UDemoMyCharacterMovementComponent::FSavedMove_Demo::FSavedMove_Demo()
+	: Super()
+	, Saved_GravityDirection(UCharacterMovementComponent::DefaultGravityDirection)
 {
 }
 
@@ -518,6 +542,16 @@ bool UDemoMyCharacterMovementComponent::FSavedMove_Demo::CanCombineWith(const FS
 		return false;
 	}
 
+	if (Saved_GrappleStage != NewDemoMove->Saved_GrappleStage)
+	{
+		return false;
+	}
+
+	if (!Saved_GravityDirection.Equals(NewDemoMove->Saved_GravityDirection))
+	{
+		return false;
+	}
+
 	return FSavedMove_Character::CanCombineWith(NewMove, InCharacter, MaxDelta);
 }
 
@@ -530,6 +564,12 @@ void UDemoMyCharacterMovementComponent::FSavedMove_Demo::Clear()
 	Saved_bFellOff = 0;
 	Saved_bPressedFlash = 0;
 	Saved_bWantsToGrapple = 0;
+	Saved_bGrappleTargetMovable = 0;
+	Saved_GrappleStage = GRAPPLE_NONE;
+	Saved_GrapplePivot = FVector::ZeroVector;
+	Saved_GrapplePivotNormal = FVector::ZeroVector;
+	Saved_GrappleTarget = nullptr;
+	Saved_GravityDirection = UCharacterMovementComponent::DefaultGravityDirection;
 }
 
 uint8 UDemoMyCharacterMovementComponent::FSavedMove_Demo::GetCompressedFlags() const
@@ -558,10 +598,17 @@ void UDemoMyCharacterMovementComponent::FSavedMove_Demo::SetMoveFor(ACharacter* 
 	Saved_bPressedFlash = CharacterMovement->Safe_bPressedFlash;
 
 	Saved_bWantsToGrapple = CharacterMovement->Safe_bWantsToGrapple;
+	Saved_GrappleStage = CharacterMovement->GrappleStage;
+	Saved_GrapplePivot = CharacterMovement->Grapple_Pivot;
+	Saved_GrapplePivotNormal = CharacterMovement->Grapple_PivotNormal;
+	Saved_GrappleTarget = CharacterMovement->Grapple_Target;
+	Saved_bGrappleTargetMovable = CharacterMovement->Grapple_TargetMovable;
 
 	Saved_bHadAnimRootMotion = CharacterMovement->Safe_bHadAnimRootMotion;
 
 	Saved_bTransitionFinished = CharacterMovement->Safe_bTransitionFinished;
+
+	Saved_GravityDirection = CharacterMovement->GetGravityDirection();
 }
 
 void UDemoMyCharacterMovementComponent::FSavedMove_Demo::PrepMoveFor(ACharacter* C)
@@ -579,10 +626,36 @@ void UDemoMyCharacterMovementComponent::FSavedMove_Demo::PrepMoveFor(ACharacter*
 	CharacterMovement->Safe_bPressedFlash = Saved_bPressedFlash;
 
 	CharacterMovement->Safe_bWantsToGrapple = Saved_bWantsToGrapple;
+	CharacterMovement->GrappleStage = static_cast<EGrapplingStage>(Saved_GrappleStage);
+	CharacterMovement->Grapple_Pivot = Saved_GrapplePivot;
+	CharacterMovement->Grapple_PivotNormal = Saved_GrapplePivotNormal;
+	CharacterMovement->Grapple_Target = Saved_GrappleTarget.Get();
+	CharacterMovement->Grapple_TargetMovable = Saved_bGrappleTargetMovable;
 
 	CharacterMovement->Safe_bHadAnimRootMotion = Saved_bHadAnimRootMotion;
 
 	CharacterMovement->Safe_bTransitionFinished = Saved_bTransitionFinished;
+
+	CharacterMovement->SetGravityDirection(Saved_GravityDirection);
+}
+
+void UDemoMyCharacterMovementComponent::FCharacterNetworkMoveData_Demo::ClientFillNetworkMoveData(const FSavedMove_Character& ClientMove, ENetworkMoveType MoveType)
+{
+	Super::ClientFillNetworkMoveData(ClientMove, MoveType);
+
+	const FSavedMove_Demo& DemoMove = static_cast<const FSavedMove_Demo&>(ClientMove);
+	GravityDirection = DemoMove.Saved_GravityDirection;
+}
+
+bool UDemoMyCharacterMovementComponent::FCharacterNetworkMoveData_Demo::Serialize(UCharacterMovementComponent& CharacterMovement, FArchive& Ar, UPackageMap* PackageMap, ENetworkMoveType MoveType)
+{
+	if (!Super::Serialize(CharacterMovement, Ar, PackageMap, MoveType))
+	{
+		return false;
+	}
+
+	NetSerializeOptionalValue(Ar.IsSaving(), Ar, GravityDirection, UCharacterMovementComponent::DefaultGravityDirection, PackageMap);
+	return !Ar.IsError();
 }
 
 UDemoMyCharacterMovementComponent::FNetworkPredictionData_Client_Demo::FNetworkPredictionData_Client_Demo(const UCharacterMovementComponent& ClientMovement) : Super(ClientMovement)
@@ -693,7 +766,10 @@ void UDemoMyCharacterMovementComponent::AlignMovement(const FQuat& RelativeRotat
 	{
 		SnappedGravity.Z = FMath::Sign(GravityHint.Z);
 	}
+
 	SetGravityDirection(SnappedGravity);
+
+	bJustTeleported = true;
 }
 
 #pragma region Slide
@@ -1364,8 +1440,10 @@ bool UDemoMyCharacterMovementComponent::CanGrapple() const
 
 void UDemoMyCharacterMovementComponent::DoGrapple()
 {
-	FVector Start = UpdatedComponent->GetComponentLocation() + FVector::UpVector * Grapple_CamOffset;
-	FVector Fwd = GetWorld()->GetFirstPlayerController()->PlayerCameraManager->GetCameraRotation().Vector();
+	const FVector Start = UpdatedComponent->GetComponentLocation() - GetNormalisedGravity() * Grapple_CamOffset;
+	const FVector Fwd = (CharacterOwner && CharacterOwner->Controller)
+		? CharacterOwner->GetControlRotation().Vector()
+		: UpdatedComponent->GetForwardVector();
 	FHitResult PivotHit;
 
 	GetWorld()->LineTraceSingleByChannel(PivotHit, Start, Start + Fwd * Grapple_Range, ECC_Visibility, DemoCharacterOwner->GetIgnoreCharacterParams());
@@ -1373,7 +1451,9 @@ void UDemoMyCharacterMovementComponent::DoGrapple()
 	if (!PivotHit.IsValidBlockingHit() || PivotHit.GetActor()->IsA<APortal>())
 	{
 		Grapple_Target = nullptr;
+		Grapple_TargetMovable = false;
 		Grapple_Pivot = Start + Fwd * Grapple_Range;
+		Grapple_PivotNormal = -Fwd;
 		Safe_bWantsToGrapple = false;
 	}
 	else
@@ -1386,7 +1466,7 @@ void UDemoMyCharacterMovementComponent::DoGrapple()
 		Grapple_Target = PivotHit.GetComponent();
 		Grapple_PivotNormal = PivotHit.ImpactNormal;
 		Grapple_Pivot = UKismetMathLibrary::InverseTransformLocation(Grapple_Target->GetOwner()->GetTransform(), PivotHit.ImpactPoint);
-
+		Grapple_TargetMovable = Grapple_Target->GetOwner()->IsRootComponentMovable();
 		GrappleTime = GetWorld()->GetTimeSeconds();
 	}
 
@@ -1518,8 +1598,10 @@ void UDemoMyCharacterMovementComponent::PhysGrapple(float DeltaTime, int32 Itera
 	AddImpulse(PivotDir * Grapple_PullForce);
 	Acceleration = Acceleration * Grapple_SteerFactor;
 	const float SinPullAwayAngle = FMath::Cos(FMath::DegreesToRadians(Grapple_PullAwayAngle));
-	float TowardsComponent = GetWorld()->GetFirstPlayerController()->PlayerCameraManager->GetCameraRotation().Vector().GetSafeNormal() | PivotDir;
-	bool bWantsToPullAway =  TowardsComponent < SinPullAwayAngle;
+	const FVector AimDir = (CharacterOwner && CharacterOwner->Controller)
+		? CharacterOwner->GetControlRotation().Vector()
+		: UpdatedComponent->GetForwardVector();
+	const bool bWantsToPullAway = (AimDir | PivotDir) < SinPullAwayAngle;
 	//UE_LOG(LogTemp, Warning, TEXT("Acceleration: %s"), *Acceleration.ToString())
 	// Apply acceleration
 	CalcVelocity(DeltaTime, 0.0f, false, GetMaxBrakingDeceleration());
@@ -1567,6 +1649,11 @@ void UDemoMyCharacterMovementComponent::DoFlash()
 #pragma endregion
 
 #pragma region Portal
+bool UDemoMyCharacterMovementComponent::ShouldUsePortalCollision() const
+{
+	return CharacterOwner && CharacterOwner->GetLocalRole() != ROLE_SimulatedProxy;
+}
+
 namespace
 {
 	FVector PortalContactPoint(const FHitResult& Hit)
@@ -1696,7 +1783,7 @@ namespace
 bool UDemoMyCharacterMovementComponent::MoveUpdatedComponentImpl(const FVector& Delta, const FQuat& NewRotation, bool bSweep, FHitResult* OutHit, ETeleportType Teleport)
 {
 	APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
-	if (!TravelPortal || !bSweep || !UpdatedComponent || !UpdatedPrimitive || !GetWorld())
+	if (!TravelPortal || !ShouldUsePortalCollision() || !bSweep || !UpdatedComponent || !UpdatedPrimitive || !GetWorld())
 	{
 		return Super::MoveUpdatedComponentImpl(Delta, NewRotation, bSweep, OutHit, Teleport);
 	}
@@ -1883,7 +1970,7 @@ bool UDemoMyCharacterMovementComponent::MoveUpdatedComponentImpl(const FVector& 
 bool UDemoMyCharacterMovementComponent::ResolvePenetrationImpl(const FVector& ProposedAdjustment, const FHitResult& Hit, const FQuat& NewRotation)
 {
 	APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
-	if (!TravelPortal || !UpdatedComponent || !UpdatedPrimitive || !GetWorld())
+	if (!TravelPortal || !ShouldUsePortalCollision() || !UpdatedComponent || !UpdatedPrimitive || !GetWorld())
 	{
 		return Super::ResolvePenetrationImpl(ProposedAdjustment, Hit, NewRotation);
 	}
@@ -2018,7 +2105,7 @@ bool UDemoMyCharacterMovementComponent::ResolvePenetrationImpl(const FVector& Pr
 bool UDemoMyCharacterMovementComponent::OverlapTest(const FVector& Location, const FQuat& RotationQuat, const ECollisionChannel CollisionChannel, const FCollisionShape& CollisionShape, const AActor* IgnoreActor) const
 {
 	APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
-	if (!TravelPortal || !GetWorld())
+	if (!TravelPortal || !ShouldUsePortalCollision() || !GetWorld())
 	{
 		return Super::OverlapTest(Location, RotationQuat, CollisionChannel, CollisionShape, IgnoreActor);
 	}
@@ -2083,7 +2170,7 @@ bool UDemoMyCharacterMovementComponent::OverlapTest(const FVector& Location, con
 bool UDemoMyCharacterMovementComponent::FloorSweepTest(FHitResult& OutHit, const FVector& Start, const FVector& End, ECollisionChannel TraceChannel, const FCollisionShape& CollisionShape, const FCollisionQueryParams& Params, const FCollisionResponseParams& ResponseParam) const
 {
 	APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
-	if (!TravelPortal || !GetWorld())
+	if (!TravelPortal || !ShouldUsePortalCollision() || !GetWorld())
 	{
 		return Super::FloorSweepTest(OutHit, Start, End, TraceChannel, CollisionShape, Params, ResponseParam);
 	}
@@ -2113,7 +2200,7 @@ bool UDemoMyCharacterMovementComponent::FloorSweepTest(FHitResult& OutHit, const
 void UDemoMyCharacterMovementComponent::ComputeFloorDist(const FVector& CapsuleLocation, float LineDistance, float SweepDistance, FFindFloorResult& OutFloorResult, float SweepRadius, const FHitResult* DownwardSweepResult) const
 {
 	APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
-	if (!TravelPortal || !CharacterOwner || !UpdatedComponent || !GetWorld())
+	if (!TravelPortal || !ShouldUsePortalCollision() || !CharacterOwner || !UpdatedComponent || !GetWorld())
 	{
 		Super::ComputeFloorDist(CapsuleLocation, LineDistance, SweepDistance, OutFloorResult, SweepRadius, DownwardSweepResult);
 		return;

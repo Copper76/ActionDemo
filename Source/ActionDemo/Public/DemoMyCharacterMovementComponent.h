@@ -51,12 +51,19 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 		uint8 Saved_bPressedFlash : 1;
 
 		uint8 Saved_bWantsToGrapple : 1;
+		uint8 Saved_bGrappleTargetMovable : 1;
+		uint8 Saved_GrappleStage;
 
 		uint8 Saved_bWallRunIsRight : 1;
 		uint8 Saved_bFellOff : 1;
 
 		uint8 Saved_bHadAnimRootMotion : 1;
 		uint8 Saved_bTransitionFinished : 1;
+
+		FVector Saved_GrapplePivot;
+		FVector Saved_GrapplePivotNormal;
+		TWeakObjectPtr<UPrimitiveComponent> Saved_GrappleTarget;
+		FVector Saved_GravityDirection;
 
 	public:
 		FSavedMove_Demo();
@@ -68,6 +75,28 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 		virtual void PrepMoveFor(ACharacter* C) override;
 	};
 
+	struct FCharacterNetworkMoveData_Demo : public FCharacterNetworkMoveData
+	{
+		typedef FCharacterNetworkMoveData Super;
+
+		FVector GravityDirection = UCharacterMovementComponent::DefaultGravityDirection;
+
+		virtual void ClientFillNetworkMoveData(const FSavedMove_Character& ClientMove, ENetworkMoveType MoveType) override;
+		virtual bool Serialize(UCharacterMovementComponent& CharacterMovement, FArchive& Ar, UPackageMap* PackageMap, ENetworkMoveType MoveType) override;
+	};
+
+	struct FCharacterNetworkMoveDataContainer_Demo : public FCharacterNetworkMoveDataContainer
+	{
+		FCharacterNetworkMoveDataContainer_Demo()
+		{
+			NewMoveData = &MoveData[0];
+			PendingMoveData = &MoveData[1];
+			OldMoveData = &MoveData[2];
+		}
+
+		FCharacterNetworkMoveData_Demo MoveData[3];
+	};
+
 	class FNetworkPredictionData_Client_Demo : public FNetworkPredictionData_Client_Character
 	{
 	public:
@@ -77,6 +106,8 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 
 		virtual FSavedMovePtr AllocateNewMove() override;
 	};
+
+	FCharacterNetworkMoveDataContainer_Demo DemoNetworkMoveDataContainer;
 
 	//Parameter
 	//Sprint
@@ -137,11 +168,6 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 	UPROPERTY(EditDefaultsOnly) float Grapple_MaxTension = 700.0f;
 	UPROPERTY(EditDefaultsOnly) float Grapple_CamOffset = 60.0f;
 	UPROPERTY(EditDefaultsOnly) float Grapple_PullAwayAngle = 270.0f;
-
-	FVector Grapple_Pivot;
-	FVector Grapple_PivotNormal;
-	UPrimitiveComponent* Grapple_Target;
-	bool Grapple_TargetMovable;
 	float GrappleCooldown = 1.0f;
 	float AuthGrappleCooldown = 0.9f;
 	float GrappleTime = -GrappleCooldown;
@@ -149,7 +175,11 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly) float GrappleSpeed = 4000.0f;
 	UPROPERTY(BlueprintReadOnly) FVector GrappleEndLoc;
-	UPROPERTY(BlueprintReadOnly) TEnumAsByte<EGrapplingStage> GrappleStage;
+	UPROPERTY(BlueprintReadOnly) TEnumAsByte<EGrapplingStage> GrappleStage = GRAPPLE_NONE;
+	FVector Grapple_Pivot;
+	FVector Grapple_PivotNormal;
+	UPrimitiveComponent* Grapple_Target = nullptr;
+	bool Grapple_TargetMovable = false;
 
 private:
 	//Flash
@@ -206,6 +236,10 @@ public:
 protected:
 	virtual void UpdateFromCompressedFlags(uint8 Flags) override;
 
+	virtual void MoveAutonomous(float ClientTimeStamp, float DeltaTime, uint8 CompressedFlags, const FVector& NewAccel) override;
+
+	virtual void ClientHandleMoveResponse(const FCharacterMoveResponseDataContainer& MoveResponse) override;
+
 	virtual void OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity) override;
 
 	virtual void OnMovementModeChanged(EMovementMode PreviousMovementMode, uint8 PreviousCustomMode) override;
@@ -259,6 +293,11 @@ protected:
 //Gravity
 private:
 	inline FVector GetNormalisedGravity() const { return GetGravityDirection().GetSafeNormal(); }
+
+//Portal
+private:
+	/** Owning client + server need dual entry/exit casts; simulated proxies can use stock CMC. */
+	bool ShouldUsePortalCollision() const;
 
 //Slide
 private:

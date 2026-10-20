@@ -20,7 +20,12 @@ public:
 	virtual void UpdateRotation(float DeltaTime) override;
 
 protected:
-	virtual void BeginPlay() override;
+	virtual void OnPossess(APawn* InPawn) override;
+	virtual void OnUnPossess() override;
+	virtual void AcknowledgePossession(APawn* P) override;
+
+	/** Cache CMC and align gravity / control rotation once the pawn is actually possessed. */
+	void InitPossessedPawn(APawn* InPawn);
 
 private:
 	static FQuat GetGravityRelativeRotation(FQuat Rotation, FVector GravityDirection);
