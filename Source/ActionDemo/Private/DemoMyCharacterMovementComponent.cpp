@@ -68,7 +68,8 @@ void UDemoMyCharacterMovementComponent::OnMovementUpdated(float DeltaSeconds, co
 	
 	if (MovementMode == MOVE_Walking)
 	{
-		if (Safe_bWantsToSprint && (GetLastInputVector() | UpdatedComponent->GetForwardVector()) > 0.5f)
+		// Acceleration is the networked move intent (LastInputVector is empty on server replay).
+		if (Safe_bWantsToSprint && (Acceleration.GetSafeNormal() | UpdatedComponent->GetForwardVector()) > 0.5f)
 		{
 			MaxWalkSpeed = Sprint_MaxWalkSpeed;
 			bIsSprinting = true;
@@ -1310,7 +1311,7 @@ bool UDemoMyCharacterMovementComponent::TryClimb()
 	}
 
 	if (Safe_bFellOff) return false;
-	if ((GetLastInputVector() | UpdatedComponent->GetForwardVector().GetSafeNormal()) <= 0.5f) return false;//Don't enter if the player is not actively moving forward
+	if ((Acceleration.GetSafeNormal() | UpdatedComponent->GetForwardVector().GetSafeNormal()) <= 0.5f) return false;//Don't enter if the player is not actively moving forward
 	float CosWallSteepnessAngle = WallHit.Normal | -NormalisedGravity;
 	if (FMath::Abs(CosWallSteepnessAngle) > CosMMWSA || (Fwd | -WallHit.Normal) < CosMMAA) return false;
 
