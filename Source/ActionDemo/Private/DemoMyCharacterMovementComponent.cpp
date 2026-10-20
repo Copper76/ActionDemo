@@ -6,6 +6,7 @@
 #include "Components/CapsuleComponent.h"
 #include "Engine/OverlapResult.h"
 #include "GameFramework/Character.h"
+#include "CableComponent.h"
 
 float MacroDuration = 5.f;
 #define POINT(x, c) DrawDebugPoint(GetWorld(), x, 10, c, !MacroDuration, MacroDuration);
@@ -36,7 +37,7 @@ void UDemoMyCharacterMovementComponent::UpdateFromCompressedFlags(uint8 Flags)
 
 	Safe_bPressedFlash = (Flags & FSavedMove_Demo::FLAG_Flash) != 0;
 
-	Safe_bPressedGrapple = (Flags & FSavedMove_Demo::FLAG_Grapple) != 0;
+	Safe_bWantsToGrapple = (Flags & FSavedMove_Demo::FLAG_Grapple) != 0;
 }
 
 void UDemoMyCharacterMovementComponent::OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity)
@@ -361,12 +362,7 @@ void UDemoMyCharacterMovementComponent::UnCrouch(bool bClientSimulation)
 
 void UDemoMyCharacterMovementComponent::UpdateCharacterStateBeforeMovement(float DeltaSeconds)
 {
-	if (!IsCustomMovementMode(CMOVE_Grapple) && Safe_bPressedGrapple)
-	{
-		EnterGrapple();
-	}
-	
-	if (IsCustomMovementMode(CMOVE_Grapple) && (bWantsToCrouch || !Safe_bPressedGrapple))
+	if (IsCustomMovementMode(CMOVE_Grapple) && (bWantsToCrouch || !Safe_bWantsToGrapple))
 	{
 		ExitGrapple();
 	}
@@ -390,16 +386,29 @@ void UDemoMyCharacterMovementComponent::UpdateCharacterStateBeforeMovement(float
 		TryClimb();
 	}
 
+	const bool IsAuthProxy = CharacterOwner->HasAuthority() && !CharacterOwner->IsLocallyControlled();
+
 	if (Safe_bPressedFlash)
 	{
 		Safe_bPressedFlash = false;
-
-		const bool IsAuthProxy = CharacterOwner->HasAuthority() && !CharacterOwner->IsLocallyControlled();
 
 		if ((!IsAuthProxy || (GetWorld()->GetTimeSeconds() > FlashTime + AuthFlashCooldown)) && (GetWorld()->GetTimeSeconds() > FlashTime + FlashCooldown) && CanFlash())
 		{
 			DoFlash();
 		}
+	}
+
+	if (Safe_bWantsToGrapple)
+	{
+		if ((!IsAuthProxy || (GetWorld()->GetTimeSeconds() > GrappleTime + AuthGrappleCooldown)) && (GetWorld()->GetTimeSeconds() > GrappleTime + GrappleCooldown) && CanGrapple())
+		{
+			DoGrapple();
+		}
+	}
+
+	if (GrappleStage != EGrapplingStage::GRAPPLE_NONE)
+	{
+		TickGrapple(DeltaSeconds);
 	}
 
 	Super::UpdateCharacterStateBeforeMovement(DeltaSeconds);
@@ -504,7 +513,7 @@ bool UDemoMyCharacterMovementComponent::FSavedMove_Demo::CanCombineWith(const FS
 		return false;
 	}
 
-	if (Saved_bPressedGrapple != NewDemoMove->Saved_bPressedGrapple)
+	if (Saved_bWantsToGrapple != NewDemoMove->Saved_bWantsToGrapple)
 	{
 		return false;
 	}
@@ -520,7 +529,7 @@ void UDemoMyCharacterMovementComponent::FSavedMove_Demo::Clear()
 	Saved_bWallRunIsRight = 0;
 	Saved_bFellOff = 0;
 	Saved_bPressedFlash = 0;
-	Saved_bPressedGrapple = 0;
+	Saved_bWantsToGrapple = 0;
 }
 
 uint8 UDemoMyCharacterMovementComponent::FSavedMove_Demo::GetCompressedFlags() const
@@ -529,7 +538,7 @@ uint8 UDemoMyCharacterMovementComponent::FSavedMove_Demo::GetCompressedFlags() c
 
 	if (Saved_bWantsToSprint) Result |= FLAG_Sprint;
 	if (Saved_bPressedFlash) Result |= FLAG_Flash;
-	if (Saved_bPressedGrapple) Result |= FLAG_Grapple;
+	if (Saved_bWantsToGrapple) Result |= FLAG_Grapple;
 
 	return Result;
 }
@@ -548,7 +557,7 @@ void UDemoMyCharacterMovementComponent::FSavedMove_Demo::SetMoveFor(ACharacter* 
 
 	Saved_bPressedFlash = CharacterMovement->Safe_bPressedFlash;
 
-	Saved_bPressedGrapple = CharacterMovement->Safe_bPressedGrapple;
+	Saved_bWantsToGrapple = CharacterMovement->Safe_bWantsToGrapple;
 
 	Saved_bHadAnimRootMotion = CharacterMovement->Safe_bHadAnimRootMotion;
 
@@ -569,7 +578,7 @@ void UDemoMyCharacterMovementComponent::FSavedMove_Demo::PrepMoveFor(ACharacter*
 
 	CharacterMovement->Safe_bPressedFlash = Saved_bPressedFlash;
 
-	CharacterMovement->Safe_bPressedGrapple = Saved_bPressedGrapple;
+	CharacterMovement->Safe_bWantsToGrapple = Saved_bWantsToGrapple;
 
 	CharacterMovement->Safe_bHadAnimRootMotion = Saved_bHadAnimRootMotion;
 
@@ -1331,7 +1340,29 @@ void UDemoMyCharacterMovementComponent::PhysClimb(float DeltaTime, int32 Iterati
 #pragma endregion
 
 #pragma region Grapple
-float UDemoMyCharacterMovementComponent::TryGrapple()
+FVector UDemoMyCharacterMovementComponent::GetGrapplingPivot()
+{
+	if (Grapple_Target && Grapple_Target->GetOwner())
+	{
+		return UKismetMathLibrary::TransformLocation(Grapple_Target->GetOwner()->GetTransform(), Grapple_Pivot);
+	}
+	return Grapple_Pivot;
+}
+
+void UDemoMyCharacterMovementComponent::Grapple()
+{
+	if (CanGrapple())
+	{
+		Safe_bWantsToGrapple = true;
+	}
+}
+
+bool UDemoMyCharacterMovementComponent::CanGrapple() const
+{
+	return GrappleStage == GRAPPLE_NONE;
+}
+
+void UDemoMyCharacterMovementComponent::DoGrapple()
 {
 	FVector Start = UpdatedComponent->GetComponentLocation() + FVector::UpVector * Grapple_CamOffset;
 	FVector Fwd = GetWorld()->GetFirstPlayerController()->PlayerCameraManager->GetCameraRotation().Vector();
@@ -1343,36 +1374,28 @@ float UDemoMyCharacterMovementComponent::TryGrapple()
 	{
 		Grapple_Target = nullptr;
 		Grapple_Pivot = Start + Fwd * Grapple_Range;
-		return -1.0f;
+		Safe_bWantsToGrapple = false;
 	}
-
-	if (PivotHit.GetActor()->IsA<APortal>())
+	else
 	{
-		//Portal interaction stuff
+		if (PivotHit.GetActor()->IsA<APortal>())
+		{
+			//Portal interaction stuff
+		}
+
+		Grapple_Target = PivotHit.GetComponent();
+		Grapple_PivotNormal = PivotHit.ImpactNormal;
+		Grapple_Pivot = UKismetMathLibrary::InverseTransformLocation(Grapple_Target->GetOwner()->GetTransform(), PivotHit.ImpactPoint);
+
+		GrappleTime = GetWorld()->GetTimeSeconds();
 	}
 
-	//Grapple_Target = PivotHit.GetActor();
-	Grapple_Target = PivotHit.GetComponent();
-	Grapple_PivotNormal = PivotHit.ImpactNormal;
-	//Grapple_Pivot = UKismetMathLibrary::InverseTransformLocation(Grapple_Target->GetTransform(), PivotHit.ImpactPoint);
-	Grapple_Pivot = UKismetMathLibrary::InverseTransformLocation(Grapple_Target->GetOwner()->GetTransform(), PivotHit.ImpactPoint);
+	UCableComponent* Grappler = DemoCharacterOwner->GetGrappler();
 
-	return FVector::Dist(Start,PivotHit.ImpactPoint);
-}
-
-FVector UDemoMyCharacterMovementComponent::GetGrapplingPivot()
-{
-	if (Grapple_Target)
-	{
-		//return UKismetMathLibrary::TransformLocation(Grapple_Target->GetTransform(), Grapple_Pivot);
-		return UKismetMathLibrary::TransformLocation(Grapple_Target->GetOwner()->GetTransform(), Grapple_Pivot);
-	}
-	return Grapple_Pivot;
-}
-
-void UDemoMyCharacterMovementComponent::Grapple()
-{
-	Safe_bPressedGrapple = true;
+	GrappleEndLoc = FVector::ZeroVector;
+	Grappler->EndLocation = GrappleEndLoc;
+	Grappler->SetHiddenInGame(false);
+	GrappleStage = GRAPPLE_SHOOT;
 }
 
 void UDemoMyCharacterMovementComponent::EnterGrapple()
@@ -1391,9 +1414,58 @@ void UDemoMyCharacterMovementComponent::ExitGrapple()
 	{
 		Grapple_Target->ComponentVelocity = FVector::ZeroVector;
 	}
-	DemoCharacterOwner->UnGrapple();
-	Safe_bPressedGrapple = false;
+	GrappleStage = EGrapplingStage::GRAPPLE_RETRACT;
+	Safe_bWantsToGrapple = false;
 	SetMovementMode(MOVE_Falling);
+}
+
+void UDemoMyCharacterMovementComponent::TickGrapple(const float DeltaTime)
+{
+	UCableComponent* Grappler = DemoCharacterOwner->GetGrappler();;
+
+	switch (GrappleStage)
+	{
+	case GRAPPLE_SHOOT:
+	{
+		const FVector Target = Grappler->GetComponentTransform().InverseTransformPosition(GetGrapplingPivot());
+		GrappleEndLoc = FMath::VInterpConstantTo(GrappleEndLoc, Target, DeltaTime, GrappleSpeed);
+		Grappler->EndLocation = GrappleEndLoc;
+		if (FVector::DistSquared(GrappleEndLoc, Target) <= 1.0f)
+		{
+			GrappleEndLoc = Target;
+			Grappler->EndLocation = GrappleEndLoc;
+			if (Safe_bWantsToGrapple)
+			{
+				GrappleStage = GRAPPLE_INPROGRESS;
+				EnterGrapple();
+			}
+			else
+			{
+				GrappleStage = EGrapplingStage::GRAPPLE_RETRACT;
+			}
+		}
+		break;
+	}
+	case GRAPPLE_INPROGRESS:
+		GrappleEndLoc = Grappler->GetComponentTransform().InverseTransformPosition(GetGrapplingPivot());
+		Grappler->EndLocation = GrappleEndLoc;
+		break;
+	case GRAPPLE_RETRACT:
+	{
+		GrappleEndLoc = FMath::VInterpConstantTo(GrappleEndLoc, FVector::ZeroVector, DeltaTime, GrappleSpeed);
+		Grappler->EndLocation = GrappleEndLoc;
+		if (GrappleEndLoc.SizeSquared() <= 1.0f)
+		{
+			GrappleEndLoc = FVector::ZeroVector;
+			Grappler->EndLocation = GrappleEndLoc;
+			Grappler->SetHiddenInGame(true);
+			GrappleStage = GRAPPLE_NONE;
+		}
+		break;
+	}
+	default:
+		break;
+	}
 }
 
 void UDemoMyCharacterMovementComponent::PhysGrapple(float DeltaTime, int32 Iterations)
@@ -1427,14 +1499,14 @@ void UDemoMyCharacterMovementComponent::PhysGrapple(float DeltaTime, int32 Itera
 	//Check if the player has reached destination
 	if (FVector::Dist(Start, bGrapplePivot)<Grapple_FinishDist)
 	{
-		Safe_bPressedGrapple = false;
+		Safe_bWantsToGrapple = false;
 		return;
 	}
 
 	//Check if there is obstacle in between, break grapple if true
 	if ((PivotDir | Grapple_PivotNormal)>0.0f && !Grapple_TargetMovable)
 	{
-		Safe_bPressedGrapple = false;
+		Safe_bWantsToGrapple = false;
 		return;
 	 }
 
@@ -1454,7 +1526,7 @@ void UDemoMyCharacterMovementComponent::PhysGrapple(float DeltaTime, int32 Itera
 	//UE_LOG(LogTemp, Warning, TEXT("Velocity: %s"), *Velocity.ToString());
 	if (bWantsToPullAway || (((-PivotDir) | Velocity) > Grapple_MaxTension && Grapple_MaxTension > 0.0f))
 	{
-		Safe_bPressedGrapple = false;
+		Safe_bWantsToGrapple = false;
 		return;
 	}
 

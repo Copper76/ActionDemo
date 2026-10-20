@@ -17,6 +17,7 @@
 #include "Kismet/KismetRenderingLibrary.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "CheckpointManager.h"
+#include "CableComponent.h"
 
 #include "Engine/DecalActor.h"
 
@@ -267,78 +268,7 @@ void AActionDemoCharacter::AlignMovement(const FQuat& RelativeRotation, const FQ
 
 void AActionDemoCharacter::Grapple()
 {
-	if (GrappleStage == GRAPPLE_NONE && GrappleCoolDown <= 0.0f)
-	{
-		float PivotDistance = DemoMyCharacterMovementComponent->TryGrapple();
-		if (PivotDistance >= 0.0f)
-		{
-			GrappleCoolDown = GrappleMaxCoolDown;
-			GrappleIsSuccessful = true;
-			GrappleTravelTime = PivotDistance / GrappleSpeed;
-		}
-		else
-		{
-			GrappleCoolDown = 0.0f;
-			GrappleTravelTime = DemoMyCharacterMovementComponent->Grapple_Range / GrappleSpeed;
-		}
-		GrappleEndLoc = GetActorRotation().UnrotateVector(DemoMyCharacterMovementComponent->GetGrapplingPivot() - Grappler->GetComponentLocation());
-		Grappler->SetHiddenInGame(false);
-		GrappleStage = GRAPPLE_SHOOT;
-	}
-}
-
-void AActionDemoCharacter::TickGrapple(const float DeltaTime)
-{
-	switch (GrappleStage)
-	{
-	case GRAPPLE_NONE:
-		if (GrappleCoolDown > 0.0f)
-		{
-			GrappleCoolDown -= DeltaTime;
-		}
-		break;
-	case GRAPPLE_SHOOT:
-		GrappleEndLoc = GetActorRotation().UnrotateVector(DemoMyCharacterMovementComponent->GetGrapplingPivot() - Grappler->GetComponentLocation());
-		if (GrappleTravelTime > 0.0f)
-		{
-			GrappleTravelTime -= DeltaTime;
-		}
-		else
-		{
-			if (GrappleIsSuccessful)
-			{
-				GrappleIsSuccessful = false;
-				GrappleStage = GRAPPLE_INPROGRESS;
-				DemoMyCharacterMovementComponent->Grapple();
-			}
-			else
-			{
-				UnGrapple();
-			}
-		}
-		break;
-	case GRAPPLE_INPROGRESS:
-		GrappleEndLoc = GetActorRotation().UnrotateVector(DemoMyCharacterMovementComponent->GetGrapplingPivot() - Grappler->GetComponentLocation());
-		break;
-	case GRAPPLE_RETRACT:
-		if (GrappleTravelTime > 0.0f)
-		{
-			GrappleTravelTime -= DeltaTime;
-		}
-		else
-		{
-			Grappler->SetHiddenInGame(true);
-			GrappleStage = GRAPPLE_NONE;
-		}
-		break;
-	}
-}
-
-void AActionDemoCharacter::UnGrapple()
-{
-	GrappleEndLoc = FVector::ZeroVector;
-	GrappleTravelTime = Grappler->EndLocation.Length()/GrappleSpeed;
-	GrappleStage = GRAPPLE_RETRACT;
+	DemoMyCharacterMovementComponent->Grapple();
 }
 
 void AActionDemoCharacter::ToggleSprint(const FInputActionValue& Value)
@@ -397,11 +327,6 @@ void AActionDemoCharacter::Landed(const FHitResult& Hit)
 void AActionDemoCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-	//Countdown
-	//if (FlashCoolDown > 0)
-	//{
-	//	FlashCoolDown -= DeltaTime;
-	//}
 
 	if (GetActorLocation().Z < KillZ)
 	{
@@ -412,8 +337,6 @@ void AActionDemoCharacter::Tick(float DeltaTime)
 
 	float CrouchInterpTime = FMath::Min(1.0f, CrouchSpeed * DeltaTime);
 	CrouchEyeOffset = (1.0f - CrouchInterpTime) * CrouchEyeOffset;
-
-	TickGrapple(DeltaTime);
 }
 
 void AActionDemoCharacter::SetHasRifle(bool bNewHasRifle, AActor* Weapon)

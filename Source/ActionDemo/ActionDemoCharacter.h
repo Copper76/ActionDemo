@@ -5,7 +5,6 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "InputActionValue.h"
-#include "CableComponent.h"
 #include "Public/Portal.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "ActionDemoCharacter.generated.h"
@@ -22,15 +21,7 @@ class UImage;
 class ADecalActor;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
-
-UENUM(BlueprintType)
-enum EGrapplingStage
-{
-	GRAPPLE_SHOOT,
-	GRAPPLE_INPROGRESS,
-	GRAPPLE_RETRACT,
-	GRAPPLE_NONE
-};
+class UCableComponent;
 
 UCLASS(config=Game)
 class AActionDemoCharacter : public ACharacter
@@ -127,6 +118,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = Weapon)
 	bool GetHasRifle();
 
+	inline UCableComponent* GetGrappler() { return Grappler; }
+
 protected:
 	/** Called for movement input */
 	void Move(const FInputActionValue& Value);
@@ -139,8 +132,6 @@ protected:
 	void ToggleCrouch(const FInputActionValue& Value);
 
 	void Grapple();
-
-	void TickGrapple(const float DeltaTime);
 
 	void Flash();
 
@@ -158,8 +149,6 @@ protected:
 
 public:
 	virtual void CheckJumpInput(float DeltaTime) override;
-
-	void UnGrapple();
 
 	void AlignMovement(const FQuat& RelativeRotation, const FQuat& ViewRotation);
 
@@ -191,11 +180,6 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple")
 	float GrappleMaxCoolDown = 0.3f;
 
-	float GrappleTravelTime;
-	bool GrappleIsSuccessful;
-	UPROPERTY(BlueprintReadOnly) FVector GrappleEndLoc;
-	UPROPERTY(BlueprintReadOnly) float GrappleSpeed = 4000.0f;
-
 	//Tilt
 	UPROPERTY(BlueprintReadOnly) float TiltSpeed = 50.0f;
 
@@ -208,7 +192,6 @@ public:
 	bool bOwnsRifle;
 	UPROPERTY(BlueprintReadOnly) AActor* bWeapon;
 	UPROPERTY(BlueprintReadOnly) float TargetRoll;
-	UPROPERTY(BlueprintReadOnly) TEnumAsByte<EGrapplingStage> GrappleStage;
 
 	//Portal
 	APortal* BluePortal;

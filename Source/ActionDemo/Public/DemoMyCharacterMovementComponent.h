@@ -19,6 +19,15 @@ enum ECustomMovementMode
 	CMOVE_MAX	UMETA(Hidden),
 };
 
+UENUM(BlueprintType)
+enum EGrapplingStage
+{
+	GRAPPLE_SHOOT,
+	GRAPPLE_INPROGRESS,
+	GRAPPLE_RETRACT,
+	GRAPPLE_NONE
+};
+
 UCLASS()
 class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMovementComponent
 {
@@ -41,7 +50,7 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 
 		uint8 Saved_bPressedFlash : 1;
 
-		uint8 Saved_bPressedGrapple : 1;
+		uint8 Saved_bWantsToGrapple : 1;
 
 		uint8 Saved_bWallRunIsRight : 1;
 		uint8 Saved_bFellOff : 1;
@@ -128,11 +137,21 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 	UPROPERTY(EditDefaultsOnly) float Grapple_MaxTension = 700.0f;
 	UPROPERTY(EditDefaultsOnly) float Grapple_CamOffset = 60.0f;
 	UPROPERTY(EditDefaultsOnly) float Grapple_PullAwayAngle = 270.0f;
+
 	FVector Grapple_Pivot;
 	FVector Grapple_PivotNormal;
 	UPrimitiveComponent* Grapple_Target;
 	bool Grapple_TargetMovable;
+	float GrappleCooldown = 1.0f;
+	float AuthGrappleCooldown = 0.9f;
+	float GrappleTime = -GrappleCooldown;
 
+public:
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly) float GrappleSpeed = 4000.0f;
+	UPROPERTY(BlueprintReadOnly) FVector GrappleEndLoc;
+	UPROPERTY(BlueprintReadOnly) TEnumAsByte<EGrapplingStage> GrappleStage;
+
+private:
 	//Flash
 	UPROPERTY(EditDefaultsOnly, Category = "Flash")
 	float FlashReach = 1000.0f;
@@ -153,7 +172,7 @@ public:
 	bool Safe_bWantsToCrouch;
 
 	bool Safe_bPressedFlash;
-	bool Safe_bPressedGrapple;
+	bool Safe_bWantsToGrapple;
 
 	bool Safe_bWallRunIsRight;
 	bool Safe_bFellOff;
@@ -165,8 +184,6 @@ public:
 	UPROPERTY(Transient) UAnimMontage* TransitionQueueMontage;
 	float TransitionQueueMontageSpeed;
 	int TransitionRMS_ID;
-
-	bool Safe_bWantsToGrapple;
 
 public:
 	bool bIsSprinting = false;
@@ -269,8 +286,11 @@ private:
 
 //Grapple
 private:
+	bool CanGrapple() const;
+	void DoGrapple();
 	void EnterGrapple();
 	void ExitGrapple();
+	void TickGrapple(const float DeltaTime);
 	void PhysGrapple(float DeltaTime, int32 Iterations);
 
 //Flash
@@ -286,8 +306,6 @@ public:
 	UFUNCTION(BlueprintCallable) void Flash();
 
 	UFUNCTION(BlueprintCallable) void Grapple();
-
-	UFUNCTION(BlueprintCallable) float TryGrapple();
 
 	UFUNCTION(BlueprintCallable) FVector GetGrapplingPivot();
 
