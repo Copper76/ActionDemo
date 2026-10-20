@@ -497,6 +497,7 @@ UDemoMyCharacterMovementComponent::FSavedMove_Demo::FSavedMove_Demo() : Super()
 bool UDemoMyCharacterMovementComponent::FSavedMove_Demo::CanCombineWith(const FSavedMovePtr& NewMove, ACharacter* InCharacter, float MaxDelta) const
 {
 	FSavedMove_Demo* NewDemoMove = static_cast<FSavedMove_Demo*>(NewMove.Get());
+
 	if (Saved_bWantsToSprint != NewDemoMove->Saved_bWantsToSprint) {
 		return false;
 	}

@@ -140,6 +140,8 @@ protected:
 
 	void Grapple();
 
+	void TickGrapple(const float DeltaTime);
+
 	void Flash();
 
 	void SwapControl();
@@ -186,8 +188,8 @@ public:
 
 protected:
 	//Flash
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Flash")
 	float FlashReach = 1000.0f;
-	FVector FlashOffset;
 	float FlashCoolDown;
 	float FlashMaxCoolDown = 1.0f;
 

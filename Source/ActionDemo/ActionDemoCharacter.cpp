@@ -229,11 +229,15 @@ void AActionDemoCharacter::SwapControl()
 
 void AActionDemoCharacter::Flash()
 {
-	if (FlashCoolDown <= 0.0f && (DemoMyCharacterMovementComponent->MovementMode == EMovementMode::MOVE_Falling || DemoMyCharacterMovementComponent->MovementMode == EMovementMode::MOVE_Walking)) {
-		this->AddActorWorldOffset(FlashOffset, true);
-		//DemoMyCharacterMovementComponent->AddForce(GetActorForwardVector() * 1000.0f);
-		FlashCoolDown = FlashMaxCoolDown;
+	if (FlashCoolDown > 0.0f || !(DemoMyCharacterMovementComponent->MovementMode == EMovementMode::MOVE_Falling || DemoMyCharacterMovementComponent->MovementMode == EMovementMode::MOVE_Walking))
+	{
+		return;
 	}
+
+	const FVector LineTraceEnd = GetActorLocation() + GetActorForwardVector() * FlashReach;
+
+	SetActorLocation(LineTraceEnd, true);
+	FlashCoolDown = FlashMaxCoolDown;
 }
 
 void AActionDemoCharacter::AlignMovement(const FQuat& RelativeRotation, const FQuat& ViewRotation)
@@ -260,6 +264,53 @@ void AActionDemoCharacter::Grapple()
 		GrappleEndLoc = GetActorRotation().UnrotateVector(DemoMyCharacterMovementComponent->GetGrapplingPivot() - Grappler->GetComponentLocation());
 		Grappler->SetHiddenInGame(false);
 		GrappleStage = GRAPPLE_SHOOT;
+	}
+}
+
+void AActionDemoCharacter::TickGrapple(const float DeltaTime)
+{
+	switch (GrappleStage)
+	{
+	case GRAPPLE_NONE:
+		if (GrappleCoolDown > 0.0f)
+		{
+			GrappleCoolDown -= DeltaTime;
+		}
+		break;
+	case GRAPPLE_SHOOT:
+		GrappleEndLoc = GetActorRotation().UnrotateVector(DemoMyCharacterMovementComponent->GetGrapplingPivot() - Grappler->GetComponentLocation());
+		if (GrappleTravelTime > 0.0f)
+		{
+			GrappleTravelTime -= DeltaTime;
+		}
+		else
+		{
+			if (GrappleIsSuccessful)
+			{
+				GrappleIsSuccessful = false;
+				GrappleStage = GRAPPLE_INPROGRESS;
+				DemoMyCharacterMovementComponent->Grapple();
+			}
+			else
+			{
+				UnGrapple();
+			}
+		}
+		break;
+	case GRAPPLE_INPROGRESS:
+		GrappleEndLoc = GetActorRotation().UnrotateVector(DemoMyCharacterMovementComponent->GetGrapplingPivot() - Grappler->GetComponentLocation());
+		break;
+	case GRAPPLE_RETRACT:
+		if (GrappleTravelTime > 0.0f)
+		{
+			GrappleTravelTime -= DeltaTime;
+		}
+		else
+		{
+			Grappler->SetHiddenInGame(true);
+			GrappleStage = GRAPPLE_NONE;
+		}
+		break;
 	}
 }
 
@@ -342,81 +393,8 @@ void AActionDemoCharacter::Tick(float DeltaTime)
 
 	float CrouchInterpTime = FMath::Min(1.0f, CrouchSpeed * DeltaTime);
 	CrouchEyeOffset = (1.0f - CrouchInterpTime) * CrouchEyeOffset;
-	//GetController()->SetControlRotation(FRotator(FMath::FInterpTo(GetControlRotation().Roll, TargetRoll, DeltaTime, 10.0f), GetControlRotation().Pitch, GetControlRotation().Yaw));
 
-#pragma region Grapple
-	if (GrappleCoolDown > 0 && GrappleStage == GRAPPLE_NONE)
-	{
-		GrappleCoolDown -= DeltaTime;
-	}
-
-	if (GrappleStage == GRAPPLE_SHOOT)
-	{
-		GrappleEndLoc = GetActorRotation().UnrotateVector(DemoMyCharacterMovementComponent->GetGrapplingPivot() - Grappler->GetComponentLocation());
-		if (GrappleTravelTime > 0.0f) 
-		{
-			GrappleTravelTime -= DeltaTime;
-		}
-		else
-		{
-			if (GrappleIsSuccessful)
-			{
-				GrappleIsSuccessful = false;
-				GrappleStage = GRAPPLE_INPROGRESS;
-				DemoMyCharacterMovementComponent->Grapple();
-			}
-			else
-			{
-				UnGrapple();
-			}
-		}
-	}
-
-	if (GrappleStage == GRAPPLE_INPROGRESS)
-	{
-		GrappleEndLoc = GetActorRotation().UnrotateVector(DemoMyCharacterMovementComponent->GetGrapplingPivot() - Grappler->GetComponentLocation());
-	}
-
-	if (GrappleStage == GRAPPLE_RETRACT)
-	{
-		if (GrappleTravelTime > 0.0f)
-		{
-			GrappleTravelTime -= DeltaTime;
-		}
-		else
-		{
-			Grappler->SetHiddenInGame(true);
-			GrappleStage = GRAPPLE_NONE;
-		}
-	}
-#pragma endregion
-
-#pragma region Teleport
-	//line trace to find the target for teleportation
-	FVector PlayerViewPointLocation = this->ActorToWorld().GetLocation();
-
-	FVector PlayerRotation = GetWorld()->GetFirstPlayerController()->PlayerCameraManager->GetCameraRotation().Vector();
-	PlayerRotation.Normalize();
-
-	FVector LineTraceEnd = PlayerViewPointLocation + PlayerRotation * FlashReach;
-	//UE_LOG(LogTemp, Warning, TEXT("RANGE: %s"), *PlayerRotation.ToString())
-
-	// Set parameters to use line tracing
-	FHitResult Hit;
-
-	// Raycast out to this distance
-	GetWorld()->LineTraceSingleByObjectType(
-		OUT Hit,
-		PlayerViewPointLocation,
-		LineTraceEnd,
-		FCollisionObjectQueryParams(ECollisionChannel::ECC_PhysicsBody),
-		GetIgnoreCharacterParams()
-	);
-
-	FlashOffset = LineTraceEnd - PlayerViewPointLocation;
-	FlashOffset.Z = 0.0f;
-	//UE_LOG(LogTemp, Warning, TEXT("Line trace has hit: %s"), *FlashOffset.ToString())
-#pragma endregion
+	TickGrapple(DeltaTime);
 }
 
 void AActionDemoCharacter::SetHasRifle(bool bNewHasRifle, AActor* Weapon)
