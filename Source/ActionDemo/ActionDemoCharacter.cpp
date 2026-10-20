@@ -59,7 +59,7 @@ AActionDemoCharacter::AActionDemoCharacter(const FObjectInitializer& ObjectIniti
 	AimingPoseLoc = Mesh1P->GetRelativeLocation();
 	AimingPoseRotation = Mesh1P->GetRelativeRotation();
 
-	FlashCoolDown = FlashMaxCoolDown;
+	//FlashCoolDown = FlashMaxCoolDown;
 
 	Grappler = CreateDefaultSubobject<UCableComponent>(TEXT("Grappling Hook"));
 	//Grappler->AttachToComponent(this->GetRootComponent(), FAttachmentTransformRules::KeepWorldTransform);
@@ -151,17 +151,45 @@ void AActionDemoCharacter::Move(const FInputActionValue& Value)
 	}
 }
 
-void AActionDemoCharacter::Jump()
+void AActionDemoCharacter::CheckJumpInput(float DeltaTime)
 {
-	Super::Jump();
-	bPressedDemoJump = true;
-	bPressedJump = false;
-}
+	JumpCurrentCountPreJump = JumpCurrentCount;
 
-void AActionDemoCharacter::StopJumping()
-{
-	Super::StopJumping();
-	bPressedDemoJump = false;
+	if (DemoMyCharacterMovementComponent)
+	{
+		if (bPressedJump)
+		{
+			if (DemoMyCharacterMovementComponent->TryMantle())
+			{
+				StopJumping();
+				return;
+			}
+
+			// If this is the first jump and we're already falling,
+			// then increment the JumpCount to compensate.
+			const bool bFirstJump = JumpCurrentCount == 0;
+			if (bFirstJump && DemoMyCharacterMovementComponent->IsFalling())
+			{
+				JumpCurrentCount++;
+			}
+
+			const bool bDidJump = CanJump() && DemoMyCharacterMovementComponent->DoJump(bClientUpdating);
+			if (bDidJump)
+			{
+				// Transition from not (actively) jumping to jumping.
+				if (!bWasJumping)
+				{
+					JumpCurrentCount++;
+					JumpForceTimeRemaining = GetJumpMaxHoldTime();
+					OnJumped();
+				}
+			}
+
+			bWasJumping = bDidJump;
+
+			DemoMyCharacterMovementComponent->TryFinishMantleTransition();
+		}
+	}
 }
 
 void AActionDemoCharacter::Look(const FInputActionValue& Value)
@@ -229,15 +257,7 @@ void AActionDemoCharacter::SwapControl()
 
 void AActionDemoCharacter::Flash()
 {
-	if (FlashCoolDown > 0.0f || !(DemoMyCharacterMovementComponent->MovementMode == EMovementMode::MOVE_Falling || DemoMyCharacterMovementComponent->MovementMode == EMovementMode::MOVE_Walking))
-	{
-		return;
-	}
-
-	const FVector LineTraceEnd = GetActorLocation() + GetActorForwardVector() * FlashReach;
-
-	SetActorLocation(LineTraceEnd, true);
-	FlashCoolDown = FlashMaxCoolDown;
+	DemoMyCharacterMovementComponent->Flash();
 }
 
 void AActionDemoCharacter::AlignMovement(const FQuat& RelativeRotation, const FQuat& ViewRotation)
@@ -333,7 +353,7 @@ void AActionDemoCharacter::ToggleCrouch(const FInputActionValue& Value)
 
 bool AActionDemoCharacter::CanJumpInternal_Implementation() const
 {
-	return JumpIsAllowedInternal() || bIsCrouched;
+	return JumpIsAllowedInternal();
 }
 
 void AActionDemoCharacter::OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
@@ -348,7 +368,6 @@ void AActionDemoCharacter::OnStartCrouch(float HalfHeightAdjust, float ScaledHal
 void AActionDemoCharacter::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
 {
 	if (HalfHeightAdjust == 0) return;
-	DemoMyCharacterMovementComponent->bLeftSlide = false;
 	float StartBaseEyeHeight = BaseEyeHeight;
 	Super::OnEndCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
 	CrouchEyeOffset.Z += StartBaseEyeHeight - BaseEyeHeight - HalfHeightAdjust;
@@ -372,17 +391,17 @@ void AActionDemoCharacter::CalcCamera(float DeltaTime, struct FMinimalViewInfo& 
 
 void AActionDemoCharacter::Landed(const FHitResult& Hit)
 {
-	DemoMyCharacterMovementComponent->bFellOff = false;
+	DemoMyCharacterMovementComponent->Safe_bFellOff = false;
 }
 
 void AActionDemoCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 	//Countdown
-	if (FlashCoolDown > 0)
-	{
-		FlashCoolDown -= DeltaTime;
-	}
+	//if (FlashCoolDown > 0)
+	//{
+	//	FlashCoolDown -= DeltaTime;
+	//}
 
 	if (GetActorLocation().Z < KillZ)
 	{

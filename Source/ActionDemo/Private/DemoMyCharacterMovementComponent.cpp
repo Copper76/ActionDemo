@@ -32,7 +32,11 @@ void UDemoMyCharacterMovementComponent::UpdateFromCompressedFlags(uint8 Flags)
 {
 	Super::UpdateFromCompressedFlags(Flags);
 
-	Safe_bWantsToSprint = (Flags & FSavedMove_Character::FLAG_Custom_0) != 0;
+	Safe_bWantsToSprint = (Flags & FSavedMove_Demo::FLAG_Sprint) != 0;
+
+	Safe_bPressedFlash = (Flags & FSavedMove_Demo::FLAG_Flash) != 0;
+
+	Safe_bPressedGrapple = (Flags & FSavedMove_Demo::FLAG_Grapple) != 0;
 }
 
 void UDemoMyCharacterMovementComponent::OnMovementUpdated(float DeltaSeconds, const FVector& OldLocation, const FVector& OldVelocity)
@@ -87,12 +91,12 @@ void UDemoMyCharacterMovementComponent::OnMovementModeChanged(EMovementMode Prev
 
 	if (PreviousMovementMode == MOVE_Custom && PreviousCustomMode == CMOVE_Climb)
 	{
-		bFellOff = true;
+		Safe_bFellOff = true;
 	}
 
 	if (IsCustomMovementMode(CMOVE_Climb))
 	{
-		bClimbTime = 0.0f;
+		ClimbTime = 0.0f;
 	}
 
 	if (IsWallRunning() && GetOwnerRole() == ROLE_SimulatedProxy)
@@ -357,19 +361,19 @@ void UDemoMyCharacterMovementComponent::UnCrouch(bool bClientSimulation)
 
 void UDemoMyCharacterMovementComponent::UpdateCharacterStateBeforeMovement(float DeltaSeconds)
 {
-	if (!IsCustomMovementMode(CMOVE_Grapple) && bWantsToGrapple)
+	if (!IsCustomMovementMode(CMOVE_Grapple) && Safe_bPressedGrapple)
 	{
 		EnterGrapple();
 	}
 	
-	if (IsCustomMovementMode(CMOVE_Grapple) && (bWantsToCrouch || !bWantsToGrapple))
+	if (IsCustomMovementMode(CMOVE_Grapple) && (bWantsToCrouch || !Safe_bPressedGrapple))
 	{
 		ExitGrapple();
 	}
 
 	if (MovementMode == MOVE_Walking && bWantsToCrouch)
 	{
-		if (Velocity.SizeSquared() > pow(Slide_MinSpeed, 2) && !bLeftSlide)
+		if (Velocity.SizeSquared() > pow(Slide_MinSpeed, 2))
 		{
 			EnterSlide();
 		}
@@ -386,34 +390,15 @@ void UDemoMyCharacterMovementComponent::UpdateCharacterStateBeforeMovement(float
 		TryClimb();
 	}
 
-	//Try Mantle or Jump
-	if (DemoCharacterOwner->bPressedDemoJump)
+	if (Safe_bPressedFlash)
 	{
-		if (TryMantle())
-		{
-			DemoCharacterOwner->StopJumping();
-		}
-		else
-		{
-			DemoCharacterOwner->bPressedDemoJump = false;
-			CharacterOwner->bPressedJump = true;
-			CharacterOwner->CheckJumpInput(DeltaSeconds);
-		}
+		Safe_bPressedFlash = false;
 
-		if (Safe_bTransitionFinished)
+		const bool IsAuthProxy = CharacterOwner->HasAuthority() && !CharacterOwner->IsLocallyControlled();
+
+		if ((!IsAuthProxy || (GetWorld()->GetTimeSeconds() > FlashTime + AuthFlashCooldown)) && (GetWorld()->GetTimeSeconds() > FlashTime + FlashCooldown) && CanFlash())
 		{
-			if (IsValid(TransitionQueueMontage))
-			{
-				SetMovementMode(MOVE_Flying);
-				CharacterOwner->PlayAnimMontage(TransitionQueueMontage, TransitionQueueMontageSpeed);
-				TransitionQueueMontageSpeed = 0.0f;
-				TransitionQueueMontage = nullptr;
-			}
-			else
-			{
-				SetMovementMode(MOVE_Walking);
-			}
-			Safe_bTransitionFinished = false;
+			DoFlash();
 		}
 	}
 
@@ -471,6 +456,11 @@ void UDemoMyCharacterMovementComponent::ToggleCrouch(bool CrouchValue)
 	bWantsToCrouch = CrouchValue;
 }
 
+void UDemoMyCharacterMovementComponent::Flash()
+{
+	Safe_bPressedFlash = true;
+}
+
 bool UDemoMyCharacterMovementComponent::IsCustomMovementMode(ECustomMovementMode InCustomMovementMode) const
 {
 	return MovementMode == MOVE_Custom && CustomMovementMode == InCustomMovementMode;
@@ -506,6 +496,19 @@ bool UDemoMyCharacterMovementComponent::FSavedMove_Demo::CanCombineWith(const FS
 		return false;
 	}
 
+	if (Saved_bFellOff != NewDemoMove->Saved_bFellOff) {
+		return false;
+	}
+
+	if (Saved_bPressedFlash != NewDemoMove->Saved_bPressedFlash) {
+		return false;
+	}
+
+	if (Saved_bPressedGrapple != NewDemoMove->Saved_bPressedGrapple)
+	{
+		return false;
+	}
+
 	return FSavedMove_Character::CanCombineWith(NewMove, InCharacter, MaxDelta);
 }
 
@@ -515,32 +518,37 @@ void UDemoMyCharacterMovementComponent::FSavedMove_Demo::Clear()
 
 	Saved_bWantsToSprint = 0;
 	Saved_bWallRunIsRight = 0;
-	Saved_bPressedDemoJump = 0;
+	Saved_bFellOff = 0;
+	Saved_bPressedFlash = 0;
+	Saved_bPressedGrapple = 0;
 }
 
 uint8 UDemoMyCharacterMovementComponent::FSavedMove_Demo::GetCompressedFlags() const
 {
 	uint8 Result = FSavedMove_Character::GetCompressedFlags();
 
-	if (Saved_bWantsToSprint) Result |= FLAG_Custom_0;
-	if (Saved_bPressedDemoJump) Result |= FLAG_JumpPressed;
+	if (Saved_bWantsToSprint) Result |= FLAG_Sprint;
+	if (Saved_bPressedFlash) Result |= FLAG_Flash;
+	if (Saved_bPressedGrapple) Result |= FLAG_Grapple;
 
 	return Result;
 }
 
 void UDemoMyCharacterMovementComponent::FSavedMove_Demo::SetMoveFor(ACharacter* C, float InDeltaTime, FVector const& NewAccel, FNetworkPredictionData_Client_Character& ClientData)
 {
-	FSavedMove_Character::SetMoveFor(C, InDeltaTime, NewAccel, ClientData);
+	Super::SetMoveFor(C, InDeltaTime, NewAccel, ClientData);
 
 	UDemoMyCharacterMovementComponent* CharacterMovement = Cast<UDemoMyCharacterMovementComponent>(C->GetCharacterMovement());
 
 	Saved_bWantsToSprint = CharacterMovement->Safe_bWantsToSprint;
 
-	Saved_bPrevWantsToCrouch = CharacterMovement->Safe_bWantsToCrouch;
-
 	Saved_bWallRunIsRight = CharacterMovement->Safe_bWallRunIsRight;
 
-	Saved_bPressedDemoJump = CharacterMovement->DemoCharacterOwner->bPressedDemoJump;
+	Saved_bFellOff = CharacterMovement->Safe_bFellOff;
+
+	Saved_bPressedFlash = CharacterMovement->Safe_bPressedFlash;
+
+	Saved_bPressedGrapple = CharacterMovement->Safe_bPressedGrapple;
 
 	Saved_bHadAnimRootMotion = CharacterMovement->Safe_bHadAnimRootMotion;
 
@@ -549,17 +557,19 @@ void UDemoMyCharacterMovementComponent::FSavedMove_Demo::SetMoveFor(ACharacter* 
 
 void UDemoMyCharacterMovementComponent::FSavedMove_Demo::PrepMoveFor(ACharacter* C)
 {
-	FSavedMove_Character::PrepMoveFor(C);
+	Super::PrepMoveFor(C);
 
 	UDemoMyCharacterMovementComponent* CharacterMovement = Cast<UDemoMyCharacterMovementComponent>(C->GetCharacterMovement());
 
 	CharacterMovement->Safe_bWantsToSprint = Saved_bWantsToSprint;
 
-	CharacterMovement->Safe_bWantsToCrouch = Saved_bPrevWantsToCrouch;
-
 	CharacterMovement->Safe_bWallRunIsRight = Saved_bWallRunIsRight;
 
-	CharacterMovement->DemoCharacterOwner->bPressedDemoJump = Saved_bPressedDemoJump;
+	CharacterMovement->Safe_bFellOff = Saved_bFellOff;
+
+	CharacterMovement->Safe_bPressedFlash = Saved_bPressedFlash;
+
+	CharacterMovement->Safe_bPressedGrapple = Saved_bPressedGrapple;
 
 	CharacterMovement->Safe_bHadAnimRootMotion = Saved_bHadAnimRootMotion;
 
@@ -568,7 +578,7 @@ void UDemoMyCharacterMovementComponent::FSavedMove_Demo::PrepMoveFor(ACharacter*
 
 UDemoMyCharacterMovementComponent::FNetworkPredictionData_Client_Demo::FNetworkPredictionData_Client_Demo(const UCharacterMovementComponent& ClientMovement) : Super(ClientMovement)
 {
-
+	//Called super
 }
 
 FSavedMovePtr UDemoMyCharacterMovementComponent::FNetworkPredictionData_Client_Demo::AllocateNewMove()
@@ -686,7 +696,6 @@ void UDemoMyCharacterMovementComponent::EnterSlide()
 }
 void UDemoMyCharacterMovementComponent::ExitSlide()
 {
-	bLeftSlide = true;
 	FQuat NewRotation = FRotationMatrix::MakeFromXZ(UpdatedComponent->GetForwardVector().GetSafeNormal2D(), -GetNormalisedGravity()).ToQuat();
 	FHitResult Hit;
 	SafeMoveUpdatedComponent(FVector::ZeroVector, NewRotation, true, Hit);
@@ -1011,6 +1020,27 @@ bool UDemoMyCharacterMovementComponent::TryMantle()
 	return true;
 }
 
+void UDemoMyCharacterMovementComponent::TryFinishMantleTransition()
+{
+	if (!Safe_bTransitionFinished)
+	{
+		return;
+	}
+
+	if (IsValid(TransitionQueueMontage))
+	{
+		SetMovementMode(MOVE_Flying);
+		CharacterOwner->PlayAnimMontage(TransitionQueueMontage, TransitionQueueMontageSpeed);
+		TransitionQueueMontageSpeed = 0.0f;
+		TransitionQueueMontage = nullptr;
+	}
+	else
+	{
+		SetMovementMode(MOVE_Walking);
+	}
+	Safe_bTransitionFinished = false;
+}
+
 FVector UDemoMyCharacterMovementComponent::GetMantleStartLocation(FHitResult FrontHit, FHitResult SurfaceHit) const
 {
 	const FVector NormalisedGravity = GetNormalisedGravity();
@@ -1190,11 +1220,11 @@ bool UDemoMyCharacterMovementComponent::TryClimb()
 	}
 	if (!WallHit.IsValidBlockingHit() || WallHit.GetActor()->IsA<APortal>() || WallHit.GetComponent()->GetCollisionObjectType() != ECollisionChannel::ECC_WorldStatic)
 	{
-		bFellOff = false;
+		Safe_bFellOff = false;
 		return false;
 	}
 
-	if (bFellOff) return false;
+	if (Safe_bFellOff) return false;
 	if ((GetLastInputVector() | UpdatedComponent->GetForwardVector().GetSafeNormal()) <= 0.5f) return false;//Don't enter if the player is not actively moving forward
 	float CosWallSteepnessAngle = WallHit.Normal | -NormalisedGravity;
 	if (FMath::Abs(CosWallSteepnessAngle) > CosMMWSA || (Fwd | -WallHit.Normal) < CosMMAA) return false;
@@ -1232,7 +1262,7 @@ void UDemoMyCharacterMovementComponent::PhysClimb(float DeltaTime, int32 Iterati
 		Iterations++;
 		bJustTeleported = false;
 		const float timeTick = GetSimulationTimeStep(remainingTime, Iterations);
-		bClimbTime += timeTick;
+		ClimbTime += timeTick;
 		remainingTime -= timeTick;
 		const FVector OldLocation = UpdatedComponent->GetComponentLocation();
 
@@ -1264,7 +1294,7 @@ void UDemoMyCharacterMovementComponent::PhysClimb(float DeltaTime, int32 Iterati
 		Acceleration = Acceleration.RotateAngleAxis(90.0f, -UpdatedComponent->GetRightVector());
 		//Acceleration.X = 0.0f;
 		//Acceleration.Y = 0.0f;
-		AddImpulse(NormalisedGravity * Climb_GravityForce * Climb_GravityScaleCurve->GetFloatValue(bClimbTime));
+		AddImpulse(NormalisedGravity * Climb_GravityForce * Climb_GravityScaleCurve->GetFloatValue(ClimbTime));
 		// Apply acceleration
 		CalcVelocity(timeTick, 1.0f, false, GetMaxBrakingDeceleration());
 		Velocity = FVector::VectorPlaneProject(Velocity, WallHit.Normal);
@@ -1298,7 +1328,6 @@ void UDemoMyCharacterMovementComponent::PhysClimb(float DeltaTime, int32 Iterati
 		Velocity = (UpdatedComponent->GetComponentLocation() - OldLocation) / timeTick; // v = dx / dt
 	}
 }
-
 #pragma endregion
 
 #pragma region Grapple
@@ -1343,7 +1372,7 @@ FVector UDemoMyCharacterMovementComponent::GetGrapplingPivot()
 
 void UDemoMyCharacterMovementComponent::Grapple()
 {
-	bWantsToGrapple = true;
+	Safe_bPressedGrapple = true;
 }
 
 void UDemoMyCharacterMovementComponent::EnterGrapple()
@@ -1363,7 +1392,7 @@ void UDemoMyCharacterMovementComponent::ExitGrapple()
 		Grapple_Target->ComponentVelocity = FVector::ZeroVector;
 	}
 	DemoCharacterOwner->UnGrapple();
-	bWantsToGrapple = false;
+	Safe_bPressedGrapple = false;
 	SetMovementMode(MOVE_Falling);
 }
 
@@ -1398,14 +1427,14 @@ void UDemoMyCharacterMovementComponent::PhysGrapple(float DeltaTime, int32 Itera
 	//Check if the player has reached destination
 	if (FVector::Dist(Start, bGrapplePivot)<Grapple_FinishDist)
 	{
-		bWantsToGrapple = false;
+		Safe_bPressedGrapple = false;
 		return;
 	}
 
 	//Check if there is obstacle in between, break grapple if true
 	if ((PivotDir | Grapple_PivotNormal)>0.0f && !Grapple_TargetMovable)
 	{
-		bWantsToGrapple = false;
+		Safe_bPressedGrapple = false;
 		return;
 	 }
 
@@ -1425,7 +1454,7 @@ void UDemoMyCharacterMovementComponent::PhysGrapple(float DeltaTime, int32 Itera
 	//UE_LOG(LogTemp, Warning, TEXT("Velocity: %s"), *Velocity.ToString());
 	if (bWantsToPullAway || (((-PivotDir) | Velocity) > Grapple_MaxTension && Grapple_MaxTension > 0.0f))
 	{
-		bWantsToGrapple = false;
+		Safe_bPressedGrapple = false;
 		return;
 	}
 
@@ -1447,6 +1476,22 @@ void UDemoMyCharacterMovementComponent::PhysGrapple(float DeltaTime, int32 Itera
 	}
 }
 
+#pragma endregion
+
+#pragma region Flash
+bool UDemoMyCharacterMovementComponent::CanFlash() const
+{
+	return IsFalling() || (IsWalking() && !IsCrouching());
+}
+void UDemoMyCharacterMovementComponent::DoFlash()
+{
+	FHitResult Hit;
+	const FVector Delta = CharacterOwner->GetActorForwardVector() * FlashReach;
+	SafeMoveUpdatedComponent(Delta, UpdatedComponent->GetComponentQuat(), true, Hit);
+
+	bJustTeleported = true;
+	FlashTime = GetWorld()->GetTimeSeconds();
+}
 #pragma endregion
 
 #pragma region Portal

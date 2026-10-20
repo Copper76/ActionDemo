@@ -26,13 +26,25 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 
 	class FSavedMove_Demo : public FSavedMove_Character
 	{
+	public:
+		enum CompressedFlags
+		{
+			FLAG_Sprint = 0x10,
+			FLAG_Flash = 0x20,
+			FLAG_Grapple = 0x40,
+			FLAG_Custom_3 = 0x80,
+		};
+
 		typedef FSavedMove_Character Super;
 
 		uint8 Saved_bWantsToSprint : 1;
 
-		uint8 Saved_bPrevWantsToCrouch : 1;
+		uint8 Saved_bPressedFlash : 1;
+
+		uint8 Saved_bPressedGrapple : 1;
+
 		uint8 Saved_bWallRunIsRight : 1;
-		uint8 Saved_bPressedDemoJump : 1;
+		uint8 Saved_bFellOff : 1;
 
 		uint8 Saved_bHadAnimRootMotion : 1;
 		uint8 Saved_bTransitionFinished : 1;
@@ -121,6 +133,13 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 	UPrimitiveComponent* Grapple_Target;
 	bool Grapple_TargetMovable;
 
+	//Flash
+	UPROPERTY(EditDefaultsOnly, Category = "Flash")
+	float FlashReach = 1000.0f;
+	float FlashCooldown = 1.0f;
+	float AuthFlashCooldown = 0.9f;
+	float FlashTime = -FlashCooldown;
+
 	//Portal
 	float Portal_MaxTravelSpeed = 1000.0f;
 
@@ -133,7 +152,11 @@ public:
 	bool Safe_bWantsToSprint;
 	bool Safe_bWantsToCrouch;
 
+	bool Safe_bPressedFlash;
+	bool Safe_bPressedGrapple;
+
 	bool Safe_bWallRunIsRight;
+	bool Safe_bFellOff;
 
 	bool Safe_bHadAnimRootMotion;
 
@@ -146,11 +169,10 @@ public:
 	bool Safe_bWantsToGrapple;
 
 public:
-	bool bLeftSlide;
-	bool bFellOff;
-	float bClimbTime;
-	bool bWantsToGrapple;
 	bool bIsSprinting = false;
+
+private:
+	float ClimbTime;
 
 public:
 	UDemoMyCharacterMovementComponent();
@@ -160,6 +182,9 @@ protected:
 
 public:
 	virtual FNetworkPredictionData_Client* GetPredictionData_Client() const override;
+
+public:
+	virtual bool DoJump(bool bReplayingMoves) override;
 
 protected:
 	virtual void UpdateFromCompressedFlags(uint8 Flags) override;
@@ -187,7 +212,6 @@ protected:
 	virtual void PhysCustom(float DeltaTime, int32 Iterations);
 
 	virtual bool CanAttemptJump() const override;
-	virtual bool DoJump(bool bReplayingMoves) override;
 
 protected:
 	virtual bool MoveUpdatedComponentImpl(const FVector& Delta, const FQuat& NewRotation, bool bSweep, FHitResult* OutHit = nullptr, ETeleportType Teleport = ETeleportType::None) override;
@@ -215,7 +239,6 @@ protected:
 		const FHitResult* DownwardSweepResult = nullptr
 	) const override;
 
-
 //Gravity
 private:
 	inline FVector GetNormalisedGravity() const { return GetGravityDirection().GetSafeNormal(); }
@@ -233,8 +256,10 @@ private:
 	void PhysWallRun(float DeltaTime, int32 Iterations);
 
 //Mantle
-private:
+public:
 	bool TryMantle();
+	void TryFinishMantleTransition();
+private:
 	FVector GetMantleStartLocation(FHitResult FrontHit, FHitResult SurfaceHit) const;
 
 //Climb
@@ -248,10 +273,17 @@ private:
 	void ExitGrapple();
 	void PhysGrapple(float DeltaTime, int32 Iterations);
 
+//Flash
+private:
+	bool CanFlash() const;
+	void DoFlash();
+
 public:
 	UFUNCTION(BlueprintCallable) void ToggleSprint(bool SprintValue);
 
 	UFUNCTION(BlueprintCallable) void ToggleCrouch(bool CrouchValue);
+
+	UFUNCTION(BlueprintCallable) void Flash();
 
 	UFUNCTION(BlueprintCallable) void Grapple();
 

@@ -157,9 +157,7 @@ protected:
 	virtual void Landed(const FHitResult& Hit) override;
 
 public:
-	virtual void Jump() override;
-
-	virtual void StopJumping() override;
+	virtual void CheckJumpInput(float DeltaTime) override;
 
 	void UnGrapple();
 
@@ -187,12 +185,6 @@ public:
 	bool IsSprinting() const;
 
 protected:
-	//Flash
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Flash")
-	float FlashReach = 1000.0f;
-	float FlashCoolDown;
-	float FlashMaxCoolDown = 1.0f;
-
 	//Grapple
 	float GrappleCoolDown = 0.0f;
 
@@ -213,7 +205,6 @@ protected:
 	UPROPERTY(BlueprintReadOnly) float MuzzleMaxTilt = 15.0f;
 
 public:
-	bool bPressedDemoJump;
 	bool bOwnsRifle;
 	UPROPERTY(BlueprintReadOnly) AActor* bWeapon;
 	UPROPERTY(BlueprintReadOnly) float TargetRoll;
