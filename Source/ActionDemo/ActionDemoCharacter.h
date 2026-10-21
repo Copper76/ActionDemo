@@ -171,6 +171,12 @@ public:
 
 	inline void SetCurrentPortal(APortal* Portal) { CurrentPortal = Portal; }
 
+	/**
+	 * Owning client: predict teleport locally, then ask the server to commit.
+	 * Listen-server / standalone: apply once on authority.
+	 */
+	void RequestPortalTeleport(APortal* EntryPortal);
+
 	bool IsSprinting() const;
 
 	/** Client traces locally, then asks the server to spawn/move the portal. */
@@ -178,6 +184,10 @@ public:
 	void ServerPlacePortal(bool bIsBlue, FVector_NetQuantize Centre, FRotator Rotation, TSubclassOf<APortal> PortalClass);
 
 	void PlacePortal(bool bIsBlue, const FVector& Centre, const FRotator& Rotation, TSubclassOf<APortal> PortalClass);
+
+	/** Server commits a portal transit detected on the owning client. */
+	UFUNCTION(Server, Reliable)
+	void ServerTeleportThroughPortal(APortal* EntryPortal);
 
 protected:
 	//Tilt

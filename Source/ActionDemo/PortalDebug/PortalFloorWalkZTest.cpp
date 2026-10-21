@@ -64,7 +64,6 @@ namespace PortalFloorWalkZTestPrivate
 			*Comp->GetName());
 	}
 }
-using namespace PortalFloorWalkZTestPrivate;
 
 APortalFloorWalkZTest::APortalFloorWalkZTest()
 {
@@ -74,6 +73,7 @@ APortalFloorWalkZTest::APortalFloorWalkZTest()
 
 void APortalFloorWalkZTest::BeginPlay()
 {
+	using namespace PortalFloorWalkZTestPrivate;
 	Super::BeginPlay();
 
 	if (FPortalFloorWalkZTestLaunch::bRequested)
@@ -112,6 +112,7 @@ void APortalFloorWalkZTest::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void APortalFloorWalkZTest::Tick(float DeltaTime)
 {
+	using namespace PortalFloorWalkZTestPrivate;
 	Super::Tick(DeltaTime);
 	if (Phase != EPhase::Running || !TestCharacter || !FloorPortal)
 	{
@@ -148,6 +149,7 @@ void APortalFloorWalkZTest::Tick(float DeltaTime)
 
 void APortalFloorWalkZTest::DriveWalk(float DeltaTime)
 {
+	using namespace PortalFloorWalkZTestPrivate;
 	// Constant walk toward portal center (world +Y).
 	TestCharacter->AddMovementInput(FVector::YAxisVector, 1.f);
 	if (UCharacterMovementComponent* Move = TestCharacter->GetCharacterMovement())
@@ -159,6 +161,7 @@ void APortalFloorWalkZTest::DriveWalk(float DeltaTime)
 
 void APortalFloorWalkZTest::SampleZ()
 {
+	using namespace PortalFloorWalkZTestPrivate;
 	const FVector Loc = TestCharacter->GetActorLocation();
 	float HalfH = 96.f;
 	if (UCapsuleComponent* Cap = TestCharacter->GetCapsuleComponent())
@@ -227,6 +230,7 @@ void APortalFloorWalkZTest::SampleZ()
 
 bool APortalFloorWalkZTest::BuildScene()
 {
+	using namespace PortalFloorWalkZTestPrivate;
 	UWorld* World = GetWorld();
 	if (!World)
 	{
@@ -347,6 +351,7 @@ void APortalFloorWalkZTest::DestroyScene()
 
 AActor* APortalFloorWalkZTest::SpawnFloorSlab(const FVector& Center, float TopZ, const FVector& ScaleXYH, const TCHAR* Label)
 {
+	using namespace PortalFloorWalkZTestPrivate;
 	UWorld* World = GetWorld();
 	UStaticMesh* CubeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
 	if (!World || !CubeMesh)
@@ -424,6 +429,7 @@ TSubclassOf<AActionDemoCharacter> APortalFloorWalkZTest::LoadCharacterClass() co
 
 void APortalFloorWalkZTest::PlaceAndAimCharacter()
 {
+	using namespace PortalFloorWalkZTestPrivate;
 	if (!TestCharacter)
 	{
 		return;
@@ -483,6 +489,7 @@ void APortalFloorWalkZTest::Finish(bool bPass, const TCHAR* Reason)
 
 void APortalFloorWalkZTest::RunFromConsole(const TArray<FString>& Args, UWorld* World)
 {
+	using namespace PortalFloorWalkZTestPrivate;
 	if (!World)
 	{
 		return;

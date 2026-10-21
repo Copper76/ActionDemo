@@ -70,7 +70,6 @@ namespace PortalFloorFallTestPrivate
 			*Comp->GetName());
 	}
 }
-using namespace PortalFloorFallTestPrivate;
 
 APortalFloorFallTest::APortalFloorFallTest()
 {
@@ -80,6 +79,7 @@ APortalFloorFallTest::APortalFloorFallTest()
 
 void APortalFloorFallTest::BeginPlay()
 {
+	using namespace PortalFloorFallTestPrivate;
 	Super::BeginPlay();
 
 	if (FPortalFloorFallTestLaunch::bRequested)
@@ -118,6 +118,7 @@ void APortalFloorFallTest::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void APortalFloorFallTest::Tick(float DeltaTime)
 {
+	using namespace PortalFloorFallTestPrivate;
 	Super::Tick(DeltaTime);
 
 	if (Phase != EPhase::Running || !FloorPortal || !TestCharacter)
@@ -180,6 +181,7 @@ void APortalFloorFallTest::Tick(float DeltaTime)
 
 bool APortalFloorFallTest::BuildScene()
 {
+	using namespace PortalFloorFallTestPrivate;
 	UWorld* World = GetWorld();
 	if (!World)
 	{
@@ -308,6 +310,7 @@ void APortalFloorFallTest::DestroyScene()
 
 AActor* APortalFloorFallTest::SpawnFloorSlab(const FVector& Center, float TopZ, const FVector& ScaleXYH, const TCHAR* Label)
 {
+	using namespace PortalFloorFallTestPrivate;
 	UWorld* World = GetWorld();
 	UStaticMesh* CubeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
 	if (!World || !CubeMesh)
@@ -387,6 +390,7 @@ TSubclassOf<AActionDemoCharacter> APortalFloorFallTest::LoadCharacterClass() con
 
 void APortalFloorFallTest::PlaceCharacterAboveFloorPortal()
 {
+	using namespace PortalFloorFallTestPrivate;
 	if (!TestCharacter || !FloorPortal)
 	{
 		return;
@@ -438,6 +442,7 @@ void APortalFloorFallTest::BindPortalLocals(AActionDemoCharacter* Character, APl
 
 void APortalFloorFallTest::DumpFrame(float InElapsedSec) const
 {
+	using namespace PortalFloorFallTestPrivate;
 	if (!TestCharacter || !FloorPortal)
 	{
 		return;
@@ -517,6 +522,7 @@ void APortalFloorFallTest::Finish(bool bPass, const TCHAR* Reason)
 
 void APortalFloorFallTest::RunFromConsole(const TArray<FString>& Args, UWorld* World)
 {
+	using namespace PortalFloorFallTestPrivate;
 	if (!World)
 	{
 		return;

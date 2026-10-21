@@ -20,6 +20,7 @@
 #include "CableComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "Engine/DecalActor.h"
+#include "GameFramework/PlayerController.h"
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -146,6 +147,44 @@ void AActionDemoCharacter::PlacePortal(bool bIsBlue, const FVector& Centre, cons
 		Slot->SetActorLocationAndRotation(Centre, Rotation, false, nullptr, ETeleportType::TeleportPhysics);
 		Slot->ForceNetUpdate();
 	}
+}
+
+void AActionDemoCharacter::RequestPortalTeleport(APortal* EntryPortal)
+{
+	if (!IsLocallyControlled() || !EntryPortal || !EntryPortal->OtherPortal)
+	{
+		return;
+	}
+
+	if (GetCurrentPortal() != EntryPortal || !EntryPortal->IsPointBehindPlane(GetActorLocation(), -2.0f))
+	{
+		return;
+	}
+
+	EntryPortal->Teleport(this);
+
+	// Autonomous proxies need the server to commit; listen-server / standalone already applied on authority.
+	if (GetLocalRole() == ROLE_AutonomousProxy)
+	{
+		ServerTeleportThroughPortal(EntryPortal);
+	}
+}
+
+void AActionDemoCharacter::ServerTeleportThroughPortal_Implementation(APortal* EntryPortal)
+{
+	if (!EntryPortal || !EntryPortal->OtherPortal)
+	{
+		return;
+	}
+
+	const bool bTagged = GetCurrentPortal() == EntryPortal;
+	const bool bBehind = EntryPortal->IsPointBehindPlane(GetActorLocation(), 8.0f);
+	if (!bTagged && !bBehind)
+	{
+		return;
+	}
+
+	EntryPortal->Teleport(this);
 }
 
 //////////////////////////////////////////////////////////////////////////// Input

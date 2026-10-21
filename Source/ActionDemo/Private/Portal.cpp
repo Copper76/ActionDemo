@@ -1440,27 +1440,31 @@ void APortal::Tick(float DeltaTime)
 		return;
 	}
 
-	if (!(PlayerController == nullptr || LocalPlayer == nullptr))
+	// Scene capture mirrors the local viewport only (ULocalPlayer), not the pawn pointer.
+	if (PlayerController && PlayerController->IsLocalController())
 	{
-		FQuat TravelQ = FQuat::Identity;
-		FVector ExitCameraLocation = FVector::ZeroVector;
-		const FVector CameraLocation = PlayerController->PlayerCameraManager->GetCameraLocation();
-		const FQuat CameraRotation = PlayerController->PlayerCameraManager->GetCameraRotation().Quaternion();
-		if (GetTravelQuat(TravelQ) && TranslatePoint(CameraLocation, ExitCameraLocation))
+		if (ULocalPlayer* LocalViewportPlayer = PlayerController->GetLocalPlayer())
 		{
-			OtherPortal->CaptureComponent->SetWorldLocationAndRotation(ExitCameraLocation, TravelQ * CameraRotation);
-		}
+			if (APlayerCameraManager* CameraManager = PlayerController->PlayerCameraManager)
+			{
+				FQuat TravelQ = FQuat::Identity;
+				FVector ExitCameraLocation = FVector::ZeroVector;
+				const FVector CameraLocation = CameraManager->GetCameraLocation();
+				const FQuat CameraRotation = CameraManager->GetCameraRotation().Quaternion();
+				if (GetTravelQuat(TravelQ) && TranslatePoint(CameraLocation, ExitCameraLocation))
+				{
+					OtherPortal->CaptureComponent->SetWorldLocationAndRotation(ExitCameraLocation, TravelQ * CameraRotation);
+				}
+			}
 
-		// The game locks vertical FOV and lets horizontal FOV follow the viewport. A single FOV
-		// number on the capture keeps horizontal FOV instead, so the portal picture squeezes sideways.
-		if (ULocalPlayer* ViewportPlayer = PlayerController->GetLocalPlayer())
-		{
-			if (UGameViewportClient* GameViewport = ViewportPlayer->ViewportClient)
+			// The game locks vertical FOV and lets horizontal FOV follow the viewport. A single FOV
+			// number on the capture keeps horizontal FOV instead, so the portal picture squeezes sideways.
+			if (UGameViewportClient* GameViewport = LocalViewportPlayer->ViewportClient)
 			{
 				if (FViewport* Viewport = GameViewport->Viewport)
 				{
 					FSceneViewProjectionData ProjectionData;
-					if (ViewportPlayer->GetProjectionData(Viewport, ProjectionData))
+					if (LocalViewportPlayer->GetProjectionData(Viewport, ProjectionData))
 					{
 						OtherPortal->CaptureComponent->bUseCustomProjectionMatrix = true;
 						OtherPortal->CaptureComponent->CustomProjectionMatrix = ProjectionData.ProjectionMatrix;
@@ -1470,12 +1474,11 @@ void APortal::Tick(float DeltaTime)
 		}
 	}
 
-	if (LocalPlayer && LocalPlayer->GetCurrentPortal() == this)
+	// Owning client detects crossing and predicts; server commits via ServerTeleportThroughPortal.
+	if (LocalPlayer && LocalPlayer->IsLocallyControlled() && LocalPlayer->GetCurrentPortal() == this
+		&& IsPointBehindPlane(LocalPlayer->GetActorLocation(), -2.0f))
 	{
-		if (IsPointBehindPlane(LocalPlayer->GetActorLocation(), -2.0f))
-		{
-			Teleport(LocalPlayer);
-		}
+		LocalPlayer->RequestPortalTeleport(this);
 	}
 
 	const FLinearColor Origin = FLinearColor(Plane->GetComponentLocation());
@@ -1485,12 +1488,6 @@ void APortal::Tick(float DeltaTime)
 
 	CaptureComponent->ClipPlaneBase = GetPlaneOrigin();
 	CaptureComponent->ClipPlaneNormal = GetActorForwardVector();
-
-	if (LocalPlayer && LocalPlayer->GetCurrentPortal() == this && PlayerController && PlayerController->PlayerCameraManager)
-	{
-		const FVector CamLoc = PlayerController->PlayerCameraManager->GetCameraLocation();
-		SetActorClip(LocalPlayer, Origin, Normal, IsPointBehindPlane(CamLoc, 0.f));
-	}
 
 	TArray<AActor*> ToHandOff;
 	for (const TPair<AActor*, AActor*>& Pair : TeleportingObjects)
@@ -1646,6 +1643,11 @@ void APortal::HandOffTeleportingObject(AActor* Original)
 
 void APortal::Teleport(AActionDemoCharacter* Character)
 {
+	if (!Character || !OtherPortal)
+	{
+		return;
+	}
+
 	const FQuat ExitQ = OtherPortal->GetActorQuat();
 	FQuat TravelQ = FQuat::Identity;
 	if (!GetTravelQuat(TravelQ))
@@ -1659,8 +1661,6 @@ void APortal::Teleport(AActionDemoCharacter* Character)
 		return;
 	}
 
-	const FQuat CaptureQ = OtherPortal->CaptureComponent->GetComponentQuat();
-	PlayerController->SetControlRotation(CaptureQ.Rotator());
 
 	// Move the existing image to this side before the character arrives, so the exit overlap does not spawn another one in front of the camera.
 	if (AActor* Clone = TeleportingObjects.FindRef(Character))
@@ -1678,10 +1678,16 @@ void APortal::Teleport(AActionDemoCharacter* Character)
 
 	Character->AlignMovement(TravelQ, ExitQ);
 
-	if (PlayerController->PlayerCameraManager)
+	if (APlayerController* CharacterController = Cast<APlayerController>(Character->GetController()))
 	{
-		PlayerController->PlayerCameraManager->UpdateCamera(0.f);
+		const FQuat NewViewQ = TravelQ * CharacterController->GetControlRotation().Quaternion();
+		CharacterController->SetControlRotation(NewViewQ.Rotator());
+		if (CharacterController->PlayerCameraManager)
+		{
+			CharacterController->PlayerCameraManager->UpdateCamera(0.f);
+		}
 	}
+	Character->SetCurrentPortal(OtherPortal);
 }
 
 void APortal::SetActorClip(AActor* Actor, const FLinearColor Origin, const FLinearColor Normal, const bool bEnable)

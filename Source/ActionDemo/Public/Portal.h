@@ -76,8 +76,6 @@ protected:
 	 */
 	bool ShouldKeepTransitAfterOverlapEnd(const AActor* Actor) const;
 
-	void Teleport(AActionDemoCharacter* Character);
-
 	void SetActorClip(AActor* Actor, const FLinearColor Origin, const FLinearColor Normal, const bool bEnable);
 
 protected:
@@ -160,6 +158,9 @@ public:
 
 	// True when the actor's oriented bounds fit through this portal's aperture.
 	bool ActorFitsAperture(const AActor* Actor) const;
+
+	/** Apply character transit through this portal onto OtherPortal (prediction or authority). */
+	void Teleport(AActionDemoCharacter* Character);
 
 	FVector GetPlaneOrigin() const
 	{
