@@ -1722,9 +1722,9 @@ namespace
 		return Portal->IsPointBehindPlane(PortalContactPoint(Hit));
 	}
 
-	bool PortalCast(UWorld* World, FHitResult& OutHit, const FVector& Start, const FVector& End, const FQuat& Rot, ECollisionChannel Channel, const FCollisionShape& Shape, FCollisionQueryParams Params, const FCollisionResponseParams& ResponseParam, APortal* TravelPortal)
+	bool PortalCast(UWorld* World, FHitResult& OutHit, const FVector& Start, const FVector& End, const FQuat& Rot, ECollisionChannel Channel, const FCollisionShape& Shape, FCollisionQueryParams Params, const FCollisionResponseParams& ResponseParam, const APortal* TravelPortal)
 	{
-		auto CastSegment = [&](const FVector& SegStart, const FVector& SegEnd, const FQuat& SegRot, APortal* PlanePortal, FCollisionQueryParams SegParams, FHitResult& Hit) -> bool
+		auto CastSegment = [&](const FVector& SegStart, const FVector& SegEnd, const FQuat& SegRot, const APortal* PlanePortal, FCollisionQueryParams SegParams, FHitResult& Hit) -> bool
 		{
 			for (int32 Attempt = 0; Attempt < 8; ++Attempt)
 			{
@@ -1783,7 +1783,7 @@ namespace
 
 bool UDemoMyCharacterMovementComponent::MoveUpdatedComponentImpl(const FVector& Delta, const FQuat& NewRotation, bool bSweep, FHitResult* OutHit, ETeleportType Teleport)
 {
-	APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
+	const APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
 	if (!TravelPortal || !ShouldUsePortalCollision() || !bSweep || !UpdatedComponent || !UpdatedPrimitive || !GetWorld())
 	{
 		return Super::MoveUpdatedComponentImpl(Delta, NewRotation, bSweep, OutHit, Teleport);
@@ -1970,7 +1970,7 @@ bool UDemoMyCharacterMovementComponent::MoveUpdatedComponentImpl(const FVector& 
 
 bool UDemoMyCharacterMovementComponent::ResolvePenetrationImpl(const FVector& ProposedAdjustment, const FHitResult& Hit, const FQuat& NewRotation)
 {
-	APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
+	const APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
 	if (!TravelPortal || !ShouldUsePortalCollision() || !UpdatedComponent || !UpdatedPrimitive || !GetWorld())
 	{
 		return Super::ResolvePenetrationImpl(ProposedAdjustment, Hit, NewRotation);
@@ -2105,7 +2105,7 @@ bool UDemoMyCharacterMovementComponent::ResolvePenetrationImpl(const FVector& Pr
 
 bool UDemoMyCharacterMovementComponent::OverlapTest(const FVector& Location, const FQuat& RotationQuat, const ECollisionChannel CollisionChannel, const FCollisionShape& CollisionShape, const AActor* IgnoreActor) const
 {
-	APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
+	const APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
 	if (!TravelPortal || !ShouldUsePortalCollision() || !GetWorld())
 	{
 		return Super::OverlapTest(Location, RotationQuat, CollisionChannel, CollisionShape, IgnoreActor);
@@ -2115,7 +2115,7 @@ bool UDemoMyCharacterMovementComponent::OverlapTest(const FVector& Location, con
 	FCollisionResponseParams ResponseParam;
 	InitCollisionParams(QueryParams, ResponseParam);
 
-	auto BlocksAt = [&](const FVector& TestLocation, const FQuat& TestRot, APortal* PlanePortal) -> bool
+	auto BlocksAt = [&](const FVector& TestLocation, const FQuat& TestRot, const APortal* PlanePortal) -> bool
 	{
 		FCollisionQueryParams Params = QueryParams;
 		for (int32 Attempt = 0; Attempt < 8; ++Attempt)
@@ -2170,7 +2170,7 @@ bool UDemoMyCharacterMovementComponent::OverlapTest(const FVector& Location, con
 
 bool UDemoMyCharacterMovementComponent::FloorSweepTest(FHitResult& OutHit, const FVector& Start, const FVector& End, ECollisionChannel TraceChannel, const FCollisionShape& CollisionShape, const FCollisionQueryParams& Params, const FCollisionResponseParams& ResponseParam) const
 {
-	APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
+	const APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
 	if (!TravelPortal || !ShouldUsePortalCollision() || !GetWorld())
 	{
 		return Super::FloorSweepTest(OutHit, Start, End, TraceChannel, CollisionShape, Params, ResponseParam);
@@ -2200,7 +2200,7 @@ bool UDemoMyCharacterMovementComponent::FloorSweepTest(FHitResult& OutHit, const
 
 void UDemoMyCharacterMovementComponent::ComputeFloorDist(const FVector& CapsuleLocation, float LineDistance, float SweepDistance, FFindFloorResult& OutFloorResult, float SweepRadius, const FHitResult* DownwardSweepResult) const
 {
-	APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
+	const APortal* TravelPortal = DemoCharacterOwner ? DemoCharacterOwner->GetCurrentPortal() : nullptr;
 	if (!TravelPortal || !ShouldUsePortalCollision() || !CharacterOwner || !UpdatedComponent || !GetWorld())
 	{
 		Super::ComputeFloorDist(CapsuleLocation, LineDistance, SweepDistance, OutFloorResult, SweepRadius, DownwardSweepResult);

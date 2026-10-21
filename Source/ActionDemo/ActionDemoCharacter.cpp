@@ -18,7 +18,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "CheckpointManager.h"
 #include "CableComponent.h"
-
+#include "Net/UnrealNetwork.h"
 #include "Engine/DecalActor.h"
 
 
@@ -104,6 +104,48 @@ void AActionDemoCharacter::BeginPlay()
 	// }
 
 	CameraOffset = PlayerCamera->GetRelativeLocation();
+}
+
+void AActionDemoCharacter::ServerPlacePortal_Implementation(bool bIsBlue, FVector_NetQuantize Centre, FRotator Rotation, TSubclassOf<APortal> PortalClass)
+{
+	PlacePortal(bIsBlue, Centre, Rotation, PortalClass);
+}
+
+void AActionDemoCharacter::PlacePortal(bool bIsBlue, const FVector& Centre, const FRotator& Rotation, TSubclassOf<APortal> PortalClass)
+{
+	if (!HasAuthority() || !PortalClass || !GetWorld())
+	{
+		return;
+	}
+
+	APortal* Slot = bIsBlue ? BluePortal : OrangePortal;
+	APortal* Other = bIsBlue ? OrangePortal : BluePortal;
+
+	if (!Slot)
+	{
+		FActorSpawnParameters SpawnInfo;
+		SpawnInfo.Owner = this;
+		SpawnInfo.Instigator = this;
+		SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		Slot = GetWorld()->SpawnActor<APortal>(PortalClass, Centre, Rotation, SpawnInfo);
+		if (bIsBlue)
+		{
+			BluePortal = Slot;
+		}
+		else
+		{
+			OrangePortal = Slot;
+		}
+		if (Slot)
+		{
+			Slot->SetUp(nullptr, bIsBlue, Other);
+		}
+	}
+	else
+	{
+		Slot->SetActorLocationAndRotation(Centre, Rotation, false, nullptr, ETeleportType::TeleportPhysics);
+		Slot->ForceNetUpdate();
+	}
 }
 
 //////////////////////////////////////////////////////////////////////////// Input

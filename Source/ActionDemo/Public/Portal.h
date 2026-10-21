@@ -24,11 +24,11 @@ class ACTIONDEMO_API APortal : public AActor
 	GENERATED_BODY()
 	
 public:	
-	// Sets default values for this actor's properties
 	APortal();
 
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
 protected:
-	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -134,7 +134,6 @@ private:
 	bool bPortalPhysicsObjectsCached = false;
 
 public:	
-	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
 	void SetUp(AActor* TargetSurface, const bool bIsBlue = true,  APortal* OtherPortal = nullptr);
@@ -172,8 +171,8 @@ public:
 
 	APlayerController* PlayerController;//set it on spawn
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
-	APortal* OtherPortal; //set it on spawn if there is another
+	UPROPERTY(Replicated)
+	TObjectPtr<APortal> OtherPortal; //set it on spawn if there is another
 
 	TMap<AActor*, AActor*> TeleportingObjects = TMap<AActor*, AActor*>();
 };

@@ -15,6 +15,7 @@
 #include "Engine/TextureRenderTarget2D.h"
 
 #include "DrawDebugHelpers.h"
+#include "Portal.h"
 #include "PortalTraceLibrary.h"
 
 #define POINT(x, c) DrawDebugPoint(GetWorld(), x, 10, c, !5.0f, 5.0f);
@@ -195,16 +196,19 @@ void UTP_WeaponComponent::BluePortalFire()
 	{
 		UE_LOG(LogTemp, Warning, TEXT("TARGET: %s"), *TargetSurface->GetName());
 	}
-	if (m_Character->BluePortal == NULL)
+	if (!PortalBP)
 	{
-		FActorSpawnParameters SpawnInfo;
-		SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		m_Character->BluePortal = GetWorld()->SpawnActor<APortal>(PortalBP, FTransform(PortalRotation, PortalCentre), SpawnInfo);
-		m_Character->BluePortal->SetUp(TargetSurface, true, m_Character->OrangePortal);
+		return;
+	}
+
+	const FRotator PortalRotator = PortalRotation.Rotator();
+	if (m_Character->HasAuthority())
+	{
+		m_Character->PlacePortal(true, PortalCentre, PortalRotator, PortalBP);
 	}
 	else
 	{
-		m_Character->BluePortal->SetActorLocationAndRotation(PortalCentre, PortalRotation, false, nullptr, ETeleportType::TeleportPhysics);
+		m_Character->ServerPlacePortal(true, PortalCentre, PortalRotator, PortalBP);
 	}
 }
 
@@ -247,16 +251,19 @@ void UTP_WeaponComponent::OrangePortalFire()
 	{
 		UE_LOG(LogTemp, Warning, TEXT("TARGET: %s"), *TargetSurface->GetName());
 	}
-	if (m_Character->OrangePortal == nullptr)
+	if (!PortalBP)
 	{
-		FActorSpawnParameters SpawnInfo;
-		SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		m_Character->OrangePortal = GetWorld()->SpawnActor<APortal>(PortalBP, FTransform(PortalRotation, PortalCentre), SpawnInfo);
-		m_Character->OrangePortal->SetUp(TargetSurface, false, m_Character->BluePortal);
+		return;
+	}
+
+	const FRotator PortalRotator = PortalRotation.Rotator();
+	if (m_Character->HasAuthority())
+	{
+		m_Character->PlacePortal(false, PortalCentre, PortalRotator, PortalBP);
 	}
 	else
 	{
-		m_Character->OrangePortal->SetActorLocationAndRotation(PortalCentre, PortalRotation, false, nullptr, ETeleportType::TeleportPhysics);
+		m_Character->ServerPlacePortal(false, PortalCentre, PortalRotator, PortalBP);
 	}
 }
 
@@ -492,6 +499,9 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FQuat& PortalRota
 	{
 		return false;
 	}
+
+	// Impact point is coplanar with the wall; nudge into free space so the portal mesh doesn't Z-fight.
+	PortalCentre += PortalNormal * Portal_SurfaceOffset;
 
 	return true;
 }

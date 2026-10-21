@@ -4,6 +4,11 @@
 #include "Portal.h"
 #include "../ActionDemoCharacter.h"
 #include "Components/StaticMeshComponent.h"
+#include "Net/UnrealNetwork.h"
+#include "GameFramework/PlayerController.h"
+#include "Engine/LocalPlayer.h"
+#include "Engine/GameViewportClient.h"
+#include "SceneView.h"
 #include "Chaos/ContactModification.h"
 #include "Chaos/Collision/CollisionConstraintAllocator.h"
 #include "Chaos/Collision/CollisionContext.h"
@@ -19,7 +24,7 @@
 #include "Engine/OverlapResult.h"
 #include "Physics/Experimental/PhysScene_Chaos.h"
 #include "PhysicsEngine/BodyInstance.h"
-#include "Engine/LocalPlayer.h"
+#include "Materials/MaterialInstanceDynamic.h"
 
 struct FPortalTrackedBody
 {
@@ -598,6 +603,9 @@ private:
 APortal::APortal()
 {
 	PrimaryActorTick.bCanEverTick = true;
+	bReplicates = true;
+	SetReplicateMovement(true);
+	bAlwaysRelevant = true;
 
 	// CreateDefaultSubobject already owns these — do not AddOwnedComponent (causes
 	// template/instance attach ensures when the BP/level is duplicated for PIE).
@@ -671,6 +679,14 @@ APortal::APortal()
 	Plane->SetCollisionResponseToAllChannels(ECR_Ignore);
 	Plane->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
 	Plane->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+}
+
+void APortal::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	//DOREPLIFETIME(APortal, bIsBlue);
+	DOREPLIFETIME(APortal, OtherPortal);
 }
 
 // Called when the game starts or when spawned
@@ -1678,29 +1694,21 @@ void APortal::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherA
 
 	if (AActionDemoCharacter* OverlappedCharacter = Cast<AActionDemoCharacter>(OtherActor))
 	{
-		if (OverlappedCharacter == LocalPlayer)
-		{
-			OverlappedCharacter->SetCurrentPortal(this);
-		}
+		OverlappedCharacter->SetCurrentPortal(this);
 	}
 
-	if (!OtherActor || OtherActor->IsA<AActionDemoCharacter>())
+	if (!OtherActor || TeleportingObjects.Contains(OtherActor))
 	{
-			return;
-		}
+		return;
+	}
 
-		if (TeleportingObjects.Contains(OtherActor))
+	for (const TPair<AActor*, AActor*>& Pair : OtherPortal->TeleportingObjects)
+	{
+		if (Pair.Value == OtherActor) //This is a clone of the original
 		{
 			return;
 		}
-
-		for (const TPair<AActor*, AActor*>& Pair : OtherPortal->TeleportingObjects)
-		{
-			if (Pair.Value == OtherActor) //This is a clone of the original
-			{
-				return;
-			}
-		}
+	}
 
 	FQuat TravelQ = FQuat::Identity;
 	FVector Location = FVector::ZeroVector;
@@ -1723,19 +1731,14 @@ void APortal::OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AAct
 {
 	if (AActionDemoCharacter* OverlappedCharacter = Cast<AActionDemoCharacter>(OtherActor))
 	{
-		if (OverlappedCharacter == LocalPlayer && OverlappedCharacter->GetCurrentPortal() == this)
+		if (OverlappedCharacter->GetCurrentPortal() == this)
 		{
 			OverlappedCharacter->SetCurrentPortal(nullptr);
 		}
 	}
 
-	if (!OtherActor || !TeleportingObjects.Contains(OtherActor))
-	{
-		return;
-	}
-
 	// Overlap volume is finite; keep capture while the body still straddles the portal plane.
-	if (ShouldKeepTransitAfterOverlapEnd(OtherActor))
+	if (!OtherActor || !TeleportingObjects.Contains(OtherActor) || ShouldKeepTransitAfterOverlapEnd(OtherActor))
 	{
 		return;
 	}

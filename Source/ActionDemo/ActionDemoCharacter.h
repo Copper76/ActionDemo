@@ -173,13 +173,13 @@ public:
 
 	bool IsSprinting() const;
 
+	/** Client traces locally, then asks the server to spawn/move the portal. */
+	UFUNCTION(Server, Reliable)
+	void ServerPlacePortal(bool bIsBlue, FVector_NetQuantize Centre, FRotator Rotation, TSubclassOf<APortal> PortalClass);
+
+	void PlacePortal(bool bIsBlue, const FVector& Centre, const FRotator& Rotation, TSubclassOf<APortal> PortalClass);
+
 protected:
-	//Grapple
-	float GrappleCoolDown = 0.0f;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Grapple")
-	float GrappleMaxCoolDown = 0.3f;
-
 	//Tilt
 	UPROPERTY(BlueprintReadOnly) float TiltSpeed = 50.0f;
 
@@ -193,9 +193,9 @@ public:
 	UPROPERTY(BlueprintReadOnly) AActor* bWeapon;
 	UPROPERTY(BlueprintReadOnly) float TargetRoll;
 
-	//Portal
 	APortal* BluePortal;
 	APortal* OrangePortal;
+
 	FVector CameraOffset;
 	APortal* CurrentPortal = nullptr;
 

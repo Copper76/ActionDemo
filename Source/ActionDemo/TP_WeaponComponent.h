@@ -7,6 +7,7 @@
 #include "TP_WeaponComponent.generated.h"
 
 class AActionDemoCharacter;
+class APortal;
 
 UENUM(BlueprintType)
 enum EPortalType
@@ -73,7 +74,7 @@ public:
 	class UInputAction* EmptyAction;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
-	TSubclassOf<AActor> PortalBP;
+	TSubclassOf<APortal> PortalBP;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
 	TSubclassOf<AActor> BulletBP;
@@ -136,6 +137,8 @@ private:
 	float Portal_Width = 125.0f;
 	float Portal_Height = 225.0f;
 	float Portal_EdgeCheckDelta = 20.0f;
+	/** Pull the portal off the wall along the surface normal to avoid Z-fighting. */
+	float Portal_SurfaceOffset = 1.0f;
 
 	//Assault Rifle
 	bool isReloading = false;
