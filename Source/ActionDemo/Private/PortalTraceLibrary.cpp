@@ -42,7 +42,9 @@ namespace
 		{
 			return false;
 		}
-		return Cast<APortal>(OutHit.GetActor()) != nullptr;
+		APortal* Portal = Cast<APortal>(OutHit.GetActor());
+
+		return Portal && Portal->OtherPortal;
 	}
 
 	bool TraceRemainderThroughPortal(APortal* Portal, const FVector& Direction, float Remaining, FCollisionQueryParams Params, const FPortalSegmentTrace& SegmentTrace, FHitResult& OutHit)
