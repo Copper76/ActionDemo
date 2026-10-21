@@ -23,7 +23,7 @@ bool FPortalFloorWalkZTestLaunch::bAutoQuit = false;
 float FPortalFloorWalkZTestLaunch::TimeLimitSec = 8.f;
 float FPortalFloorWalkZTestLaunch::MaxStepCm = 1.5f;
 
-namespace
+namespace PortalFloorWalkZTestPrivate
 {
 	constexpr TCHAR EntryFloorLabel[] = TEXT("PortalFloorWalkZ_EntryFloor");
 	constexpr TCHAR ExitFloorLabel[] = TEXT("PortalFloorWalkZ_ExitFloor");
@@ -64,6 +64,7 @@ namespace
 			*Comp->GetName());
 	}
 }
+using namespace PortalFloorWalkZTestPrivate;
 
 APortalFloorWalkZTest::APortalFloorWalkZTest()
 {
@@ -283,8 +284,8 @@ bool APortalFloorWalkZTest::BuildScene()
 	}
 	ExitPortal->SetActorLabel(TEXT("PortalFloorWalkZ_Exit"));
 
-	FloorPortal->SetUp(EntryFloor, true, nullptr);
-	ExitPortal->SetUp(ExitWall, false, FloorPortal);
+	FloorPortal->Setup(EntryFloor, true, nullptr);
+	ExitPortal->Setup(ExitWall, false, FloorPortal);
 
 	APlayerController* PC = World->GetFirstPlayerController();
 	AActionDemoCharacter* Character = PC ? Cast<AActionDemoCharacter>(PC->GetPawn()) : nullptr;

@@ -138,7 +138,7 @@ void AActionDemoCharacter::PlacePortal(bool bIsBlue, const FVector& Centre, cons
 		}
 		if (Slot)
 		{
-			Slot->SetUp(nullptr, bIsBlue, Other);
+			Slot->Setup(nullptr, bIsBlue, Other);
 		}
 	}
 	else

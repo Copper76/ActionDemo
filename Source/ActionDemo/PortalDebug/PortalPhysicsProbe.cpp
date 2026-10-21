@@ -23,7 +23,7 @@ int32 FPortalPhysicsProbeLaunch::DumpFrames = 0;
 float FPortalPhysicsProbeLaunch::SinkThresholdCm = 8.f;
 bool FPortalPhysicsProbeLaunch::bRequested = false;
 
-namespace
+namespace PortalPhysicsProbePrivate
 {
 	constexpr TCHAR EntryLabel[] = TEXT("PortalPhysicsProbe_Entry");
 	constexpr TCHAR ExitLabel[] = TEXT("PortalPhysicsProbe_Exit");
@@ -95,6 +95,7 @@ namespace
 		return nullptr;
 	}
 }
+using namespace PortalPhysicsProbePrivate;
 
 APortalPhysicsProbe::APortalPhysicsProbe()
 {
@@ -931,7 +932,7 @@ void APortalPhysicsProbe::StartCase(int32 PresetIndex)
 	// Place first, then link/notify so EndOverlap from teleport cannot drop a fresh capture.
 	ClearPortalTracking();
 	PlaceCubeForCase(Case);
-	EntryPortal->SetUp(nullptr, true, ExitPortal);
+	EntryPortal->Setup(nullptr, true, ExitPortal);
 	// If the OBB is already in the shallow reverse (long/angled tips), keep Notify capture —
 	// clearing would leave no BeginOverlap and the body bounces on a still-solid face.
 	// Only clear when fully outside so approach can re-capture via BeginOverlap.

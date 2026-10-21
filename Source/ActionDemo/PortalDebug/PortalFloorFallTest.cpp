@@ -23,7 +23,7 @@ bool FPortalFloorFallTestLaunch::bAutoQuit = false;
 float FPortalFloorFallTestLaunch::DropHeightCm = 0.f;
 float FPortalFloorFallTestLaunch::TimeLimitSec = 6.f;
 
-namespace
+namespace PortalFloorFallTestPrivate
 {
 	constexpr TCHAR EntryFloorLabel[] = TEXT("PortalFloorFall_EntryFloor");
 	constexpr TCHAR ExitFloorLabel[] = TEXT("PortalFloorFall_ExitFloor");
@@ -70,6 +70,7 @@ namespace
 			*Comp->GetName());
 	}
 }
+using namespace PortalFloorFallTestPrivate;
 
 APortalFloorFallTest::APortalFloorFallTest()
 {
@@ -242,8 +243,8 @@ bool APortalFloorFallTest::BuildScene()
 	}
 	ExitPortal->SetActorLabel(TEXT("PortalFloorFall_Exit"));
 
-	FloorPortal->SetUp(EntryFloor, true, nullptr);
-	ExitPortal->SetUp(ExitWall, false, FloorPortal);
+	FloorPortal->Setup(EntryFloor, true, nullptr);
+	ExitPortal->Setup(ExitWall, false, FloorPortal);
 
 	APlayerController* PC = World->GetFirstPlayerController();
 	AActionDemoCharacter* Character = PC ? Cast<AActionDemoCharacter>(PC->GetPawn()) : nullptr;

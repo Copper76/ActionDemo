@@ -685,7 +685,6 @@ void APortal::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeP
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-	//DOREPLIFETIME(APortal, bIsBlue);
 	DOREPLIFETIME(APortal, OtherPortal);
 }
 
@@ -1068,18 +1067,14 @@ void APortal::PushPhysicsCallbackInputs(float DeltaTime)
 }
 
 //Setup when there is an existing portal
-void APortal::SetUp(AActor* TargetSurface, const bool bIsBlue, APortal* Portal)
+void APortal::Setup(AActor* TargetSurface, const bool bIsBlue, APortal* Portal)
 {
-	if (!bIsBlue)
-	{
-		Plane->SetMaterial(0, OrangeMaterial);
-		CaptureComponent->TextureTarget = OrangeTextureTarget;
-	}
+	SetupVisual(bIsBlue);
 
 	if (Portal)
 	{
-	Link(Portal);
-	OtherPortal->Link(this);
+		Link(Portal);
+		OtherPortal->Link(this);
 		NotifyCurrentOverlaps();
 		OtherPortal->NotifyCurrentOverlaps();
 	}
@@ -1207,8 +1202,8 @@ bool APortal::ShouldKeepTransitAfterOverlapEnd(const AActor* Actor) const
 void APortal::Link(APortal* Portal)
 {
 	OtherPortal = Portal;
-	UMaterialInstanceDynamic* PortalMID = Plane->CreateDynamicMaterialInstance(0);
-	PortalMID->SetScalarParameterValue(TEXT("Linked"), 1.f);
+	// Authority does not get OnRep; apply linked look locally. Clients use OnRep_OtherPortal.
+	OnRep_OtherPortal();
 }
 
 void APortal::AbortAllTransit()
@@ -1400,6 +1395,39 @@ bool APortal::ActorFitsAperture(const AActor* Actor) const
 		return true;
 	}
 	return FullMaxRight <= HalfW && FullMaxUp <= HalfH;
+}
+
+void APortal::SetupVisual_Implementation(bool bInIsBlue)
+{
+	if (!Plane || !CaptureComponent)
+	{
+		return;
+	}
+
+	if (!bInIsBlue)
+	{
+		Plane->SetMaterial(0, OrangeMaterial);
+		CaptureComponent->TextureTarget = OrangeTextureTarget;
+	}
+}
+
+void APortal::OnRep_OtherPortal()
+{
+	if (!OtherPortal || !Plane)
+	{
+		return;
+	}
+
+	UMaterialInterface* Current = Plane->GetMaterial(0);
+	UMaterialInstanceDynamic* PortalMID = Cast<UMaterialInstanceDynamic>(Current);
+	if (!PortalMID)
+	{
+		PortalMID = Plane->CreateDynamicMaterialInstance(0, Current);
+	}
+	if (PortalMID)
+	{
+		PortalMID->SetScalarParameterValue(TEXT("Linked"), 1.f);
+	}
 }
 
 // Called every frame

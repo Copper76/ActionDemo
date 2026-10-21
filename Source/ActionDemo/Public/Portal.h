@@ -136,7 +136,7 @@ private:
 public:	
 	virtual void Tick(float DeltaTime) override;
 
-	void SetUp(AActor* TargetSurface, const bool bIsBlue = true,  APortal* OtherPortal = nullptr);
+	void Setup(AActor* TargetSurface, const bool bInIsBlue = true, APortal* InOtherPortal = nullptr);
 
 	void Link(APortal* Portal);
 
@@ -166,12 +166,20 @@ public:
 		return Plane ? Plane->GetComponentLocation() : GetActorLocation();
 	}
 
+private:
+	/** Colour/RT setup; multicast so clients apply without storing bIsBlue. */
+	UFUNCTION(NetMulticast, Reliable)
+	void SetupVisual(bool bInIsBlue);
+
+	UFUNCTION()
+	void OnRep_OtherPortal();
+
 public:
 	AActionDemoCharacter* LocalPlayer;
 
 	APlayerController* PlayerController;//set it on spawn
 
-	UPROPERTY(Replicated)
+	UPROPERTY(ReplicatedUsing = OnRep_OtherPortal)
 	TObjectPtr<APortal> OtherPortal; //set it on spawn if there is another
 
 	TMap<AActor*, AActor*> TeleportingObjects = TMap<AActor*, AActor*>();
