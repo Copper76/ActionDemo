@@ -28,6 +28,21 @@ UTP_WeaponComponent::UTP_WeaponComponent()
 	PrimaryComponentTick.bCanEverTick = true;
 }
 
+void UTP_WeaponComponent::BeginPlay()
+{
+	Super::BeginPlay();
+
+	m_Character = Cast<AActionDemoCharacter>(GetOwner());
+	if (!m_Character && GetOwner())
+	{
+		m_Character = Cast<AActionDemoCharacter>(GetOwner()->GetOwner());
+	}
+	if (m_Character)
+	{
+		PlayerController = Cast<APlayerController>(m_Character->GetController());
+	}
+}
+
 void UTP_WeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	if (m_FlattenFireTimer > 0.0f)
@@ -40,78 +55,59 @@ void UTP_WeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 	}
 }
 
-
-void UTP_WeaponComponent::AttachWeapon(AActionDemoCharacter* TargetCharacter)
+void UTP_WeaponComponent::BindInput(UEnhancedInputComponent* EnhancedInputComponent)
 {
-	if (TargetCharacter == nullptr) return;
-
-	m_Character = TargetCharacter;
-	PlayerController = Cast<APlayerController>(m_Character->GetController());
-
-	// Attach the weapon to the First Person Character
-	FAttachmentTransformRules AttachmentRules(EAttachmentRule::SnapToTarget, true);
-	AttachToComponent(m_Character->GetMesh1P(), AttachmentRules, FName(TEXT("GripPoint")));
-
-	// switch bHasRifle so the animation blueprint can switch to another animation set
-	m_Character->SetHasRifle(true, GetOwner());
-
-	// Set up action bindings
-	if (PlayerController)
-	{
-		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
-		{
-			// Set the priority of the mapping to 1, so that it overrides the Jump action with the Fire action when using touch input
-			Subsystem->AddMappingContext(FireMappingContext, 1);
-			Subsystem->AddMappingContext(PortalMappingContext, 0);
-		}
-
-		if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerController->InputComponent))
-		{
-			//Fire mode Bullet
-			// Fire Bullet
-			EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Fire);
-			UInputTriggerPulse* FirePulse = NewObject<UInputTriggerPulse>(this, TEXT("TriggerImpulse"));
-			FirePulse->bTriggerOnStart = true;
-			FirePulse->Interval = 0.1f;
-			FireAction->Triggers.Add(FirePulse);
-
-			// Aim Down Sight
-			EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Aim);
-
-
-			//Fire mode portal
-			// Fire Blue Portal
-			EnhancedInputComponent->BindAction(BluePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::BluePortalFire);
-
-			// Fire Orange Portal
-			EnhancedInputComponent->BindAction(OrangePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::OrangePortalFire);
-
-			//Toggle Fire Mode
-			EnhancedInputComponent->BindAction(ToggleARAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::ToggleAR);
-
-			//Toggle Fire Mode
-			EnhancedInputComponent->BindAction(TogglePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::TogglePortal);
-
-			//Empty Action as a placeholder
-			EnhancedInputComponent->BindAction(EmptyAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Empty);
-		}
-	}
-}
-
-void UTP_WeaponComponent::Fire()
-{
-	if (m_Character == nullptr || PlayerController == nullptr || isReloading)
+	if (!EnhancedInputComponent)
 	{
 		return;
 	}
 
-	// Try and play the sound if specified
-	if (FireSound != nullptr)
+	if (!m_Character)
 	{
-		UGameplayStatics::PlaySoundAtLocation(this, FireSound, m_Character->GetActorLocation());
+		m_Character = Cast<AActionDemoCharacter>(GetOwner());
+		if (!m_Character && GetOwner())
+		{
+			m_Character = Cast<AActionDemoCharacter>(GetOwner()->GetOwner());
+		}
+	}
+	if (!m_Character)
+	{
+		return;
 	}
 
-	FHitResult BulletHit;
+	PlayerController = Cast<APlayerController>(m_Character->GetController());
+	if (!PlayerController || !PlayerController->IsLocalController())
+	{
+		return;
+	}
+
+	if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
+	{
+		Subsystem->AddMappingContext(FireMappingContext, 1);
+		Subsystem->AddMappingContext(PortalMappingContext, 0);
+	}
+
+	EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Fire);
+	UInputTriggerPulse* FirePulse = NewObject<UInputTriggerPulse>(this, TEXT("TriggerImpulse"));
+	FirePulse->bTriggerOnStart = true;
+	FirePulse->Interval = 0.1f;
+	FireAction->Triggers.Add(FirePulse);
+
+	EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Aim);
+	EnhancedInputComponent->BindAction(BluePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::BluePortalFire);
+	EnhancedInputComponent->BindAction(OrangePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::OrangePortalFire);
+	EnhancedInputComponent->BindAction(ToggleARAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::ToggleAR);
+	EnhancedInputComponent->BindAction(TogglePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::TogglePortal);
+	EnhancedInputComponent->BindAction(EmptyAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Empty);
+}
+
+void UTP_WeaponComponent::Fire()
+{
+	if (m_Character == nullptr || PlayerController == nullptr || isReloading || m_Character->IsHolstered())
+	{
+		return;
+	}
+
 	FVector Start = PlayerController->PlayerCameraManager->GetCameraLocation();
 	FRotator Fwd = PlayerController->PlayerCameraManager->GetCameraRotation();
 
@@ -128,18 +124,14 @@ void UTP_WeaponComponent::Fire()
 		Fwd = (Fwd + FRotator(FMath::FRandRange(-HipFireSpread, HipFireSpread), FMath::FRandRange(-HipFireSpread, HipFireSpread), 0.0f));
 	}
 
-	UPortalTraceLibrary::LineTraceSingleByChannel(GetWorld(), BulletHit, Start, Start + Fwd.Vector() * FireRange, ECC_Visibility, m_Character->GetIgnoreCharacterParams());
-
-	if (BulletHit.IsValidBlockingHit() && !BulletHit.GetActor()->IsA<APortal>())
+	const FVector End = Start + Fwd.Vector() * FireRange;
+	if (m_Character->HasAuthority())
 	{
-		FActorSpawnParameters SpawnInfo;
-		SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		AActor* BulletHole = GetWorld()->SpawnActor<AActor>(BulletBP, BulletHit.ImpactPoint, BulletHit.ImpactNormal.Rotation(), SpawnInfo);
-		BulletHole->AttachToActor(BulletHit.GetActor(), FAttachmentTransformRules::KeepWorldTransform);
-		if (BulletHit.GetComponent()->GetOwner()->IsRootComponentMovable())
-		{
-			BulletHit.GetComponent()->AddImpulse(Fwd.Vector() * BulletForce);
-		}
+		m_Character->ProcessWeaponFire(Start, End, BulletBP, BulletForce);
+	}
+	else
+	{
+		m_Character->ServerProcessWeaponFire(Start, End, BulletBP, BulletForce);
 	}
 }
 
@@ -159,7 +151,7 @@ void UTP_WeaponComponent::Aim(const FInputActionValue& Value)
 
 void UTP_WeaponComponent::BluePortalFire()
 {
-	if (m_Character == nullptr || m_Character->GetController() == nullptr)
+	if (m_Character == nullptr || m_Character->GetController() == nullptr || m_Character->IsHolstered())
 	{
 		return;
 	}
@@ -214,7 +206,7 @@ void UTP_WeaponComponent::BluePortalFire()
 
 void UTP_WeaponComponent::OrangePortalFire()
 {
-	if (m_Character == nullptr || m_Character->GetController() == nullptr)
+	if (m_Character == nullptr || m_Character->GetController() == nullptr || m_Character->IsHolstered())
 	{
 		return;
 	}
@@ -508,16 +500,12 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FQuat& PortalRota
 
 void UTP_WeaponComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	if (m_Character == nullptr)
-	{
-		return;
-	}
-
 	if (PlayerController)
 	{
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
 		{
 			Subsystem->RemoveMappingContext(FireMappingContext);
+			Subsystem->RemoveMappingContext(PortalMappingContext);
 		}
 	}
 }

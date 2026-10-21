@@ -21,7 +21,13 @@
 #include "Net/UnrealNetwork.h"
 #include "Engine/DecalActor.h"
 #include "GameFramework/PlayerController.h"
-
+#include "TP_WeaponComponent.h"
+#include "TP_PickUpComponent.h"
+#include "UObject/ConstructorHelpers.h"
+#include "PortalTraceLibrary.h"
+#include "Portal.h"
+#include "Kismet/GameplayStatics.h"
+#include "CableComponent.h"
 
 //////////////////////////////////////////////////////////////////////////
 // AActionDemoCharacter
@@ -33,6 +39,10 @@ void AActionDemoCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 	DOREPLIFETIME_CONDITION(AActionDemoCharacter, BluePortal, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(AActionDemoCharacter, OrangePortal, COND_OwnerOnly);
 	DOREPLIFETIME(AActionDemoCharacter, CurrentPortal);
+	DOREPLIFETIME(AActionDemoCharacter, Weapon);
+	DOREPLIFETIME(AActionDemoCharacter, bHolstered);
+	DOREPLIFETIME(AActionDemoCharacter, bGrappleCableActive);
+	DOREPLIFETIME(AActionDemoCharacter, GrappleCableEndWS);
 }
 
 AActionDemoCharacter::AActionDemoCharacter(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer.SetDefaultSubobjectClass<UDemoMyCharacterMovementComponent>(CharacterMovementComponentName))
@@ -40,9 +50,14 @@ AActionDemoCharacter::AActionDemoCharacter(const FObjectInitializer& ObjectIniti
 
 	DemoMyCharacterMovementComponent = Cast<UDemoMyCharacterMovementComponent>(GetCharacterMovement());
 
-	// Character doesnt have a rifle at start
-	bHasRifle = false;
-	
+	bHolstered = false;
+
+	static ConstructorHelpers::FClassFinder<AActor> WeaponClassFinder(TEXT("/Game/FirstPerson/Blueprints/BP_PickUp_Rifle"));
+	if (WeaponClassFinder.Succeeded())
+	{
+		WeaponClass = WeaponClassFinder.Class;
+	}
+
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(55.f, 96.0f);
 
@@ -81,10 +96,8 @@ AActionDemoCharacter::AActionDemoCharacter(const FObjectInitializer& ObjectIniti
 
 void AActionDemoCharacter::BeginPlay()
 {
-	// Call the base class  
 	Super::BeginPlay();
 
-	//Add Input Mapping Context
 	if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
 	{
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
@@ -114,6 +127,11 @@ void AActionDemoCharacter::BeginPlay()
 	// }
 
 	CameraOffset = PlayerCamera->GetRelativeLocation();
+
+	SpawnWeapon();
+	AttachWeapon();
+	BindWeaponInput();
+	ApplyHolsterState();
 }
 
 void AActionDemoCharacter::ServerPlacePortal_Implementation(bool bIsBlue, FVector_NetQuantize Centre, FRotator Rotation, TSubclassOf<APortal> PortalClass)
@@ -301,49 +319,156 @@ void AActionDemoCharacter::Look(const FInputActionValue& Value)
 
 void AActionDemoCharacter::SwapControl()
 {
-	if (bOwnsRifle)
+	SetHolstered(!bHolstered);
+}
+
+void AActionDemoCharacter::SetHolstered(bool bInHolstered)
+{
+	if (bHolstered == bInHolstered)
 	{
-		if (bHasRifle)
+		return;
+	}
+
+	bHolstered = bInHolstered;
+	ApplyHolsterState();
+
+	if (!HasAuthority() && IsLocallyControlled())
+	{
+		ServerSetHolstered(bInHolstered);
+	}
+}
+
+void AActionDemoCharacter::ServerSetHolstered_Implementation(bool bInHolstered)
+{
+	if (bHolstered == bInHolstered)
+	{
+		return;
+	}
+	bHolstered = bInHolstered;
+	ApplyHolsterState();
+}
+
+void AActionDemoCharacter::SpawnWeapon()
+{
+	if (!HasAuthority() || Weapon || !WeaponClass || !GetWorld())
+	{
+		return;
+	}
+
+	USkeletalMeshComponent* SpawnMesh = Mesh1P ? Mesh1P : GetMesh();
+	const FName SpawnSocket = (SpawnMesh == Mesh1P) ? FName(TEXT("GripPoint")) : ThirdPersonWeaponSocket;
+	const FTransform SpawnTM = SpawnMesh
+		? SpawnMesh->GetSocketTransform(SpawnSocket)
+		: GetActorTransform();
+
+	AActor* NewWeapon = GetWorld()->SpawnActorDeferred<AActor>(
+		WeaponClass,
+		SpawnTM,
+		this,
+		this,
+		ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+	if (!NewWeapon)
+	{
+		return;
+	}
+
+	NewWeapon->SetReplicates(true);
+	NewWeapon->SetReplicateMovement(false);
+	NewWeapon->FinishSpawning(SpawnTM);
+	NewWeapon->SetOwner(this);
+
+	Weapon = NewWeapon;
+	AttachWeapon();
+}
+
+void AActionDemoCharacter::AttachWeapon()
+{
+	if (!Weapon)
+	{
+		return;
+	}
+
+	USkeletalMeshComponent* AttachMesh = nullptr;
+	FName Socket = NAME_None;
+
+	if (IsLocallyControlled() && Mesh1P)
+	{
+		AttachMesh = Mesh1P;
+		Socket = FName(TEXT("GripPoint"));
+	}
+	else if (GetMesh())
+	{
+		AttachMesh = GetMesh();
+		Socket = ThirdPersonWeaponSocket;
+	}
+	else if (Mesh1P)
+	{
+		AttachMesh = Mesh1P;
+		Socket = FName(TEXT("GripPoint"));
+	}
+
+	if (AttachMesh)
+	{
+		Weapon->AttachToComponent(AttachMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Socket);
+	}
+}
+
+void AActionDemoCharacter::BindWeaponInput()
+{
+	if (!IsLocallyControlled() || !Weapon)
+	{
+		return;
+	}
+
+	APlayerController* PC = Cast<APlayerController>(Controller);
+	if (!PC)
+	{
+		return;
+	}
+
+	UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PC->InputComponent);
+	UTP_WeaponComponent* WeaponComp = Weapon->FindComponentByClass<UTP_WeaponComponent>();
+	if (EnhancedInput && WeaponComp)
+	{
+		WeaponComp->BindInput(EnhancedInput);
+	}
+}
+
+void AActionDemoCharacter::OnRep_Weapon()
+{
+	AttachWeapon();
+	BindWeaponInput();
+	ApplyHolsterState();
+}
+
+void AActionDemoCharacter::OnRep_Holstered()
+{
+	ApplyHolsterState();
+}
+
+void AActionDemoCharacter::ApplyHolsterState()
+{
+	if (IsLocallyControlled())
+	{
+		if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
 		{
-			if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
+			if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
 			{
-				if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
-				{
-					Subsystem->AddMappingContext(DefaultMappingContext, 2);
-				}
-				// Hides visible components
-				bWeapon->SetActorHiddenInGame(true);
-
-				// Disables collision components
-				bWeapon->SetActorEnableCollision(false);
-
-				// Stops the Actor from ticking
-				bWeapon->SetActorTickEnabled(false);
-
-				AimingPoseLoc = FVector(-30.0f, 0.0f, -150.0f);
-
-				AimingPoseRotation = FRotator(0.0f, 0.0f, 0.0f);
+				Subsystem->AddMappingContext(DefaultMappingContext, bHolstered ? 2 : 0);
 			}
 		}
-		else
+
+		if (bHolstered)
 		{
-			if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
-			{
-				if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
-				{
-					Subsystem->AddMappingContext(DefaultMappingContext, 0);
-				}
-				// Hides visible components
-				bWeapon->SetActorHiddenInGame(false);
-
-				// Disables collision components
-				bWeapon->SetActorEnableCollision(true);
-
-				// Stops the Actor from ticking
-				bWeapon->SetActorTickEnabled(true);
-			}
+			AimingPoseLoc = FVector(-30.0f, 0.0f, -150.0f);
+			AimingPoseRotation = FRotator(0.0f, 0.0f, 0.0f);
 		}
-		bHasRifle = !bHasRifle;
+	}
+
+	if (Weapon)
+	{
+		Weapon->SetActorHiddenInGame(bHolstered);
+		Weapon->SetActorTickEnabled(!bHolstered);
 	}
 }
 
@@ -428,18 +553,113 @@ void AActionDemoCharacter::Tick(float DeltaTime)
 
 	float CrouchInterpTime = FMath::Min(1.0f, CrouchSpeed * DeltaTime);
 	CrouchEyeOffset = (1.0f - CrouchInterpTime) * CrouchEyeOffset;
+
+	// Simulated proxies: cable tip is replicated from the server each frame while active.
+	if (!IsLocallyControlled() && bGrappleCableActive)
+	{
+		ApplyGrappleCableVisual(true, GrappleCableEndWS);
+	}
 }
 
-void AActionDemoCharacter::SetHasRifle(bool bNewHasRifle, AActor* Weapon)
+void AActionDemoCharacter::ServerProcessWeaponFire_Implementation(FVector_NetQuantize TraceStart, FVector_NetQuantize TraceEnd, TSubclassOf<AActor> HoleClass, float ImpulseStrength)
 {
-	bHasRifle = bNewHasRifle;
-	bOwnsRifle = true;
-	bWeapon = Weapon;
+	ProcessWeaponFire(TraceStart, TraceEnd, HoleClass, ImpulseStrength);
 }
 
-bool AActionDemoCharacter::GetHasRifle()
+void AActionDemoCharacter::ProcessWeaponFire(FVector TraceStart, FVector TraceEnd, TSubclassOf<AActor> HoleClass, float ImpulseStrength)
 {
-	return bHasRifle;
+	if (!HasAuthority() || !GetWorld())
+	{
+		return;
+	}
+
+	MulticastWeaponFireFX(GetActorLocation());
+
+	FHitResult BulletHit;
+	UPortalTraceLibrary::LineTraceSingleByChannel(
+		GetWorld(),
+		BulletHit,
+		TraceStart,
+		TraceEnd,
+		ECC_Visibility,
+		GetIgnoreCharacterParams());
+
+	if (!BulletHit.IsValidBlockingHit() || !BulletHit.GetActor() || BulletHit.GetActor()->IsA<APortal>())
+	{
+		return;
+	}
+
+	const FVector ShotDir = (TraceEnd - TraceStart).GetSafeNormal();
+
+	if (HoleClass)
+	{
+		FActorSpawnParameters SpawnInfo;
+		SpawnInfo.Owner = this;
+		SpawnInfo.Instigator = this;
+		SpawnInfo.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		AActor* BulletHole = GetWorld()->SpawnActor<AActor>(HoleClass, BulletHit.ImpactPoint, BulletHit.ImpactNormal.Rotation(), SpawnInfo);
+		if (BulletHole)
+		{
+			BulletHole->SetReplicates(true);
+			BulletHole->AttachToActor(BulletHit.GetActor(), FAttachmentTransformRules::KeepWorldTransform);
+		}
+	}
+
+	if (UPrimitiveComponent* HitComp = BulletHit.GetComponent())
+	{
+		if (AActor* HitOwner = HitComp->GetOwner())
+		{
+			if (HitOwner->IsRootComponentMovable())
+			{
+				HitComp->AddImpulse(ShotDir * ImpulseStrength);
+			}
+		}
+	}
+}
+
+void AActionDemoCharacter::MulticastWeaponFireFX_Implementation(FVector_NetQuantize SoundLocation)
+{
+	if (UTP_WeaponComponent* WeaponComp = Weapon ? Weapon->FindComponentByClass<UTP_WeaponComponent>() : nullptr)
+	{
+		if (WeaponComp->FireSound)
+		{
+			UGameplayStatics::PlaySoundAtLocation(this, WeaponComp->FireSound, SoundLocation);
+		}
+	}
+}
+
+void AActionDemoCharacter::PushGrappleCableVisual(bool bActive, const FVector& EndWorldLocation)
+{
+	ApplyGrappleCableVisual(bActive, EndWorldLocation);
+
+	if (HasAuthority())
+	{
+		bGrappleCableActive = bActive;
+		GrappleCableEndWS = EndWorldLocation;
+	}
+}
+
+void AActionDemoCharacter::ApplyGrappleCableVisual(bool bActive, const FVector& EndWorldLocation)
+{
+	if (!Grappler)
+	{
+		return;
+	}
+
+	Grappler->SetHiddenInGame(!bActive);
+	if (bActive)
+	{
+		Grappler->EndLocation = Grappler->GetComponentTransform().InverseTransformPosition(EndWorldLocation);
+	}
+	else
+	{
+		Grappler->EndLocation = FVector::ZeroVector;
+	}
+}
+
+void AActionDemoCharacter::OnRep_GrappleCable()
+{
+	ApplyGrappleCableVisual(bGrappleCableActive, GrappleCableEndWS);
 }
 
 APortal* AActionDemoCharacter::GetPortal(bool isBlue)
@@ -454,7 +674,7 @@ bool AActionDemoCharacter::IsSprinting() const
 
 void AActionDemoCharacter::ReturnToLastCheckpoint()
 {
-	Grappler->EndLocation = FVector::ZeroVector;
+	PushGrappleCableVisual(false, GetActorLocation());
 	DemoMyCharacterMovementComponent->SetMovementMode(EMovementMode::MOVE_Falling);
 	if (UCheckpointManager* CheckpointManager = GetWorld()->GetSubsystem<UCheckpointManager>())
 	{

@@ -106,17 +106,27 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	class UInputAction* LookAction;
 
-	/** Bool for AnimBP to switch to another animation set */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Weapon)
-	bool bHasRifle;
+	/** Rifle class spawned on the server (defaults to BP_PickUp_Rifle). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Weapon)
+	TSubclassOf<AActor> WeaponClass;
 
-	/** Setter to set the bool */
-	UFUNCTION(BlueprintCallable, Category = Weapon)
-	void SetHasRifle(bool bNewHasRifle, AActor* weapon);
+	/** Socket on the 3P body mesh for other players' view of the gun. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Weapon)
+	FName ThirdPersonWeaponSocket = FName(TEXT("hand_r"));
 
-	/** Getter for the bool */
+	/** Server-spawned instance; replicated so remotes can see / holster it. */
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Weapon, Category = Weapon)
+	TObjectPtr<AActor> Weapon;
+
+	/** Replicated: hide gun for everyone; owning client also swaps fire mapping. */
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Holstered, Category = Weapon)
+	bool bHolstered = false;
+
 	UFUNCTION(BlueprintCallable, Category = Weapon)
-	bool GetHasRifle();
+	bool IsHolstered() const { return bHolstered; }
+
+	UFUNCTION(BlueprintCallable, Category = Weapon)
+	void SetHolstered(bool bInHolstered);
 
 	inline UCableComponent* GetGrappler() { return Grappler; }
 
@@ -136,6 +146,25 @@ protected:
 	void Flash();
 
 	void SwapControl();
+
+	void ApplyHolsterState();
+
+	/** Authority: spawn WeaponClass once. */
+	void SpawnWeapon();
+
+	/** Owner: Mesh1P GripPoint. Remotes: 3P mesh socket. */
+	void AttachWeapon();
+
+	void BindWeaponInput();
+
+	UFUNCTION()
+	void OnRep_Weapon();
+
+	UFUNCTION()
+	void OnRep_Holstered();
+
+	UFUNCTION(Server, Reliable)
+	void ServerSetHolstered(bool bInHolstered);
 
 	virtual bool CanJumpInternal_Implementation() const override;
 
@@ -191,6 +220,19 @@ public:
 	UFUNCTION(Server, Reliable)
 	void ServerTeleportThroughPortal(APortal* EntryPortal);
 
+	/** Owning client / listen host: send a fire trace for the server to resolve. */
+	UFUNCTION(Server, Reliable)
+	void ServerProcessWeaponFire(FVector_NetQuantize TraceStart, FVector_NetQuantize TraceEnd, TSubclassOf<AActor> HoleClass, float ImpulseStrength);
+
+	/** Authority: resolve hit, spawn hole, impulse, FX. */
+	void ProcessWeaponFire(FVector TraceStart, FVector TraceEnd, TSubclassOf<AActor> HoleClass, float ImpulseStrength);
+
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastWeaponFireFX(FVector_NetQuantize SoundLocation);
+
+	/** CMC pushes cable tip; authority replicates for simulated proxies. */
+	void PushGrappleCableVisual(bool bActive, const FVector& EndWorldLocation);
+
 protected:
 	//Tilt
 	UPROPERTY(BlueprintReadOnly) float TiltSpeed = 50.0f;
@@ -201,8 +243,6 @@ protected:
 	UPROPERTY(BlueprintReadOnly) float MuzzleMaxTilt = 15.0f;
 
 public:
-	bool bOwnsRifle;
-	UPROPERTY(BlueprintReadOnly) AActor* bWeapon;
 	UPROPERTY(BlueprintReadOnly) float TargetRoll;
 
 	/** Server-owned slots; replicated so owning client placement traces can ignore / colour-check. */
@@ -218,6 +258,13 @@ public:
 	UPROPERTY(Replicated)
 	TObjectPtr<APortal> CurrentPortal = nullptr;
 
+	/** Grapple cable visible to remotes. */
+	UPROPERTY(ReplicatedUsing = OnRep_GrappleCable)
+	bool bGrappleCableActive = false;
+
+	UPROPERTY(Replicated)
+	FVector_NetQuantize GrappleCableEndWS = FVector::ZeroVector;
+
 	//AimingAPlayerController
 	UPROPERTY(BlueprintReadOnly) FVector AimingPoseLoc;
 	UPROPERTY(BlueprintReadOnly) FRotator AimingPoseRotation;
@@ -227,10 +274,13 @@ public:
 private:
 	void ReturnToLastCheckpoint();
 
-private:
+	void ApplyGrappleCableVisual(bool bActive, const FVector& EndWorldLocation);
+
+	UFUNCTION()
+	void OnRep_GrappleCable();
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Defaults", meta = (AllowPrivateAccess))
 	float KillZ = -1000.0f;
 
 	float CurrentRoll = 0.0f;
 };
-

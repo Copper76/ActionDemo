@@ -8,6 +8,7 @@
 
 class AActionDemoCharacter;
 class APortal;
+class UEnhancedInputComponent;
 
 UENUM(BlueprintType)
 enum EPortalType
@@ -82,9 +83,8 @@ public:
 	/** Sets default values for this component's properties */
 	UTP_WeaponComponent();
 
-	/** Attaches the actor to a FirstPersonCharacter */
-	UFUNCTION(BlueprintCallable, Category = "Weapon")
-	void AttachWeapon(AActionDemoCharacter* TargetCharacter);
+	/** Bind fire / portal input on the owning local player (after weapon spawn). */
+	void BindInput(UEnhancedInputComponent* EnhancedInputComponent);
 
 	/** Make the weapon Fire a Projectile */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
@@ -120,6 +120,8 @@ public:
 	bool IsOtherColourPortal(const AActor* Actor, bool bIsBlue) const;
 
 protected:
+	virtual void BeginPlay() override;
+
 	/** Ends gameplay for this component. */
 	UFUNCTION()
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -127,9 +129,9 @@ protected:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 private:
-	/** The Character holding this weapon*/
-	AActionDemoCharacter* m_Character;
-	APlayerController* PlayerController;
+	/** Owning character (weapon actor owned by the pawn). */
+	AActionDemoCharacter* m_Character = nullptr;
+	APlayerController* PlayerController = nullptr;
 
 	//Portal
 	float Portal_Range = 5000.0f;

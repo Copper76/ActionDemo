@@ -1477,6 +1477,7 @@ void UDemoMyCharacterMovementComponent::DoGrapple()
 	Grappler->EndLocation = GrappleEndLoc;
 	Grappler->SetHiddenInGame(false);
 	GrappleStage = GRAPPLE_SHOOT;
+	DemoCharacterOwner->PushGrappleCableVisual(true, Grappler->GetComponentLocation());
 }
 
 void UDemoMyCharacterMovementComponent::EnterGrapple()
@@ -1502,7 +1503,17 @@ void UDemoMyCharacterMovementComponent::ExitGrapple()
 
 void UDemoMyCharacterMovementComponent::TickGrapple(const float DeltaTime)
 {
-	UCableComponent* Grappler = DemoCharacterOwner->GetGrappler();;
+	UCableComponent* Grappler = DemoCharacterOwner->GetGrappler();
+	if (!Grappler || !DemoCharacterOwner)
+	{
+		return;
+	}
+
+	auto PushVisual = [this, Grappler]()
+	{
+		const FVector EndWS = Grappler->GetComponentTransform().TransformPosition(GrappleEndLoc);
+		DemoCharacterOwner->PushGrappleCableVisual(true, EndWS);
+	};
 
 	switch (GrappleStage)
 	{
@@ -1511,10 +1522,12 @@ void UDemoMyCharacterMovementComponent::TickGrapple(const float DeltaTime)
 		const FVector Target = Grappler->GetComponentTransform().InverseTransformPosition(GetGrapplingPivot());
 		GrappleEndLoc = FMath::VInterpConstantTo(GrappleEndLoc, Target, DeltaTime, GrappleSpeed);
 		Grappler->EndLocation = GrappleEndLoc;
+		PushVisual();
 		if (FVector::DistSquared(GrappleEndLoc, Target) <= 1.0f)
 		{
 			GrappleEndLoc = Target;
 			Grappler->EndLocation = GrappleEndLoc;
+			PushVisual();
 			if (Safe_bWantsToGrapple)
 			{
 				GrappleStage = GRAPPLE_INPROGRESS;
@@ -1530,6 +1543,7 @@ void UDemoMyCharacterMovementComponent::TickGrapple(const float DeltaTime)
 	case GRAPPLE_INPROGRESS:
 		GrappleEndLoc = Grappler->GetComponentTransform().InverseTransformPosition(GetGrapplingPivot());
 		Grappler->EndLocation = GrappleEndLoc;
+		PushVisual();
 		break;
 	case GRAPPLE_RETRACT:
 	{
@@ -1541,6 +1555,11 @@ void UDemoMyCharacterMovementComponent::TickGrapple(const float DeltaTime)
 			Grappler->EndLocation = GrappleEndLoc;
 			Grappler->SetHiddenInGame(true);
 			GrappleStage = GRAPPLE_NONE;
+			DemoCharacterOwner->PushGrappleCableVisual(false, Grappler->GetComponentLocation());
+		}
+		else
+		{
+			PushVisual();
 		}
 		break;
 	}
