@@ -8,7 +8,6 @@
 
 class APortal;
 class AActionDemoCharacter;
-class APlayerController;
 
 UCLASS(NotPlaceable, Transient)
 class APortalFloorFallTest : public AActor
@@ -42,7 +41,6 @@ private:
 	TSubclassOf<APortal> LoadPortalClass() const;
 	TSubclassOf<AActionDemoCharacter> LoadCharacterClass() const;
 	void PlaceCharacterAboveFloorPortal();
-	void BindPortalLocals(AActionDemoCharacter* Character, APlayerController* PC);
 	void DumpFrame(float ElapsedSec) const;
 	void Finish(bool bPass, const TCHAR* Reason);
 

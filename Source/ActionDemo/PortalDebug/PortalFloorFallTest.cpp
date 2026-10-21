@@ -270,7 +270,6 @@ bool APortalFloorFallTest::BuildScene()
 	}
 
 	TestCharacter = Character;
-	BindPortalLocals(Character, PC);
 	PlaceCharacterAboveFloorPortal();
 
 	// Ensure reverse-collider overlap fires after teleport into the volume.
@@ -424,20 +423,6 @@ void APortalFloorFallTest::PlaceCharacterAboveFloorPortal()
 	UE_LOG(LogPortalFloorFall, Display,
 		TEXT("FLOORFALL placed character at %s (halfH=%.0f drop=%.0f)"),
 		*SpawnLoc.ToCompactString(), HalfHeight, DropHeightCm);
-}
-
-void APortalFloorFallTest::BindPortalLocals(AActionDemoCharacter* Character, APlayerController* PC)
-{
-	if (FloorPortal)
-	{
-		FloorPortal->LocalPlayer = Character;
-		FloorPortal->PlayerController = PC;
-	}
-	if (ExitPortal)
-	{
-		ExitPortal->LocalPlayer = Character;
-		ExitPortal->PlayerController = PC;
-	}
 }
 
 void APortalFloorFallTest::DumpFrame(float InElapsedSec) const

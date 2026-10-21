@@ -311,10 +311,6 @@ bool APortalFloorWalkZTest::BuildScene()
 	}
 
 	TestCharacter = Character;
-	FloorPortal->LocalPlayer = Character;
-	FloorPortal->PlayerController = PC;
-	ExitPortal->LocalPlayer = Character;
-	ExitPortal->PlayerController = PC;
 	PlaceAndAimCharacter();
 
 	if (UCapsuleComponent* Cap = Character->GetCapsuleComponent())

@@ -163,6 +163,8 @@ public:
 	/** Returns PlayerCamera subobject **/
 	UCameraComponent* GetFirstPersonCameraComponent() const { return PlayerCamera; }
 
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
 	APortal* GetPortal(bool isBlue);
 
 	inline bool IsInPortal() const { return CurrentPortal != nullptr; }
@@ -203,11 +205,18 @@ public:
 	UPROPERTY(BlueprintReadOnly) AActor* bWeapon;
 	UPROPERTY(BlueprintReadOnly) float TargetRoll;
 
-	APortal* BluePortal;
-	APortal* OrangePortal;
+	/** Server-owned slots; replicated so owning client placement traces can ignore / colour-check. */
+	UPROPERTY(Replicated)
+	TObjectPtr<APortal> BluePortal;
+
+	UPROPERTY(Replicated)
+	TObjectPtr<APortal> OrangePortal;
 
 	FVector CameraOffset;
-	APortal* CurrentPortal = nullptr;
+
+	/** Which portal volume this character is in; replicated so CMC / server validation stay aligned. Local maps like portal TeleportingObjects stay per-machine. */
+	UPROPERTY(Replicated)
+	TObjectPtr<APortal> CurrentPortal = nullptr;
 
 	//AimingAPlayerController
 	UPROPERTY(BlueprintReadOnly) FVector AimingPoseLoc;

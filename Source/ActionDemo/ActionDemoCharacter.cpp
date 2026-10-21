@@ -26,6 +26,15 @@
 //////////////////////////////////////////////////////////////////////////
 // AActionDemoCharacter
 
+void AActionDemoCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME_CONDITION(AActionDemoCharacter, BluePortal, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(AActionDemoCharacter, OrangePortal, COND_OwnerOnly);
+	DOREPLIFETIME(AActionDemoCharacter, CurrentPortal);
+}
+
 AActionDemoCharacter::AActionDemoCharacter(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer.SetDefaultSubobjectClass<UDemoMyCharacterMovementComponent>(CharacterMovementComponentName))
 {
 

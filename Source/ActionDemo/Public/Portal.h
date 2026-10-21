@@ -176,12 +176,9 @@ private:
 	void OnRep_OtherPortal();
 
 public:
-	AActionDemoCharacter* LocalPlayer;
-
-	APlayerController* PlayerController;//set it on spawn
-
 	UPROPERTY(ReplicatedUsing = OnRep_OtherPortal)
 	TObjectPtr<APortal> OtherPortal; //set it on spawn if there is another
 
+	/** Local-only original→clone map. Do not replicate — clone pointers are per-machine and would dangle on peers. */
 	TMap<AActor*, AActor*> TeleportingObjects = TMap<AActor*, AActor*>();
 };

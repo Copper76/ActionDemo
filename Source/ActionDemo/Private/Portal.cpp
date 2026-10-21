@@ -692,15 +692,23 @@ void APortal::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeP
 void APortal::BeginPlay()
 {
 	Super::BeginPlay();
-	if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
-	{
-		PlayerController = PC;
-		LocalPlayer = Cast<AActionDemoCharacter>(PC->GetCharacter());
-	}
 
-	CaptureComponent->bEnableClipPlane = true;
-	CaptureComponent->ClipPlaneBase = GetPlaneOrigin();
-	CaptureComponent->ClipPlaneNormal = GetActorForwardVector();
+	// Scene capture is render-only; dedicated server never needs it active.
+	if (CaptureComponent)
+	{
+		if (GetNetMode() == NM_DedicatedServer)
+		{
+			CaptureComponent->bCaptureEveryFrame = false;
+			CaptureComponent->bCaptureOnMovement = false;
+			CaptureComponent->Deactivate();
+		}
+		else
+		{
+			CaptureComponent->bEnableClipPlane = true;
+			CaptureComponent->ClipPlaneBase = GetPlaneOrigin();
+			CaptureComponent->ClipPlaneNormal = GetActorForwardVector();
+		}
+	}
 
 	GetApertureHalfExtents(ApertureHalfWidth, ApertureHalfHeight);
 
@@ -1399,14 +1407,18 @@ bool APortal::ActorFitsAperture(const AActor* Actor) const
 
 void APortal::SetupVisual_Implementation(bool bInIsBlue)
 {
-	if (!Plane || !CaptureComponent)
+	if (bInIsBlue)
 	{
 		return;
 	}
 
-	if (!bInIsBlue)
+	if (Plane)
 	{
 		Plane->SetMaterial(0, OrangeMaterial);
+	}
+
+	if (CaptureComponent && GetNetMode() != NM_DedicatedServer)
+	{
 		CaptureComponent->TextureTarget = OrangeTextureTarget;
 	}
 }
@@ -1440,54 +1452,73 @@ void APortal::Tick(float DeltaTime)
 		return;
 	}
 
-	// Scene capture mirrors the local viewport only (ULocalPlayer), not the pawn pointer.
-	if (PlayerController && PlayerController->IsLocalController())
+	// Local viewport + owning pawn only (dedicated server has neither).
+	APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
+	if (GetNetMode() != NM_DedicatedServer && PC && PC->IsLocalController())
 	{
-		if (ULocalPlayer* LocalViewportPlayer = PlayerController->GetLocalPlayer())
+		if (OtherPortal->CaptureComponent)
 		{
-			if (APlayerCameraManager* CameraManager = PlayerController->PlayerCameraManager)
+			if (ULocalPlayer* LocalViewportPlayer = PC->GetLocalPlayer())
 			{
-				FQuat TravelQ = FQuat::Identity;
-				FVector ExitCameraLocation = FVector::ZeroVector;
-				const FVector CameraLocation = CameraManager->GetCameraLocation();
-				const FQuat CameraRotation = CameraManager->GetCameraRotation().Quaternion();
-				if (GetTravelQuat(TravelQ) && TranslatePoint(CameraLocation, ExitCameraLocation))
+				if (APlayerCameraManager* CameraManager = PC->PlayerCameraManager)
 				{
-					OtherPortal->CaptureComponent->SetWorldLocationAndRotation(ExitCameraLocation, TravelQ * CameraRotation);
-				}
-			}
-
-			// The game locks vertical FOV and lets horizontal FOV follow the viewport. A single FOV
-			// number on the capture keeps horizontal FOV instead, so the portal picture squeezes sideways.
-			if (UGameViewportClient* GameViewport = LocalViewportPlayer->ViewportClient)
-			{
-				if (FViewport* Viewport = GameViewport->Viewport)
-				{
-					FSceneViewProjectionData ProjectionData;
-					if (LocalViewportPlayer->GetProjectionData(Viewport, ProjectionData))
+					FQuat TravelQ = FQuat::Identity;
+					FVector ExitCameraLocation = FVector::ZeroVector;
+					const FVector CameraLocation = CameraManager->GetCameraLocation();
+					const FQuat CameraRotation = CameraManager->GetCameraRotation().Quaternion();
+					if (GetTravelQuat(TravelQ) && TranslatePoint(CameraLocation, ExitCameraLocation))
 					{
-						OtherPortal->CaptureComponent->bUseCustomProjectionMatrix = true;
-						OtherPortal->CaptureComponent->CustomProjectionMatrix = ProjectionData.ProjectionMatrix;
+						OtherPortal->CaptureComponent->SetWorldLocationAndRotation(ExitCameraLocation, TravelQ * CameraRotation);
+					}
+				}
+
+				// The game locks vertical FOV and lets horizontal FOV follow the viewport. A single FOV
+				// number on the capture keeps horizontal FOV instead, so the portal picture squeezes sideways.
+				if (UGameViewportClient* GameViewport = LocalViewportPlayer->ViewportClient)
+				{
+					if (FViewport* Viewport = GameViewport->Viewport)
+					{
+						FSceneViewProjectionData ProjectionData;
+						if (LocalViewportPlayer->GetProjectionData(Viewport, ProjectionData))
+						{
+							OtherPortal->CaptureComponent->bUseCustomProjectionMatrix = true;
+							OtherPortal->CaptureComponent->CustomProjectionMatrix = ProjectionData.ProjectionMatrix;
+						}
 					}
 				}
 			}
 		}
+
+		// Owning client detects crossing and predicts; server commits via ServerTeleportThroughPortal.
+		if (AActionDemoCharacter* LocalCharacter = Cast<AActionDemoCharacter>(PC->GetCharacter()))
+		{
+			if (LocalCharacter->GetCurrentPortal() == this
+				&& IsPointBehindPlane(LocalCharacter->GetActorLocation(), -2.0f))
+			{
+				LocalCharacter->RequestPortalTeleport(this);
+			}
+		}
 	}
 
-	// Owning client detects crossing and predicts; server commits via ServerTeleportThroughPortal.
-	if (LocalPlayer && LocalPlayer->IsLocallyControlled() && LocalPlayer->GetCurrentPortal() == this
-		&& IsPointBehindPlane(LocalPlayer->GetActorLocation(), -2.0f))
+	if (CaptureComponent && GetNetMode() != NM_DedicatedServer)
 	{
-		LocalPlayer->RequestPortalTeleport(this);
+		CaptureComponent->ClipPlaneBase = GetPlaneOrigin();
+		CaptureComponent->ClipPlaneNormal = GetActorForwardVector();
+
+		const FLinearColor Origin = FLinearColor(Plane->GetComponentLocation());
+		const FLinearColor Normal = FLinearColor(GetActorForwardVector());
+		const FLinearColor OtherOrigin = FLinearColor(OtherPortal->Plane->GetComponentLocation());
+		const FLinearColor OtherNormal = FLinearColor(OtherPortal->GetActorForwardVector());
+
+		for (const TPair<AActor*, AActor*>& Pair : TeleportingObjects)
+		{
+			SetActorClip(Pair.Key, Origin, Normal, true);
+			if (Pair.Value)
+			{
+				SetActorClip(Pair.Value, OtherOrigin, OtherNormal, true);
+			}
+		}
 	}
-
-	const FLinearColor Origin = FLinearColor(Plane->GetComponentLocation());
-	const FLinearColor Normal = FLinearColor(GetActorForwardVector());
-	const FLinearColor OtherOrigin = FLinearColor(OtherPortal->Plane->GetComponentLocation());
-	const FLinearColor OtherNormal = FLinearColor(OtherPortal->GetActorForwardVector());
-
-	CaptureComponent->ClipPlaneBase = GetPlaneOrigin();
-	CaptureComponent->ClipPlaneNormal = GetActorForwardVector();
 
 	TArray<AActor*> ToHandOff;
 	for (const TPair<AActor*, AActor*>& Pair : TeleportingObjects)
@@ -1502,11 +1533,6 @@ void APortal::Tick(float DeltaTime)
 		if (!IsSimulatingThroughPortal(Pair.Key))
 		{
 			SetSimulatingThroughPortal(Pair.Key, true);
-		}
-		SetActorClip(Pair.Key, Origin, Normal, true);
-		if (Pair.Value)
-		{
-			SetActorClip(Pair.Value, OtherOrigin, OtherNormal, true);
 		}
 		if (Pair.Value && IsPointBehindPlane(Pair.Key->GetActorLocation(), -2.0f) && ActorFitsAperture(Pair.Key))
 		{
@@ -1692,7 +1718,12 @@ void APortal::Teleport(AActionDemoCharacter* Character)
 
 void APortal::SetActorClip(AActor* Actor, const FLinearColor Origin, const FLinearColor Normal, const bool bEnable)
 {
-	if (!Actor) return;
+	// Clip MIDs are view-only. Physics/handoff run on every machine; visuals stay local.
+	if (!Actor || GetNetMode() == NM_DedicatedServer)
+	{
+		return;
+	}
+
 	TArray<UMeshComponent*> Meshes;
 	Actor->GetComponents<UMeshComponent>(Meshes);
 	for (UMeshComponent* Mesh : Meshes)
