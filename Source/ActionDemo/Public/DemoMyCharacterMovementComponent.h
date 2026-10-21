@@ -168,14 +168,12 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 	UPROPERTY(EditDefaultsOnly) float Grapple_MaxTension = 700.0f;
 	UPROPERTY(EditDefaultsOnly) float Grapple_CamOffset = 60.0f;
 	UPROPERTY(EditDefaultsOnly) float Grapple_PullAwayAngle = 270.0f;
+	UPROPERTY(EditDefaultsOnly) float GrappleSpeed = 4000.0f;
 	float GrappleCooldown = 1.0f;
 	float AuthGrappleCooldown = 0.9f;
 	float GrappleTime = -GrappleCooldown;
-
-public:
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly) float GrappleSpeed = 4000.0f;
-	UPROPERTY(BlueprintReadOnly) FVector GrappleEndLoc;
-	UPROPERTY(BlueprintReadOnly) TEnumAsByte<EGrapplingStage> GrappleStage = GRAPPLE_NONE;
+	FVector GrappleEndLoc;
+	EGrapplingStage GrappleStage = GRAPPLE_NONE;
 	FVector Grapple_Pivot;
 	FVector Grapple_PivotNormal;
 	UPrimitiveComponent* Grapple_Target = nullptr;
