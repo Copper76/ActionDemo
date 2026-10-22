@@ -23,8 +23,9 @@ This project is a demo project using Unreal Engine. The project is a practice pr
 - [ ] Make gun animation sprint
 - [ ] Make mantle and other movement animations
 - [ ] Make gun recoil properly
-- [ ] Make portal work with all orientation
-- [ ] Rework the logic of portal so it feels better and can fire through
+- [X] Make portal work with all orientation
+- [X] Rework the logic of portal so it feels better and can fire through
+- [X] Make functions work with network
 
 ## Controls
 - WSAD to move around
