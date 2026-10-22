@@ -17,6 +17,3 @@ public:
 protected:
 	virtual APawn* SpawnDefaultPawnFor_Implementation(AController* NewPlayer, AActor* StartSpot) override;
 };
-
-
-

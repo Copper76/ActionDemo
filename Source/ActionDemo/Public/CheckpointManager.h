@@ -4,30 +4,41 @@
 #include "Subsystems/WorldSubsystem.h"
 #include "CheckpointManager.generated.h"
 
+class AActionDemoCharacter;
+
+struct FCharacterCheckpointState
+{
+	int32 CheckpointIndex = 0;
+	FTransform SpawnTransform = FTransform::Identity;
+};
+
 /**
- *
+ * Server/listen/standalone world subsystem: level checkpoints + per-character progress.
+ * Clients request respawn via character Server RPC; this only exists on authority worlds.
  */
 UCLASS()
 class ACTIONDEMO_API UCheckpointManager : public UWorldSubsystem
 {
-    GENERATED_BODY()
-
-protected:
-    virtual void OnWorldBeginPlay(UWorld& InWorld) override;
+	GENERATED_BODY()
 
 public:
-    inline void SetCheckpointIndex(const int32 InCheckpointIndex) { CurrentCheckpoint = FMath::Max(CurrentCheckpoint, InCheckpointIndex); }
+	virtual bool ShouldCreateSubsystem(UObject* Outer) const override;
+	virtual void OnWorldBeginPlay(UWorld& InWorld) override;
 
-    inline const int32 GetCheckpointIndex() const { return CurrentCheckpoint; }
+	void RegisterCharacter(AActionDemoCharacter* Character);
+	void UnregisterCharacter(AActionDemoCharacter* Character);
 
-    inline void AddCheckpoint(const int32 InCheckpointIndex, const FTransform InCheckpoint) { CheckpointMap.Add(InCheckpointIndex, InCheckpoint); }
+	void SetCharacterCheckpoint(AActionDemoCharacter* Character, int32 CheckpointIndex);
 
-    inline FTransform* GetCheckpoint(const int32 CheckpointIndex) { return CheckpointMap.Find(CheckpointIndex); }
-
-    inline FTransform* GetLastCheckpoint() { return CheckpointMap.Find(CurrentCheckpoint); }
+	/** Teleport the character to their last reached checkpoint (authority only). */
+	void RespawnCharacter(AActionDemoCharacter* Character);
 
 private:
-    TMap<int32, FTransform> CheckpointMap;
+	bool IsAuthorityWorld() const;
+	FTransform GetRespawnTransform(AActionDemoCharacter* Character) const;
 
-    int32 CurrentCheckpoint = 0;
+	/** Level-placed checkpoint index → transform. */
+	TMap<int32, FTransform> CheckpointMap;
+
+	TMap<TObjectPtr<AActionDemoCharacter>, FCharacterCheckpointState> CharacterStates;
 };

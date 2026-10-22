@@ -98,7 +98,8 @@ public:
 	inline float GetCurrentRoll() const { return CurrentRoll; }
 
 protected:
-	virtual void BeginPlay();
+	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 public:
 		
@@ -272,7 +273,11 @@ public:
 	bool isAiming = false;
 
 private:
-	void ReturnToLastCheckpoint();
+	/** Local: detect kill-Z / death and ask the server to respawn. */
+	void RequestReturnToLastCheckpoint();
+
+	UFUNCTION(Server, Reliable)
+	void ServerRequestReturnToCheckpoint();
 
 	void ApplyGrappleCableVisual(bool bActive, const FVector& EndWorldLocation);
 
@@ -281,6 +286,9 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Defaults", meta = (AllowPrivateAccess))
 	float KillZ = -1000.0f;
+
+	/** Prevents spamming ServerRequestReturnToCheckpoint while still below KillZ. */
+	bool bCheckpointRespawnPending = false;
 
 	float CurrentRoll = 0.0f;
 };

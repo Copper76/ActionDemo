@@ -116,15 +116,13 @@ void AActionDemoCharacter::BeginPlay()
 	// 	m_FlattenCamera->TextureTarget->InitAutoFormat(ViewportSize.X, ViewportSize.Y);
 	// }
 
-	// Temporarily disabled: CheckpointManager is world-global / not multiplayer-safe.
-	// if (UCheckpointManager* CheckpointManager = GetWorld()->GetSubsystem<UCheckpointManager>())
-	// {
-	// 	CheckpointManager->AddCheckpoint(0, GetActorTransform());
-	// 	if (CheckpointManager->GetCheckpointIndex() != 0)
-	// 	{
-	// 		//To be confirmed
-	// 	}
-	// }
+	if (HasAuthority())
+	{
+		if (UCheckpointManager* Manager = GetWorld()->GetSubsystem<UCheckpointManager>())
+		{
+			Manager->RegisterCharacter(this);
+		}
+	}
 
 	CameraOffset = PlayerCamera->GetRelativeLocation();
 
@@ -132,6 +130,19 @@ void AActionDemoCharacter::BeginPlay()
 	AttachWeapon();
 	BindWeaponInput();
 	ApplyHolsterState();
+}
+
+void AActionDemoCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (HasAuthority() && GetWorld())
+	{
+		if (UCheckpointManager* Manager = GetWorld()->GetSubsystem<UCheckpointManager>())
+		{
+			Manager->UnregisterCharacter(this);
+		}
+	}
+
+	Super::EndPlay(EndPlayReason);
 }
 
 void AActionDemoCharacter::ServerPlacePortal_Implementation(bool bIsBlue, FVector_NetQuantize Centre, FRotator Rotation, TSubclassOf<APortal> PortalClass)
@@ -544,9 +555,16 @@ void AActionDemoCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	if (GetActorLocation().Z < KillZ)
+	if (IsLocallyControlled())
 	{
-		ReturnToLastCheckpoint();
+		if (GetActorLocation().Z < KillZ)
+		{
+			RequestReturnToLastCheckpoint();
+		}
+		else
+		{
+			bCheckpointRespawnPending = false;
+		}
 	}
 
 	CurrentRoll = FMath::FInterpTo(CurrentRoll, -TargetRoll, DeltaTime, TiltSpeed);
@@ -672,15 +690,28 @@ bool AActionDemoCharacter::IsSprinting() const
 	return DemoMyCharacterMovementComponent ? DemoMyCharacterMovementComponent->bIsSprinting : false;
 }
 
-void AActionDemoCharacter::ReturnToLastCheckpoint()
+void AActionDemoCharacter::RequestReturnToLastCheckpoint()
+{
+	if (!IsLocallyControlled() || bCheckpointRespawnPending)
+	{
+		return;
+	}
+
+	bCheckpointRespawnPending = true;
+	ServerRequestReturnToCheckpoint();
+}
+
+void AActionDemoCharacter::ServerRequestReturnToCheckpoint_Implementation()
 {
 	PushGrappleCableVisual(false, GetActorLocation());
-	DemoMyCharacterMovementComponent->SetMovementMode(EMovementMode::MOVE_Falling);
-	if (UCheckpointManager* CheckpointManager = GetWorld()->GetSubsystem<UCheckpointManager>())
+	if (DemoMyCharacterMovementComponent)
 	{
-		FTransform LastCheckpoint = *CheckpointManager->GetLastCheckpoint();
-		Controller->SetControlRotation(LastCheckpoint.GetRotation().Rotator());
-		SetActorLocation(LastCheckpoint.GetLocation(), false, nullptr, ETeleportType::ResetPhysics);
+		DemoMyCharacterMovementComponent->SetMovementMode(EMovementMode::MOVE_Falling);
+	}
+
+	if (UCheckpointManager* Manager = GetWorld()->GetSubsystem<UCheckpointManager>())
+	{
+		Manager->RespawnCharacter(this);
 	}
 }
 
