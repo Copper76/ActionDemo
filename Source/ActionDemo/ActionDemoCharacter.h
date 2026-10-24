@@ -111,7 +111,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Weapon)
 	TSubclassOf<AActor> WeaponClass;
 
-	/** Socket on the 3P body mesh for other players' view of the gun. */
+	/** Socket on the 3P body mesh for other players' view of the gun / grapple cable. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Weapon)
 	FName ThirdPersonWeaponSocket = FName(TEXT("hand_r"));
 
@@ -121,7 +121,7 @@ public:
 
 	/** Replicated: hide gun for everyone; owning client also swaps fire mapping. */
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Holstered, Category = Weapon)
-	bool bHolstered = false;
+	bool bHolstered = true;
 
 	UFUNCTION(BlueprintCallable, Category = Weapon)
 	bool IsHolstered() const { return bHolstered; }
@@ -156,7 +156,12 @@ protected:
 	/** Owner: Mesh1P GripPoint. Remotes: 3P mesh socket. */
 	void AttachWeapon();
 
+	/** Same sockets as AttachWeapon (GripPoint / ThirdPersonWeaponSocket). */
+	void AttachGrappler();
+
 	void BindWeaponInput();
+
+	virtual void NotifyControllerChanged() override;
 
 	UFUNCTION()
 	void OnRep_Weapon();

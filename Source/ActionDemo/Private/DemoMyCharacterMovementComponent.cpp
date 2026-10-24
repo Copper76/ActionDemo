@@ -498,6 +498,25 @@ bool UDemoMyCharacterMovementComponent::IsCustomMovementMode(ECustomMovementMode
 	return MovementMode == MOVE_Custom && CustomMovementMode == InCustomMovementMode;
 }
 
+ECustomMovementMode UDemoMyCharacterMovementComponent::GetCustomMovementMode() const
+{
+	return MovementMode == MOVE_Custom ? static_cast<ECustomMovementMode>(CustomMovementMode) : CMOVE_None;
+}
+
+FVector2D UDemoMyCharacterMovementComponent::GetAnimMoveVelocity() const
+{
+	if (!UpdatedComponent)
+	{
+		return FVector2D::ZeroVector;
+	}
+
+	const FVector Local = UpdatedComponent->GetComponentQuat().UnrotateVector(Velocity);
+	// Capsule local: X = forward, Y = right, Z = up
+	const float Right = Local.Y;
+	const float Along = IsClimbing() ? Local.Z : Local.X;
+	return FVector2D(Right, Along);
+}
+
 UDemoMyCharacterMovementComponent::UDemoMyCharacterMovementComponent() : Super()
 {
 	SetNetworkMoveDataContainer(DemoNetworkMoveDataContainer);

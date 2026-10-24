@@ -50,7 +50,7 @@ AActionDemoCharacter::AActionDemoCharacter(const FObjectInitializer& ObjectIniti
 
 	DemoMyCharacterMovementComponent = Cast<UDemoMyCharacterMovementComponent>(GetCharacterMovement());
 
-	bHolstered = false;
+	bHolstered = true;
 
 	static ConstructorHelpers::FClassFinder<AActor> WeaponClassFinder(TEXT("/Game/FirstPerson/Blueprints/BP_PickUp_Rifle"));
 	if (WeaponClassFinder.Succeeded())
@@ -60,6 +60,12 @@ AActionDemoCharacter::AActionDemoCharacter(const FObjectInitializer& ObjectIniti
 
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(55.f, 96.0f);
+
+	// Dual mesh: local player sees Mesh1P only; remotes see the full body.
+	if (USkeletalMeshComponent* BodyMesh = GetMesh())
+	{
+		BodyMesh->SetOwnerNoSee(true);
+	}
 
 	CameraOffset = FVector(-10.f, 0.f, 60.f);
 		
@@ -128,8 +134,16 @@ void AActionDemoCharacter::BeginPlay()
 
 	SpawnWeapon();
 	AttachWeapon();
+	AttachGrappler();
 	BindWeaponInput();
 	ApplyHolsterState();
+}
+
+void AActionDemoCharacter::NotifyControllerChanged()
+{
+	Super::NotifyControllerChanged();
+	AttachWeapon();
+	AttachGrappler();
 }
 
 void AActionDemoCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -424,6 +438,38 @@ void AActionDemoCharacter::AttachWeapon()
 	}
 }
 
+void AActionDemoCharacter::AttachGrappler()
+{
+	if (!Grappler)
+	{
+		return;
+	}
+
+	USkeletalMeshComponent* AttachMesh = nullptr;
+	FName Socket = NAME_None;
+
+	if (IsLocallyControlled() && Mesh1P)
+	{
+		AttachMesh = Mesh1P;
+		Socket = FName(TEXT("GripPoint"));
+	}
+	else if (GetMesh())
+	{
+		AttachMesh = GetMesh();
+		Socket = ThirdPersonWeaponSocket;
+	}
+	else if (Mesh1P)
+	{
+		AttachMesh = Mesh1P;
+		Socket = FName(TEXT("GripPoint"));
+	}
+
+	if (AttachMesh)
+	{
+		Grappler->AttachToComponent(AttachMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Socket);
+	}
+}
+
 void AActionDemoCharacter::BindWeaponInput()
 {
 	if (!IsLocallyControlled() || !Weapon)
@@ -667,6 +713,7 @@ void AActionDemoCharacter::ApplyGrappleCableVisual(bool bActive, const FVector& 
 	Grappler->SetHiddenInGame(!bActive);
 	if (bActive)
 	{
+		AttachGrappler();
 		Grappler->EndLocation = Grappler->GetComponentTransform().InverseTransformPosition(EndWorldLocation);
 	}
 	else

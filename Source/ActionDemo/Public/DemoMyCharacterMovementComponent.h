@@ -22,10 +22,10 @@ enum ECustomMovementMode
 UENUM(BlueprintType)
 enum EGrapplingStage
 {
-	GRAPPLE_SHOOT,
-	GRAPPLE_INPROGRESS,
-	GRAPPLE_RETRACT,
-	GRAPPLE_NONE
+	GRAPPLE_SHOOT UMETA(DisplayName = "Shoot"),
+	GRAPPLE_INPROGRESS UMETA(DisplayName = "InProgress"),
+	GRAPPLE_RETRACT UMETA(DisplayName = "Retract"),
+	GRAPPLE_NONE UMETA(DisplayName = "None"),
 };
 
 UCLASS()
@@ -348,6 +348,25 @@ public:
 
 	UFUNCTION(BlueprintCallable) bool IsCustomMovementMode(ECustomMovementMode InCustomMovementMode) const;
 
+	/** CMOVE_None when not in MOVE_Custom; otherwise the active custom mode. */
+	UFUNCTION(BlueprintPure, Category = "Animation")
+	ECustomMovementMode GetCustomMovementMode() const;
+
+	/**
+	 * AnimBP blend-space vector in capsule space: X = right, Y = forward.
+	 * While climbing, Y is up-the-wall (local Z) instead of forward.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Animation")
+	FVector2D GetAnimMoveVelocity() const;
+
+	/** Shoot / InProgress / Retract / None — use this for grapple anims, not only CMOVE_Grapple. */
+	UFUNCTION(BlueprintPure, Category = "Animation")
+	EGrapplingStage GetGrappleStage() const { return GrappleStage; }
+
+	/** Meaningful while wall-running; true = wall on right. */
+	UFUNCTION(BlueprintPure, Category = "Animation")
+	bool WallRunningIsRight() const { return Safe_bWallRunIsRight; }
+
 	void AlignMovement(const FQuat& RelativeRotation, const FQuat& ViewRotation);
 
 //private:
@@ -360,7 +379,6 @@ private:
 	bool IsSliding() const { return IsCustomMovementMode(CMOVE_Slide); }
 	bool IsClimbing() const { return IsCustomMovementMode(CMOVE_Climb); }
 	bool IsGrappling() const { return IsCustomMovementMode(CMOVE_Grapple); }
-	bool WallRunningIsRight() const { return Safe_bWallRunIsRight;  }
 	bool IsMovementMode(EMovementMode InMovementMode) const;
 	float CapR() const;
 	float CapHH() const;
