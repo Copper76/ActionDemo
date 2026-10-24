@@ -41,6 +41,8 @@ void AActionDemoCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 	DOREPLIFETIME(AActionDemoCharacter, CurrentPortal);
 	DOREPLIFETIME(AActionDemoCharacter, Weapon);
 	DOREPLIFETIME(AActionDemoCharacter, bHolstered);
+	DOREPLIFETIME(AActionDemoCharacter, bSuppressWeapon);
+	DOREPLIFETIME(AActionDemoCharacter, bPrevHolstered);
 	DOREPLIFETIME(AActionDemoCharacter, bGrappleCableActive);
 	DOREPLIFETIME(AActionDemoCharacter, GrappleCableEndWS);
 }
@@ -342,6 +344,11 @@ void AActionDemoCharacter::Look(const FInputActionValue& Value)
 
 void AActionDemoCharacter::SwapControl()
 {
+	if (bSuppressWeapon)
+	{
+		return;
+	}
+
 	SetHolstered(!bHolstered);
 }
 
@@ -369,6 +376,24 @@ void AActionDemoCharacter::ServerSetHolstered_Implementation(bool bInHolstered)
 	}
 	bHolstered = bInHolstered;
 	ApplyHolsterState();
+}
+
+void AActionDemoCharacter::ForceHolsterForParkour()
+{
+	bSuppressWeapon = true;
+	bPrevHolstered = bHolstered;
+	SetHolstered(true);
+}
+
+void AActionDemoCharacter::TryRestoreWeaponAfterParkour()
+{
+	if (!bSuppressWeapon)
+	{
+		return;
+	}
+
+	bSuppressWeapon = false;
+	SetHolstered(bPrevHolstered);
 }
 
 void AActionDemoCharacter::SpawnWeapon()

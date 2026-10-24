@@ -123,11 +123,21 @@ public:
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Holstered, Category = Weapon)
 	bool bHolstered = true;
 
+	UPROPERTY(BlueprintReadOnly, Replicated, Category = Weapon)
+	bool bSuppressWeapon = false;
+
+	UPROPERTY(BlueprintReadOnly, Replicated, Category = Weapon)
+	bool bPrevHolstered = false;
+
 	UFUNCTION(BlueprintCallable, Category = Weapon)
 	bool IsHolstered() const { return bHolstered; }
 
 	UFUNCTION(BlueprintCallable, Category = Weapon)
 	void SetHolstered(bool bInHolstered);
+
+	/** Climb / active grapple: gun forced holstered; restore after if it was drawn. */
+	void ForceHolsterForParkour();
+	void TryRestoreWeaponAfterParkour();
 
 	inline UCableComponent* GetGrappler() { return Grappler; }
 

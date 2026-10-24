@@ -116,11 +116,19 @@ void UDemoMyCharacterMovementComponent::OnMovementModeChanged(EMovementMode Prev
 	if (PreviousMovementMode == MOVE_Custom && PreviousCustomMode == CMOVE_Climb)
 	{
 		Safe_bFellOff = true;
+		if (DemoCharacterOwner)
+		{
+			DemoCharacterOwner->TryRestoreWeaponAfterParkour();
+		}
 	}
 
 	if (IsCustomMovementMode(CMOVE_Climb))
 	{
 		ClimbTime = 0.0f;
+		if (DemoCharacterOwner)
+		{
+			DemoCharacterOwner->ForceHolsterForParkour();
+		}
 	}
 
 	if (IsWallRunning() && GetOwnerRole() == ROLE_SimulatedProxy)
@@ -1450,6 +1458,7 @@ void UDemoMyCharacterMovementComponent::DoGrapple()
 	Grappler->EndLocation = GrappleEndLoc;
 	Grappler->SetHiddenInGame(false);
 	GrappleStage = GRAPPLE_SHOOT;
+	DemoCharacterOwner->ForceHolsterForParkour();
 	DemoCharacterOwner->PushGrappleCableVisual(true, Grappler->GetComponentLocation());
 }
 
@@ -1529,6 +1538,7 @@ void UDemoMyCharacterMovementComponent::TickGrapple(const float DeltaTime)
 			Grappler->SetHiddenInGame(true);
 			GrappleStage = GRAPPLE_NONE;
 			DemoCharacterOwner->PushGrappleCableVisual(false, Grappler->GetComponentLocation());
+			DemoCharacterOwner->TryRestoreWeaponAfterParkour();
 		}
 		else
 		{
