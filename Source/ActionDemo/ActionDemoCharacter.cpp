@@ -321,8 +321,6 @@ void AActionDemoCharacter::CheckJumpInput(float DeltaTime)
 			}
 
 			bWasJumping = bDidJump;
-
-			DemoMyCharacterMovementComponent->TryFinishMantleTransition();
 		}
 	}
 }

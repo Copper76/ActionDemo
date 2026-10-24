@@ -58,7 +58,6 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 		uint8 Saved_bFellOff : 1;
 
 		uint8 Saved_bHadAnimRootMotion : 1;
-		uint8 Saved_bTransitionFinished : 1;
 
 		FVector Saved_GrapplePivot;
 		FVector Saved_GrapplePivotNormal;
@@ -141,10 +140,7 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 	UPROPERTY(EditDefaultsOnly) float Mantle_MinWallSteepnessAngle = 75.0f;
 	UPROPERTY(EditDefaultsOnly) float Mantle_MaxSurfaceAngle = 40.0f;
 	UPROPERTY(EditDefaultsOnly) float Mantle_MaxAlignmentAngle = 45.0f;
-	UPROPERTY(EditDefaultsOnly) UAnimMontage* Mantle_TallMontage;
-	UPROPERTY(EditDefaultsOnly) UAnimMontage* Mantle_TransitionTallMontage;
-	UPROPERTY(EditDefaultsOnly) UAnimMontage* Mantle_ShortMontage;
-	UPROPERTY(EditDefaultsOnly) UAnimMontage* Mantle_TransitionShortMontage;
+	UPROPERTY(EditDefaultsOnly) UAnimMontage* Mantle_Montage;
 
 	//Climb
 	UPROPERTY(EditDefaultsOnly) float Climb_MaxSpeed = 300.0f;
@@ -206,12 +202,6 @@ public:
 	bool Safe_bFellOff;
 
 	bool Safe_bHadAnimRootMotion;
-
-	bool Safe_bTransitionFinished;
-	TSharedPtr<FRootMotionSource_MoveToForce> TransitionRMS;
-	UPROPERTY(Transient) UAnimMontage* TransitionQueueMontage;
-	float TransitionQueueMontageSpeed;
-	int TransitionRMS_ID;
 
 public:
 	bool bIsSprinting = false;
@@ -312,7 +302,6 @@ private:
 //Mantle
 public:
 	bool TryMantle();
-	void TryFinishMantleTransition();
 private:
 	FVector GetMantleStartLocation(FHitResult FrontHit, FHitResult SurfaceHit) const;
 
@@ -370,8 +359,7 @@ public:
 	void AlignMovement(const FQuat& RelativeRotation, const FQuat& ViewRotation);
 
 //private:
-	//UFUNCTION() void OnRep_ShortMantle();
-	//UFUNCTION() void OnRep_TallMantle();
+	//UFUNCTION() void OnRep_Mantle();
 
 //Helper
 private:

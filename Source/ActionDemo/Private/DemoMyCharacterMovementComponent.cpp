@@ -444,11 +444,6 @@ void UDemoMyCharacterMovementComponent::UpdateCharacterStateAfterMovement(float 
 	{
 		SetMovementMode(MOVE_Walking);
 	}
-	if (GetRootMotionSourceByID(TransitionRMS_ID) && GetRootMotionSourceByID(TransitionRMS_ID)->Status.HasFlag(ERootMotionSourceStatusFlags::Finished))
-	{
-		RemoveRootMotionSourceByID(TransitionRMS_ID);
-		Safe_bTransitionFinished = true;
-	}
 
 	Safe_bHadAnimRootMotion = HasAnimRootMotion();
 }
@@ -626,8 +621,6 @@ void UDemoMyCharacterMovementComponent::FSavedMove_Demo::SetMoveFor(ACharacter* 
 
 	Saved_bHadAnimRootMotion = CharacterMovement->Safe_bHadAnimRootMotion;
 
-	Saved_bTransitionFinished = CharacterMovement->Safe_bTransitionFinished;
-
 	Saved_GravityDirection = CharacterMovement->GetGravityDirection();
 }
 
@@ -653,8 +646,6 @@ void UDemoMyCharacterMovementComponent::FSavedMove_Demo::PrepMoveFor(ACharacter*
 	CharacterMovement->Grapple_TargetMovable = Saved_bGrappleTargetMovable;
 
 	CharacterMovement->Safe_bHadAnimRootMotion = Saved_bHadAnimRootMotion;
-
-	CharacterMovement->Safe_bTransitionFinished = Saved_bTransitionFinished;
 
 	CharacterMovement->SetGravityDirection(Saved_GravityDirection);
 }
@@ -1032,12 +1023,10 @@ void UDemoMyCharacterMovementComponent::PhysSlide(float DeltaTime, int32 Iterati
 bool UDemoMyCharacterMovementComponent::TryMantle()
 {
 	return false;
-	//Check mode
 	if (!IsMovementMode(MOVE_Walking) && !IsMovementMode(MOVE_Falling)) return false;
 
 	const FVector NormalisedGravity = GetNormalisedGravity();
 
-	//Check facing a wall
 	FVector BaseLoc = UpdatedComponent->GetComponentLocation() + NormalisedGravity * CapHH();
 	FVector Fwd = FVector::VectorPlaneProject(UpdatedComponent->GetForwardVector(), -NormalisedGravity).GetSafeNormal();
 	float MaxHeight = CapHH() + Mantle_ReachHeight;
@@ -1050,20 +1039,19 @@ bool UDemoMyCharacterMovementComponent::TryMantle()
 	FVector FrontStart = BaseLoc - NormalisedGravity * (MaxStepHeight - 1);
 	for (int i = 0; i < 6; i++)
 	{
-		if (UPortalTraceLibrary::LineTraceSingleByProfile(GetWorld(), FrontHit, FrontStart, FrontStart + Fwd*CheckDistance, "BlockAll",DemoCharacterOwner->GetIgnoreCharacterParams())) break;
+		if (UPortalTraceLibrary::LineTraceSingleByProfile(GetWorld(), FrontHit, FrontStart, FrontStart + Fwd * CheckDistance, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) break;
 		FrontStart -= NormalisedGravity * (2.0f * CapHH() - (MaxStepHeight - 1)) / 5;
 	}
 	if (!FrontHit.IsValidBlockingHit()) return false;
 	float CosWallSteepnessAngle = FrontHit.Normal | -NormalisedGravity;
 	if (FMath::Abs(CosWallSteepnessAngle) > CosMMWSA || (Fwd | -FrontHit.Normal) < CosMMAA) return false;
-	
-	//Check top surface
+
 	TArray<FHitResult> HeightHits;
 	FHitResult SurfaceHit;
 	FVector WallUp = FVector::VectorPlaneProject(-NormalisedGravity, FrontHit.Normal).GetSafeNormal();
 	float WallCos = -NormalisedGravity | FrontHit.Normal;
 	float WallSin = FMath::Sqrt(1 - WallCos * WallCos);
-	FVector TraceStart = FrontHit.Location + Fwd + WallUp * (MaxHeight - (MaxStepHeight - 1)) / WallSin;//Fwd is used to avoid edge cases
+	FVector TraceStart = FrontHit.Location + Fwd + WallUp * (MaxHeight - (MaxStepHeight - 1)) / WallSin;
 
 	if (!UPortalTraceLibrary::LineTraceMultiByProfile(GetWorld(), HeightHits, TraceStart, FrontHit.Location + Fwd, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) return false;
 
@@ -1077,73 +1065,40 @@ bool UDemoMyCharacterMovementComponent::TryMantle()
 	}
 	if (!SurfaceHit.IsValidBlockingHit() || (SurfaceHit.Normal | -NormalisedGravity) < CosMMSA) return false;
 	float Height = (SurfaceHit.Location - BaseLoc) | -NormalisedGravity;
-
 	if (Height > MaxHeight) return false;
 
-	//Check Clearance on top
 	float SurfaceCos = -NormalisedGravity | SurfaceHit.Normal;
 	float SurfaceSin = FMath::Sqrt(1 - SurfaceCos * SurfaceCos);
 	FVector ClearCapLoc = SurfaceHit.Location + Fwd * CapR() - NormalisedGravity * (CapHH() + 1 + CapR() * 2 * SurfaceSin);
 	FCollisionShape CapShape = FCollisionShape::MakeCapsule(CapR(), CapHH());
 	FCollisionShape CrouchedCapShape = FCollisionShape::MakeCapsule(CapR(), GetCrouchedHalfHeight());
-	CAPSULE(ClearCapLoc, FColor::Red);
-	CROUCHCAPSULE(ClearCapLoc, FColor::Red);
 	if (GetWorld()->OverlapAnyTestByProfile(ClearCapLoc, FQuat::Identity, "BlockAll", CapShape, DemoCharacterOwner->GetIgnoreCharacterParams()))
 	{
 		if (!GetWorld()->OverlapAnyTestByProfile(ClearCapLoc, FQuat::Identity, "BlockAll", CrouchedCapShape, DemoCharacterOwner->GetIgnoreCharacterParams()))
 		{
-			bWantsToCrouch = true;//explore how it should be done
+			bWantsToCrouch = true;
 		}
-		else 
+		else
 		{
 			return false;
 		}
 	}
 
-	//Mantle Selection
-	FVector TransitionTarget = GetMantleStartLocation(FrontHit, SurfaceHit);
-
-	float UpSpeed = Velocity | -NormalisedGravity;
-	float TransDistance = FVector::Dist(TransitionTarget, UpdatedComponent->GetComponentLocation());
-	TransitionQueueMontageSpeed = FMath::GetMappedRangeValueClamped(FVector2D(-500, 750), FVector2D(0.9f, 1.2f), UpSpeed);
-	TransitionRMS.Reset();
-	TransitionRMS = MakeShared<FRootMotionSource_MoveToForce>();
-	TransitionRMS->AccumulateMode = ERootMotionAccumulateMode::Override;
-
-	TransitionRMS->Duration = FMath::Clamp(TransDistance / 500.0f, 0.1f, 0.25f);
-	TransitionRMS->StartLocation = UpdatedComponent->GetComponentLocation();
-	TransitionRMS->TargetLocation = TransitionTarget;
+	const float UpSpeed = Velocity | -NormalisedGravity;
+	const float MontageSpeed = FMath::GetMappedRangeValueClamped(FVector2D(-500, 750), FVector2D(0.9f, 1.2f), UpSpeed);
+	const FVector MantleStart = GetMantleStartLocation(FrontHit, SurfaceHit);
 
 	Velocity = FVector::ZeroVector;
 	SetMovementMode(MOVE_Flying);
-	TransitionRMS_ID = ApplyRootMotionSource(TransitionRMS);
+	UpdatedComponent->SetWorldLocation(MantleStart, false, nullptr, ETeleportType::TeleportPhysics);
+	bJustTeleported = true;
 
-	TransitionQueueMontage = Mantle_ShortMontage;
-	CharacterOwner->PlayAnimMontage(Mantle_TransitionShortMontage, 1 / TransitionRMS->Duration);
-	//if (IsServer()) Proxy_bShortMantle = !Proxy_bShortMantle;
+	if (IsValid(Mantle_Montage))
+	{
+		CharacterOwner->PlayAnimMontage(Mantle_Montage, MontageSpeed);
+	}
 
 	return true;
-}
-
-void UDemoMyCharacterMovementComponent::TryFinishMantleTransition()
-{
-	if (!Safe_bTransitionFinished)
-	{
-		return;
-	}
-
-	if (IsValid(TransitionQueueMontage))
-	{
-		SetMovementMode(MOVE_Flying);
-		CharacterOwner->PlayAnimMontage(TransitionQueueMontage, TransitionQueueMontageSpeed);
-		TransitionQueueMontageSpeed = 0.0f;
-		TransitionQueueMontage = nullptr;
-	}
-	else
-	{
-		SetMovementMode(MOVE_Walking);
-	}
-	Safe_bTransitionFinished = false;
 }
 
 FVector UDemoMyCharacterMovementComponent::GetMantleStartLocation(FHitResult FrontHit, FHitResult SurfaceHit) const
@@ -1157,7 +1112,7 @@ FVector UDemoMyCharacterMovementComponent::GetMantleStartLocation(FHitResult Fro
 	float DownDistance = MaxStepHeight - 1;
 	FVector EdgeTangent = FVector::CrossProduct(SurfaceHit.Normal, FrontHit.Normal).GetSafeNormal();
 	FVector MantleStart = SurfaceHit.Location;
-	MantleStart += WallHoriz *(2.0f + CapR());
+	MantleStart += WallHoriz * (2.0f + CapR());
 	MantleStart += FwdHoriz.ProjectOnTo(EdgeTangent) * CapR() * 0.3f;
 	MantleStart -= NormalisedGravity * CapHH();
 	MantleStart += NormalisedGravity * DownDistance;
@@ -1166,7 +1121,6 @@ FVector UDemoMyCharacterMovementComponent::GetMantleStartLocation(FHitResult Fro
 }
 
 #pragma endregion
-
 #pragma region WallRun
 bool UDemoMyCharacterMovementComponent::TryWallRun()
 {
