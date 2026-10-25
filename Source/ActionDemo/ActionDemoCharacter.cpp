@@ -28,6 +28,8 @@
 #include "Portal.h"
 #include "Kismet/GameplayStatics.h"
 #include "CableComponent.h"
+#include "Animation/AnimMontage.h"
+#include "Engine/World.h"
 
 //////////////////////////////////////////////////////////////////////////
 // AActionDemoCharacter
@@ -70,28 +72,22 @@ AActionDemoCharacter::AActionDemoCharacter(const FObjectInitializer& ObjectIniti
 	}
 
 	CameraOffset = FVector(-10.f, 0.f, 60.f);
-		
-	// Create a CameraComponent	
+
 	PlayerCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
 	PlayerCamera->SetupAttachment(GetCapsuleComponent());
-	PlayerCamera->SetRelativeLocation(CameraOffset); // Position the camera
+	PlayerCamera->SetRelativeLocation(CameraOffset);
 	PlayerCamera->bUsePawnControlRotation = true;
 
-	//// Create a CaptureComponent	
 	m_FlattenCamera = CreateDefaultSubobject<USceneCaptureComponent2D>(TEXT("Flatten Camera"));
 	m_FlattenCamera->SetupAttachment(GetCapsuleComponent());
-	m_FlattenCamera->SetRelativeLocation(CameraOffset); // Position the camera
+	m_FlattenCamera->SetRelativeLocation(CameraOffset);
 
-	// Create a mesh component that will be used when being viewed from a '1st person' view (when controlling this pawn)
 	Mesh1P = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("CharacterMesh1P"));
 	Mesh1P->SetOnlyOwnerSee(true);
 	Mesh1P->SetupAttachment(PlayerCamera);
 	Mesh1P->bCastDynamicShadow = false;
 	Mesh1P->CastShadow = false;
-	//Mesh1P->SetRelativeRotation(FRotator(0.9f, -19.19f, 5.2f));
 	Mesh1P->SetRelativeLocation(FVector(-30.f, 0.f, -150.f));
-	AimingPoseLoc = Mesh1P->GetRelativeLocation();
-	AimingPoseRotation = Mesh1P->GetRelativeRotation();
 
 	//FlashCoolDown = FlashMaxCoolDown;
 
@@ -331,6 +327,7 @@ void AActionDemoCharacter::Look(const FInputActionValue& Value)
 {
 	// input is a Vector2D
 	FVector2D LookAxisVector = Value.Get<FVector2D>();
+	LastMouseInput = LookAxisVector;
 
 	if (Controller != nullptr)
 	{
@@ -340,6 +337,70 @@ void AActionDemoCharacter::Look(const FInputActionValue& Value)
 		//MuzzlePointDir = Cast<APlayerController>(GetController())->RotationInput.GetNormalized() * MuzzleMaxTilt;
 		//UE_LOG(LogTemp, Warning, TEXT("%s"), *MuzzlePointDir.ToString())
 	}
+}
+
+bool AActionDemoCharacter::IsPlayingHolsterMontage() const
+{
+	if (!HolsterMontage || !Mesh1P)
+	{
+		return false;
+	}
+	const UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance();
+	return AnimInstance && AnimInstance->Montage_IsPlaying(HolsterMontage);
+}
+
+bool AActionDemoCharacter::IsPlayingEquipMontage() const
+{
+	if (!EquipMontage || !Mesh1P)
+	{
+		return false;
+	}
+	const UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance();
+	return AnimInstance && AnimInstance->Montage_IsPlaying(EquipMontage);
+}
+
+void AActionDemoCharacter::PlayFireMontage()
+{
+	if (!FireMontage || !Mesh1P)
+	{
+		return;
+	}
+	if (UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance())
+	{
+		AnimInstance->Montage_Play(FireMontage);
+	}
+}
+
+void AActionDemoCharacter::PlayReloadMontage()
+{
+	if (!ReloadMontage || !Mesh1P)
+	{
+		return;
+	}
+	if (UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance())
+	{
+		AnimInstance->Montage_Play(ReloadMontage);
+	}
+}
+
+void AActionDemoCharacter::StopReloadMontage(float BlendOutTime)
+{
+	if (!ReloadMontage || !Mesh1P)
+	{
+		return;
+	}
+	if (UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance())
+	{
+		if (AnimInstance->Montage_IsPlaying(ReloadMontage))
+		{
+			AnimInstance->Montage_Stop(BlendOutTime, ReloadMontage);
+		}
+	}
+}
+
+bool AActionDemoCharacter::IsHolstered() const
+{
+	return bHolstered || IsPlayingHolsterMontage() || IsPlayingEquipMontage();
 }
 
 void AActionDemoCharacter::SwapControl()
@@ -362,9 +423,52 @@ void AActionDemoCharacter::SetHolstered(bool bInHolstered)
 	bHolstered = bInHolstered;
 	ApplyHolsterState();
 
+	if (IsLocallyControlled() && Mesh1P)
+	{
+		if (UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance())
+		{
+			// If canceling the other montage mid-way, start this one at the mirrored progress
+			// (e.g. equip at 70% → stow starts at 30%).
+			auto MirroredStart = [AnimInstance](UAnimMontage* Other, UAnimMontage* Next) -> float
+			{
+				if (!Other || !Next || !AnimInstance->Montage_IsPlaying(Other))
+				{
+					return 0.0f;
+				}
+				const float OtherLen = Other->GetPlayLength();
+				if (OtherLen <= KINDA_SMALL_NUMBER)
+				{
+					return 0.0f;
+				}
+				const float Alpha = FMath::Clamp(AnimInstance->Montage_GetPosition(Other) / OtherLen, 0.0f, 1.0f);
+				return (1.0f - Alpha) * Next->GetPlayLength();
+			};
+
+			if (bHolstered)
+			{
+				// Stow / suppress cancels reload mid-play (arms + weapon).
+				if (Weapon)
+				{
+					Weapon->StopReload(0.0f);
+				}
+
+				if (HolsterMontage)
+				{
+					AnimInstance->Montage_Play(HolsterMontage, 1.0f, EMontagePlayReturnType::MontageLength,
+						MirroredStart(EquipMontage, HolsterMontage));
+				}
+			}
+			else if (EquipMontage)
+			{
+				AnimInstance->Montage_Play(EquipMontage, 1.0f, EMontagePlayReturnType::MontageLength,
+					MirroredStart(HolsterMontage, EquipMontage));
+			}
+		}
+	}
+
 	if (!HasAuthority() && IsLocallyControlled())
 	{
-		ServerSetHolstered(bInHolstered);
+		ServerSetHolstered(bHolstered);
 	}
 }
 
@@ -403,8 +507,8 @@ void AActionDemoCharacter::SpawnWeapon()
 		return;
 	}
 
-	USkeletalMeshComponent* SpawnMesh = Mesh1P ? Mesh1P : GetMesh();
-	const FName SpawnSocket = (SpawnMesh == Mesh1P) ? FName(TEXT("GripPoint")) : ThirdPersonWeaponSocket;
+	USkeletalMeshComponent* SpawnMesh = (IsLocallyControlled() && Mesh1P) ? Mesh1P : (GetMesh() ? GetMesh() : Mesh1P);
+	const FName SpawnSocket = (SpawnMesh == Mesh1P) ? FirstPersonWeaponSocket : ThirdPersonWeaponSocket;
 	const FTransform SpawnTM = SpawnMesh
 		? SpawnMesh->GetSocketTransform(SpawnSocket)
 		: GetActorTransform();
@@ -425,7 +529,14 @@ void AActionDemoCharacter::SpawnWeapon()
 	NewWeapon->FinishSpawning(SpawnTM);
 	NewWeapon->SetOwner(this);
 
-	Weapon = NewWeapon;
+	Weapon = NewWeapon->FindComponentByClass<UTP_WeaponComponent>();
+	if (!Weapon)
+	{
+		NewWeapon->Destroy();
+		return;
+	}
+	Weapon->SetIsReplicated(true);
+
 	AttachWeapon();
 }
 
@@ -442,23 +553,21 @@ void AActionDemoCharacter::AttachWeapon()
 	if (IsLocallyControlled() && Mesh1P)
 	{
 		AttachMesh = Mesh1P;
-		Socket = FName(TEXT("GripPoint"));
+		Socket = FirstPersonWeaponSocket;
 	}
 	else if (GetMesh())
 	{
 		AttachMesh = GetMesh();
 		Socket = ThirdPersonWeaponSocket;
 	}
-	else if (Mesh1P)
+
+	if (!AttachMesh)
 	{
-		AttachMesh = Mesh1P;
-		Socket = FName(TEXT("GripPoint"));
+		return;
 	}
 
-	if (AttachMesh)
-	{
-		Weapon->AttachToComponent(AttachMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Socket);
-	}
+	Weapon->AttachToComponent(AttachMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Socket);
+	Weapon->SetOnlyOwnerSee(AttachMesh == Mesh1P);
 }
 
 void AActionDemoCharacter::AttachGrappler()
@@ -474,23 +583,20 @@ void AActionDemoCharacter::AttachGrappler()
 	if (IsLocallyControlled() && Mesh1P)
 	{
 		AttachMesh = Mesh1P;
-		Socket = FName(TEXT("GripPoint"));
+		Socket = FirstPersonWeaponSocket;
 	}
 	else if (GetMesh())
 	{
 		AttachMesh = GetMesh();
 		Socket = ThirdPersonWeaponSocket;
 	}
-	else if (Mesh1P)
+
+	if (!AttachMesh)
 	{
-		AttachMesh = Mesh1P;
-		Socket = FName(TEXT("GripPoint"));
+		return;
 	}
 
-	if (AttachMesh)
-	{
-		Grappler->AttachToComponent(AttachMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Socket);
-	}
+	Grappler->AttachToComponent(AttachMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Socket);
 }
 
 void AActionDemoCharacter::BindWeaponInput()
@@ -506,11 +612,9 @@ void AActionDemoCharacter::BindWeaponInput()
 		return;
 	}
 
-	UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PC->InputComponent);
-	UTP_WeaponComponent* WeaponComp = Weapon->FindComponentByClass<UTP_WeaponComponent>();
-	if (EnhancedInput && WeaponComp)
+	if (UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PC->InputComponent))
 	{
-		WeaponComp->BindInput(EnhancedInput);
+		Weapon->BindInput(EnhancedInput);
 	}
 }
 
@@ -540,15 +644,47 @@ void AActionDemoCharacter::ApplyHolsterState()
 
 		if (bHolstered)
 		{
-			AimingPoseLoc = FVector(-30.0f, 0.0f, -150.0f);
-			AimingPoseRotation = FRotator(0.0f, 0.0f, 0.0f);
+			SetAiming(false);
 		}
 	}
+}
 
-	if (Weapon)
+void AActionDemoCharacter::SetAiming(bool bInAiming)
+{
+	bAiming = bInAiming;
+}
+
+FRotator AActionDemoCharacter::GetAnimLookRotation() const
+{
+	FRotator ViewRotation = GetControlRotation();
+	if (DemoMyCharacterMovementComponent)
 	{
-		Weapon->SetActorHiddenInGame(bHolstered);
-		Weapon->SetActorTickEnabled(!bHolstered);
+		const FVector GravityDirection = DemoMyCharacterMovementComponent->GetGravityDirection();
+		if (!GravityDirection.Equals(FVector::DownVector))
+		{
+			const FQuat GravityRotation = FQuat::FindBetweenNormals(GravityDirection, FVector::DownVector);
+			ViewRotation = (GravityRotation * ViewRotation.Quaternion()).Rotator();
+		}
+	}
+	return ViewRotation;
+}
+
+void AActionDemoCharacter::UpdateCloseToWall()
+{
+	bCloseToWall = false;
+
+	if (!IsLocallyControlled() || !PlayerCamera || !GetWorld())
+	{
+		return;
+	}
+
+	const FVector Start = PlayerCamera->GetComponentLocation();
+	const FVector End = Start + PlayerCamera->GetForwardVector() * CloseToWallTraceDistance;
+
+	FHitResult Hit;
+	if (UPortalTraceLibrary::LineTraceSingleByChannel(GetWorld(), Hit, Start, End, ECC_Visibility, GetIgnoreCharacterParams()))
+	{
+		bCloseToWall = Hit.bBlockingHit;
 	}
 }
 
@@ -624,8 +760,12 @@ void AActionDemoCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	CurrentRoll = FMath::FInterpTo(CurrentRoll, -TargetRoll, DeltaTime, TiltSpeed);
+
 	if (IsLocallyControlled())
 	{
+		UpdateCloseToWall();
+
 		if (GetActorLocation().Z < KillZ)
 		{
 			RequestReturnToLastCheckpoint();
@@ -636,8 +776,6 @@ void AActionDemoCharacter::Tick(float DeltaTime)
 		}
 	}
 
-	CurrentRoll = FMath::FInterpTo(CurrentRoll, -TargetRoll, DeltaTime, TiltSpeed);
-
 	float CrouchInterpTime = FMath::Min(1.0f, CrouchSpeed * DeltaTime);
 	CrouchEyeOffset = (1.0f - CrouchInterpTime) * CrouchEyeOffset;
 
@@ -645,6 +783,12 @@ void AActionDemoCharacter::Tick(float DeltaTime)
 	if (!IsLocallyControlled() && bGrappleCableActive)
 	{
 		ApplyGrappleCableVisual(true, GrappleCableEndWS);
+	}
+
+	// Look runs before Tick; clear after so AnimBP sees this frame's mouse delta only.
+	if (IsLocallyControlled())
+	{
+		LastMouseInput = FVector2D::ZeroVector;
 	}
 }
 
@@ -706,12 +850,9 @@ void AActionDemoCharacter::ProcessWeaponFire(FVector TraceStart, FVector TraceEn
 
 void AActionDemoCharacter::MulticastWeaponFireFX_Implementation(FVector_NetQuantize SoundLocation)
 {
-	if (UTP_WeaponComponent* WeaponComp = Weapon ? Weapon->FindComponentByClass<UTP_WeaponComponent>() : nullptr)
+	if (Weapon && Weapon->FireSound)
 	{
-		if (WeaponComp->FireSound)
-		{
-			UGameplayStatics::PlaySoundAtLocation(this, WeaponComp->FireSound, SoundLocation);
-		}
+		UGameplayStatics::PlaySoundAtLocation(this, Weapon->FireSound, SoundLocation);
 	}
 }
 

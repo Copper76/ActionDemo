@@ -33,9 +33,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Gameplay)
 	USoundBase* FireSound;
 
-	/** AnimMontage to play each time we fire */
+	/** Weapon mesh fire montage (authority); character FireMontage tags along. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Gameplay)
-	UAnimMontage* FireAnimation;
+	TObjectPtr<UAnimMontage> WeaponFireMontage;
+
+	/** Weapon mesh reload montage (authority); character ReloadMontage tags along. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Gameplay)
+	TObjectPtr<UAnimMontage> WeaponReloadMontage;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Gameplay)
+	int32 MaxAmmo = 30;
+
+	UPROPERTY(BlueprintReadOnly, Category = Gameplay)
+	int32 Ammo = 30;
 
 	/** Gun muzzle's offset from the characters location */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Gameplay)
@@ -80,6 +90,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
 	TSubclassOf<AActor> BulletBP;
 
+	/** Shell casing spawned at EjectionSocketName on rifle Fire (not portal). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
+	TSubclassOf<AActor> CasingBP;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
+	FName EjectionSocketName = FName(TEXT("SOCKET_Ejection"));
+
 	/** Sets default values for this component's properties */
 	UTP_WeaponComponent();
 
@@ -93,6 +110,23 @@ public:
 	/** Make the weapon aim down sight */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void Aim(const FInputActionValue& Value);
+
+	/** Play WeaponReloadMontage (+ character ReloadMontage tag-along); Fire blocked while playing. */
+	UFUNCTION(BlueprintCallable, Category = "Weapon")
+	void Reload();
+
+	/** Stop WeaponReloadMontage (+ character ReloadMontage tag-along). */
+	UFUNCTION(BlueprintCallable, Category = "Weapon")
+	void StopReload(float BlendOutTime = 0.0f);
+
+	UFUNCTION(BlueprintPure, Category = "Weapon")
+	bool IsReloading() const;
+
+	UFUNCTION(BlueprintPure, Category = "Weapon")
+	int32 GetAmmo() const { return Ammo; }
+
+	UFUNCTION(BlueprintPure, Category = "Weapon")
+	int32 GetMaxAmmo() const { return MaxAmmo; }
 
 	/** Make the weapon Fire an orange Portal */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
@@ -142,8 +176,14 @@ private:
 	/** Pull the portal off the wall along the surface normal to avoid Z-fighting. */
 	float Portal_SurfaceOffset = 1.0f;
 
+	UFUNCTION()
+	void OnWeaponMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+
+	void PlayFireMontages();
+	void PlayReloadMontages();
+	void SpawnCasing();
+
 	//Assault Rifle
-	bool isReloading = false;
 	float HipFireSpread = 3.0f;
 	float FireRange = 100000.0f;
 	float BulletVertKick = 0.5f;

@@ -356,6 +356,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Animation")
 	bool WallRunningIsRight() const { return Safe_bWallRunIsRight; }
 
+	UFUNCTION(BlueprintPure, Category = "Animation")
+	bool IsSprintingForAnim() const { return bIsSprinting; }
+
+	UFUNCTION(BlueprintPure, Category = "Animation")
+	bool IsCrouchingForAnim() const { return IsCrouching(); }
+
+	/** Vertical speed against gravity (positive = moving "up"). Use for Jump_Velocity, not Velocity.Z. */
+	UFUNCTION(BlueprintPure, Category = "Animation")
+	float GetJumpVelocityForAnim() const;
+
 	void AlignMovement(const FQuat& RelativeRotation, const FQuat& ViewRotation);
 
 //private:

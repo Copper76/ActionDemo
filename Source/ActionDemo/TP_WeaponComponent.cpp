@@ -17,6 +17,10 @@
 #include "DrawDebugHelpers.h"
 #include "Portal.h"
 #include "PortalTraceLibrary.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Components/PrimitiveComponent.h"
+#include "Engine/World.h"
 
 #define POINT(x, c) DrawDebugPoint(GetWorld(), x, 10, c, !5.0f, 5.0f);
 
@@ -26,6 +30,7 @@ UTP_WeaponComponent::UTP_WeaponComponent()
 	// Default offset from the character location for projectiles to spawn
 	MuzzleOffset = FVector(100.0f, 0.0f, 10.0f);
 	PrimaryComponentTick.bCanEverTick = true;
+	Ammo = MaxAmmo;
 }
 
 void UTP_WeaponComponent::BeginPlay()
@@ -40,6 +45,11 @@ void UTP_WeaponComponent::BeginPlay()
 	if (m_Character)
 	{
 		PlayerController = Cast<APlayerController>(m_Character->GetController());
+		Ammo = MaxAmmo;
+	}
+	if (UAnimInstance* AnimInstance = GetAnimInstance())
+	{
+		AnimInstance->OnMontageEnded.AddDynamic(this, &UTP_WeaponComponent::OnWeaponMontageEnded);
 	}
 }
 
@@ -103,15 +113,20 @@ void UTP_WeaponComponent::BindInput(UEnhancedInputComponent* EnhancedInputCompon
 
 void UTP_WeaponComponent::Fire()
 {
-	if (m_Character == nullptr || PlayerController == nullptr || isReloading || m_Character->IsHolstered())
+	if (m_Character == nullptr || PlayerController == nullptr || IsReloading() || m_Character->IsHolstered() || Ammo <= 0)
 	{
 		return;
 	}
 
+	--Ammo;
+
+	PlayFireMontages();
+	SpawnCasing();
+
 	FVector Start = PlayerController->PlayerCameraManager->GetCameraLocation();
 	FRotator Fwd = PlayerController->PlayerCameraManager->GetCameraRotation();
 
-	if (m_Character->AimingPoseLoc == FVector(-15.0f, 0.0f, -155.0f))
+	if (m_Character->IsAiming())
 	{
 		m_Character->AddControllerYawInput(FMath::RandRange(-BulletSideKick, BulletSideKick));
 		if (Fwd.Pitch < 45.0f)
@@ -137,16 +152,133 @@ void UTP_WeaponComponent::Fire()
 
 void UTP_WeaponComponent::Aim(const FInputActionValue& Value)
 {
-	if (Value.Get<bool>())
+	if (!m_Character)
 	{
-		m_Character->AimingPoseLoc = FVector(-15.0f,0.0f,-155.0f);
-		m_Character->AimingPoseRotation = FRotator(0.0f, -20.0f, 0.0f);
+		return;
 	}
-	else
+
+	if (m_Character->IsHolstered() && m_Character->IsAiming())
 	{
-		m_Character->AimingPoseLoc = FVector(-30.0f, 0.0f, -150.0f);
-		m_Character->AimingPoseRotation = FRotator(0.0f, 0.0f, 0.0f);
+		m_Character->SetAiming(false);
+		return;
 	}
+
+	m_Character->SetAiming(Value.Get<bool>());
+}
+
+bool UTP_WeaponComponent::IsReloading() const
+{
+	if (!WeaponReloadMontage)
+	{
+		return false;
+	}
+	const UAnimInstance* AnimInstance = GetAnimInstance();
+	return AnimInstance && AnimInstance->Montage_IsPlaying(WeaponReloadMontage);
+}
+
+void UTP_WeaponComponent::OnWeaponMontageEnded(UAnimMontage* Montage, bool bInterrupted)
+{
+	if (!WeaponReloadMontage || Montage != WeaponReloadMontage)
+	{
+		return;
+	}
+
+	if (m_Character)
+	{
+		m_Character->StopReloadMontage(0.0f);
+	}
+
+	if (!bInterrupted)
+	{
+		Ammo = MaxAmmo;
+	}
+}
+
+void UTP_WeaponComponent::PlayFireMontages()
+{
+	if (WeaponFireMontage)
+	{
+		if (UAnimInstance* WeaponAnim = GetAnimInstance())
+		{
+			WeaponAnim->Montage_Play(WeaponFireMontage);
+		}
+	}
+	if (m_Character)
+	{
+		m_Character->PlayFireMontage();
+	}
+}
+
+void UTP_WeaponComponent::SpawnCasing()
+{
+	if (!CasingBP || !DoesSocketExist(EjectionSocketName) || !GetWorld())
+	{
+		return;
+	}
+
+	const FTransform SpawnTM = GetSocketTransform(EjectionSocketName, RTS_World);
+
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.Owner = m_Character;
+	SpawnParams.Instigator = m_Character;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	AActor* Casing = GetWorld()->SpawnActor<AActor>(CasingBP, SpawnTM, SpawnParams);
+	if (!Casing || !m_Character)
+	{
+		return;
+	}
+
+	// Casings colliding with the shooter look wrong (same as Infima BP).
+	TArray<UPrimitiveComponent*> Primitives;
+	Casing->GetComponents<UPrimitiveComponent>(Primitives);
+	for (UPrimitiveComponent* Prim : Primitives)
+	{
+		Prim->IgnoreActorWhenMoving(m_Character, true);
+	}
+}
+
+void UTP_WeaponComponent::PlayReloadMontages()
+{
+	if (WeaponReloadMontage)
+	{
+		if (UAnimInstance* WeaponAnim = GetAnimInstance())
+		{
+			WeaponAnim->Montage_Play(WeaponReloadMontage);
+		}
+	}
+	if (m_Character)
+	{
+		m_Character->PlayReloadMontage();
+	}
+}
+
+void UTP_WeaponComponent::StopReload(float BlendOutTime)
+{
+	if (WeaponReloadMontage)
+	{
+		if (UAnimInstance* WeaponAnim = GetAnimInstance())
+		{
+			if (WeaponAnim->Montage_IsPlaying(WeaponReloadMontage))
+			{
+				WeaponAnim->Montage_Stop(BlendOutTime, WeaponReloadMontage);
+			}
+		}
+	}
+	if (m_Character)
+	{
+		m_Character->StopReloadMontage(BlendOutTime);
+	}
+}
+
+void UTP_WeaponComponent::Reload()
+{
+	if (m_Character == nullptr || IsReloading() || m_Character->IsHolstered() || !WeaponReloadMontage || Ammo >= MaxAmmo)
+	{
+		return;
+	}
+
+	PlayReloadMontages();
 }
 
 void UTP_WeaponComponent::BluePortalFire()
@@ -162,16 +294,7 @@ void UTP_WeaponComponent::BluePortalFire()
 		UGameplayStatics::PlaySoundAtLocation(this, FireSound, m_Character->GetActorLocation());
 	}
 
-	// Try and play a firing animation if specified
-	if (FireAnimation != nullptr)
-	{
-		// Get the animation object for the arms mesh
-		UAnimInstance* AnimInstance = m_Character->GetMesh1P()->GetAnimInstance();
-		if (AnimInstance != nullptr)
-		{
-			AnimInstance->Montage_Play(FireAnimation, 1.f);
-		}
-	}
+	PlayFireMontages();
 
 	FVector PortalCentre;
 	FQuat PortalRotation;
@@ -217,16 +340,7 @@ void UTP_WeaponComponent::OrangePortalFire()
 		UGameplayStatics::PlaySoundAtLocation(this, FireSound, m_Character->GetActorLocation());
 	}
 
-	// Try and play a firing animation if specified
-	if (FireAnimation != nullptr)
-	{
-		// Get the animation object for the arms mesh
-		UAnimInstance* AnimInstance = m_Character->GetMesh1P()->GetAnimInstance();
-		if (AnimInstance != nullptr)
-		{
-			AnimInstance->Montage_Play(FireAnimation, 1.f);
-		}
-	}
+	PlayFireMontages();
 
 	FQuat PortalRotation;
 	FVector PortalCentre;
@@ -500,6 +614,11 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FQuat& PortalRota
 
 void UTP_WeaponComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (UAnimInstance* AnimInstance = GetAnimInstance())
+	{
+		AnimInstance->OnMontageEnded.RemoveDynamic(this, &UTP_WeaponComponent::OnWeaponMontageEnded);
+	}
+
 	if (PlayerController)
 	{
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))

@@ -520,6 +520,11 @@ FVector2D UDemoMyCharacterMovementComponent::GetAnimMoveVelocity() const
 	return FVector2D(Right, Along);
 }
 
+float UDemoMyCharacterMovementComponent::GetJumpVelocityForAnim() const
+{
+	return FVector::DotProduct(Velocity, -GetNormalisedGravity());
+}
+
 UDemoMyCharacterMovementComponent::UDemoMyCharacterMovementComponent() : Super()
 {
 	SetNetworkMoveDataContainer(DemoNetworkMoveDataContainer);

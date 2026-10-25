@@ -22,6 +22,7 @@ class ADecalActor;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
 class UCableComponent;
+class UTP_WeaponComponent;
 
 UCLASS(config=Game)
 class AActionDemoCharacter : public ACharacter
@@ -111,13 +112,17 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Weapon)
 	TSubclassOf<AActor> WeaponClass;
 
+	/** Socket/bone on Mesh1P for the local gun (FP Manny: weapon_r). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Weapon)
+	FName FirstPersonWeaponSocket = FName(TEXT("ik_hand_gun"));
+
 	/** Socket on the 3P body mesh for other players' view of the gun / grapple cable. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Weapon)
 	FName ThirdPersonWeaponSocket = FName(TEXT("hand_r"));
 
-	/** Server-spawned instance; replicated so remotes can see / holster it. */
+	/** Server-spawned weapon mesh; replicated reference (component must be net-addressable / on a replicated actor). */
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Weapon, Category = Weapon)
-	TObjectPtr<AActor> Weapon;
+	TObjectPtr<UTP_WeaponComponent> Weapon;
 
 	/** Replicated: hide gun for everyone; owning client also swaps fire mapping. */
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Holstered, Category = Weapon)
@@ -130,7 +135,7 @@ public:
 	bool bPrevHolstered = false;
 
 	UFUNCTION(BlueprintCallable, Category = Weapon)
-	bool IsHolstered() const { return bHolstered; }
+	bool IsHolstered() const;
 
 	UFUNCTION(BlueprintCallable, Category = Weapon)
 	void SetHolstered(bool bInHolstered);
@@ -138,6 +143,39 @@ public:
 	/** Climb / active grapple: gun forced holstered; restore after if it was drawn. */
 	void ForceHolsterForParkour();
 	void TryRestoreWeaponAfterParkour();
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Weapon)
+	TObjectPtr<UAnimMontage> HolsterMontage;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Weapon)
+	TObjectPtr<UAnimMontage> EquipMontage;
+
+	/** FP arms fire montage. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Weapon)
+	TObjectPtr<UAnimMontage> FireMontage;
+
+	/** FP arms reload montage. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Weapon)
+	TObjectPtr<UAnimMontage> ReloadMontage;
+
+	void PlayFireMontage();
+	void PlayReloadMontage();
+	void StopReloadMontage(float BlendOutTime = 0.0f);
+
+	UFUNCTION(BlueprintPure, Category = Animation)
+	FVector2D GetMouseInputForAnim() const { return LastMouseInput; }
+
+	UFUNCTION(BlueprintPure, Category = Animation)
+	bool IsCloseToWall() const { return bCloseToWall; }
+
+	/** Gravity-relative control pitch/yaw for FP sway (maps Infima Rotation_Pitch / Rotation_Yaw). */
+	UFUNCTION(BlueprintPure, Category = Animation)
+	FRotator GetAnimLookRotation() const;
+
+	UFUNCTION(BlueprintPure, Category = Weapon)
+	bool IsAiming() const { return bAiming; }
+
+	void SetAiming(bool bInAiming);
 
 	inline UCableComponent* GetGrappler() { return Grappler; }
 
@@ -160,13 +198,18 @@ protected:
 
 	void ApplyHolsterState();
 
+	bool IsPlayingHolsterMontage() const;
+	bool IsPlayingEquipMontage() const;
+
+	void UpdateCloseToWall();
+
 	/** Authority: spawn WeaponClass once. */
 	void SpawnWeapon();
 
-	/** Owner: Mesh1P GripPoint. Remotes: 3P mesh socket. */
+	/** Locally controlled: Mesh1P + FirstPersonWeaponSocket. Otherwise: mesh + ThirdPersonWeaponSocket. */
 	void AttachWeapon();
 
-	/** Same sockets as AttachWeapon (GripPoint / ThirdPersonWeaponSocket). */
+	/** Same attach mesh/socket selection as AttachWeapon. */
 	void AttachGrappler();
 
 	void BindWeaponInput();
@@ -281,13 +324,17 @@ public:
 	UPROPERTY(Replicated)
 	FVector_NetQuantize GrappleCableEndWS = FVector::ZeroVector;
 
-	//AimingAPlayerController
-	UPROPERTY(BlueprintReadOnly) FVector AimingPoseLoc;
-	UPROPERTY(BlueprintReadOnly) FRotator AimingPoseRotation;
-	UPROPERTY(BlueprintReadOnly) float ADSSpeed = 100.0f;
-	bool isAiming = false;
+	UPROPERTY(BlueprintReadOnly, Category = Weapon)
+	bool bAiming = false;
 
 private:
+	FVector2D LastMouseInput = FVector2D::ZeroVector;
+
+	UPROPERTY(EditDefaultsOnly, Category = Animation, meta = (AllowPrivateAccess = "true"))
+	float CloseToWallTraceDistance = 120.0f;
+
+	bool bCloseToWall = false;
+
 	/** Local: detect kill-Z / death and ask the server to respawn. */
 	void RequestReturnToLastCheckpoint();
 
