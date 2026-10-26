@@ -826,12 +826,6 @@ void AActionDemoCharacter::Tick(float DeltaTime)
 	{
 		ApplyGrappleCableVisual(true, GrappleCableEndWS);
 	}
-
-	// Look runs before Tick; clear after so AnimBP sees this frame's mouse delta only.
-	if (IsLocallyControlled())
-	{
-		LastMouseInput = FVector2D::ZeroVector;
-	}
 }
 
 void AActionDemoCharacter::ServerProcessWeaponFire_Implementation(FVector_NetQuantize TraceStart, FVector_NetQuantize TraceEnd, TSubclassOf<AActor> HoleClass, float ImpulseStrength)
