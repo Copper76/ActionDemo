@@ -85,7 +85,7 @@ private:
 	class UInputAction* CrouchAction;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
-	FVector CrouchEyeOffset = FVector(0.0f);
+	float CrouchEyeOffset = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	float CrouchSpeed = 12.0f;
@@ -246,6 +246,9 @@ protected:
 	void OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
 
 	void CalcCamera(float DeltaTime, struct FMinimalViewInfo& OutResult) override;
+
+	/** BaseEyeHeight + CrouchEyeOffset on the camera component so Mesh1P tracks the eye. */
+	void ApplyCrouchCameraOffset();
 
 	virtual void Landed(const FHitResult& Hit) override;
 

@@ -761,22 +761,33 @@ bool AActionDemoCharacter::CanJumpInternal_Implementation() const
 	return JumpIsAllowedInternal();
 }
 
+void AActionDemoCharacter::ApplyCrouchCameraOffset()
+{
+	const FVector WithEye(CameraOffset.X, CameraOffset.Y, BaseEyeHeight + CrouchEyeOffset);
+	if (PlayerCamera)
+	{
+		PlayerCamera->SetRelativeLocation(WithEye, false);
+	}
+	if (m_FlattenCamera)
+	{
+		m_FlattenCamera->SetRelativeLocation(WithEye, false);
+	}
+}
+
 void AActionDemoCharacter::OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
 {
 	if (HalfHeightAdjust == 0) return;
-	float StartBaseEyeHeight = BaseEyeHeight;
+	const float StartBaseEyeHeight = BaseEyeHeight;
 	Super::OnStartCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
-	CrouchEyeOffset.Z += StartBaseEyeHeight - BaseEyeHeight + HalfHeightAdjust;
-	PlayerCamera->SetRelativeLocation(FVector(0.0f, 0.0f, BaseEyeHeight), false);
+	CrouchEyeOffset += StartBaseEyeHeight - BaseEyeHeight + HalfHeightAdjust;
 }
 
 void AActionDemoCharacter::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
 {
 	if (HalfHeightAdjust == 0) return;
-	float StartBaseEyeHeight = BaseEyeHeight;
+	const float StartBaseEyeHeight = BaseEyeHeight;
 	Super::OnEndCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
-	CrouchEyeOffset.Z += StartBaseEyeHeight - BaseEyeHeight - HalfHeightAdjust;
-	PlayerCamera->SetRelativeLocation(FVector(0.0f, 0.0f, BaseEyeHeight), false);
+	CrouchEyeOffset += StartBaseEyeHeight - BaseEyeHeight - HalfHeightAdjust;
 }
 
 void AActionDemoCharacter::CalcCamera(float DeltaTime, struct FMinimalViewInfo& OutResult)
@@ -784,8 +795,6 @@ void AActionDemoCharacter::CalcCamera(float DeltaTime, struct FMinimalViewInfo& 
 	if (PlayerCamera)
 	{
 		PlayerCamera->GetCameraView(DeltaTime, OutResult);
-		const FQuat GravityAlign = FQuat::FindBetweenNormals(FVector::UpVector, -DemoMyCharacterMovementComponent->GetGravityDirection());
-		OutResult.Location += GravityAlign.RotateVector(CrouchEyeOffset);
 		// The portal surface sits on the plane the eye is crossing. The default near plane deletes it.
 		if (CurrentPortal)
 		{
@@ -819,7 +828,14 @@ void AActionDemoCharacter::Tick(float DeltaTime)
 		}
 	}
 
-	CrouchEyeOffset = FMath::VInterpTo(CrouchEyeOffset, FVector::ZeroVector, DeltaTime, CrouchSpeed);
+	{
+		const bool bCrouchEyeBlending = !FMath::IsNearlyZero(CrouchEyeOffset, 0.01f);
+		CrouchEyeOffset = FMath::FInterpTo(CrouchEyeOffset, 0.f, DeltaTime, CrouchSpeed);
+		if (bCrouchEyeBlending || !FMath::IsNearlyZero(CrouchEyeOffset, 0.01f))
+		{
+			ApplyCrouchCameraOffset();
+		}
+	}
 
 	// Simulated proxies: cable tip is replicated from the server each frame while active.
 	if (!IsLocallyControlled() && bGrappleCableActive)
