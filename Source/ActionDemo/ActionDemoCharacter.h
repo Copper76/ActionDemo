@@ -129,7 +129,7 @@ public:
 
 	/** Replicated: hide gun for everyone; owning client also swaps fire mapping. */
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Holstered, Category = Weapon)
-	bool bHolstered = true;
+	bool bHolstered = false;
 
 	/** Fires whenever holster state is applied (local + OnRep). HUD: show/hide ammo. */
 	UPROPERTY(BlueprintAssignable, Category = Weapon)

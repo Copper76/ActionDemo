@@ -53,7 +53,7 @@ AActionDemoCharacter::AActionDemoCharacter(const FObjectInitializer& ObjectIniti
 {
 
 	DemoMyCharacterMovementComponent = Cast<UDemoMyCharacterMovementComponent>(GetCharacterMovement());
-	bHolstered = true;
+	bHolstered = false;
 
 	static ConstructorHelpers::FClassFinder<AActor> WeaponClassFinder(TEXT("/Game/FirstPerson/Blueprints/BP_PickUp_Rifle"));
 	if (WeaponClassFinder.Succeeded())
