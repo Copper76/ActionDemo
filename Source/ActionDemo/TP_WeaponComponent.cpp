@@ -110,7 +110,7 @@ void UTP_WeaponComponent::BindInput(UEnhancedInputComponent* EnhancedInputCompon
 
 void UTP_WeaponComponent::Fire()
 {
-	if (m_Character == nullptr || PlayerController == nullptr || IsReloading() || m_Character->IsHolstered() || Ammo <= 0)
+	if (m_Character == nullptr || PlayerController == nullptr || IsReloading() || m_Character->IsHolstered() || m_Character->IsCloseToWall() || Ammo <= 0)
 	{
 		return;
 	}
