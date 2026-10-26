@@ -86,6 +86,8 @@ AActionDemoCharacter::AActionDemoCharacter(const FObjectInitializer& ObjectIniti
 	Mesh1P->SetupAttachment(PlayerCamera);
 	Mesh1P->bCastDynamicShadow = false;
 	Mesh1P->CastShadow = false;
+	// FP mannequin faces +Y; camera faces +X. Keep -90 yaw vs camera or arms sit 90° off.
+	Mesh1P->SetRelativeRotation(FRotator(0.f, -90.f, 0.f));
 	Mesh1P->SetRelativeLocation(FVector(-30.f, 0.f, -150.f));
 
 	//FlashCoolDown = FlashMaxCoolDown;
@@ -817,8 +819,7 @@ void AActionDemoCharacter::Tick(float DeltaTime)
 		}
 	}
 
-	float CrouchInterpTime = FMath::Min(1.0f, CrouchSpeed * DeltaTime);
-	CrouchEyeOffset = (1.0f - CrouchInterpTime) * CrouchEyeOffset;
+	CrouchEyeOffset = FMath::VInterpTo(CrouchEyeOffset, FVector::ZeroVector, DeltaTime, CrouchSpeed);
 
 	// Simulated proxies: cable tip is replicated from the server each frame while active.
 	if (!IsLocallyControlled() && bGrappleCableActive)
