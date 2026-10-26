@@ -9,6 +9,8 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "ActionDemoCharacter.generated.h"
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnHolsterChanged, bool, bIsHolstered);
+
 class UInputComponent;
 class USkeletalMeshComponent;
 class USceneComponent;
@@ -23,6 +25,7 @@ class UMaterialInstanceDynamic;
 class UMaterialInterface;
 class UCableComponent;
 class UTP_WeaponComponent;
+class UUserWidget;
 
 UCLASS(config=Game)
 class AActionDemoCharacter : public ACharacter
@@ -128,6 +131,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Holstered, Category = Weapon)
 	bool bHolstered = true;
 
+	/** Fires whenever holster state is applied (local + OnRep). HUD: show/hide ammo. */
+	UPROPERTY(BlueprintAssignable, Category = Weapon)
+	FOnHolsterChanged OnHolsterChanged;
+
 	UPROPERTY(BlueprintReadOnly, Replicated, Category = Weapon)
 	bool bSuppressWeapon = false;
 
@@ -199,6 +206,8 @@ protected:
 	void ApplyHolsterState();
 
 	bool IsPlayingHolsterMontage() const;
+
+	UFUNCTION(BlueprintPure, Category = Weapon)
 	bool IsPlayingEquipMontage() const;
 
 	void UpdateCloseToWall();
@@ -213,6 +222,11 @@ protected:
 	void AttachGrappler();
 
 	void BindWeaponInput();
+
+	/** Local player only: create HudWidgetClass and AddToViewport after possess. */
+	void ShowHudWidget();
+
+	void RemoveHudWidget();
 
 	virtual void NotifyControllerChanged() override;
 
@@ -348,6 +362,13 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Defaults", meta = (AllowPrivateAccess))
 	float KillZ = -1000.0f;
+
+	/** UMG HUD (defaults to /Game/UI/HUD). Shown for locally controlled players after possession. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = UI, meta = (AllowPrivateAccess = "true"))
+	TSubclassOf<UUserWidget> HudWidgetClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UUserWidget> HudWidget;
 
 	/** Prevents spamming ServerRequestReturnToCheckpoint while still below KillZ. */
 	bool bCheckpointRespawnPending = false;

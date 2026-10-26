@@ -47,10 +47,6 @@ void UTP_WeaponComponent::BeginPlay()
 		PlayerController = Cast<APlayerController>(m_Character->GetController());
 		Ammo = MaxAmmo;
 	}
-	if (UAnimInstance* AnimInstance = GetAnimInstance())
-	{
-		AnimInstance->OnMontageEnded.AddDynamic(this, &UTP_WeaponComponent::OnWeaponMontageEnded);
-	}
 }
 
 void UTP_WeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
@@ -104,6 +100,7 @@ void UTP_WeaponComponent::BindInput(UEnhancedInputComponent* EnhancedInputCompon
 	FireAction->Triggers.Add(FirePulse);
 
 	EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Aim);
+	EnhancedInputComponent->BindAction(ReloadAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Reload);
 	EnhancedInputComponent->BindAction(BluePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::BluePortalFire);
 	EnhancedInputComponent->BindAction(OrangePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::OrangePortalFire);
 	EnhancedInputComponent->BindAction(ToggleARAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::ToggleAR);
@@ -119,6 +116,7 @@ void UTP_WeaponComponent::Fire()
 	}
 
 	--Ammo;
+	OnAmmoChanged.Broadcast(Ammo, MaxAmmo);
 
 	PlayFireMontages();
 	SpawnCasing();
@@ -166,6 +164,16 @@ void UTP_WeaponComponent::Aim(const FInputActionValue& Value)
 	m_Character->SetAiming(Value.Get<bool>());
 }
 
+void UTP_WeaponComponent::Reload(const FInputActionValue& Value)
+{
+	if (m_Character == nullptr || IsReloading() || m_Character->IsHolstered() || !WeaponReloadMontage || Ammo >= MaxAmmo)
+	{
+		return;
+	}
+
+	PlayReloadMontages();
+}
+
 bool UTP_WeaponComponent::IsReloading() const
 {
 	if (!WeaponReloadMontage)
@@ -188,10 +196,13 @@ void UTP_WeaponComponent::OnWeaponMontageEnded(UAnimMontage* Montage, bool bInte
 		m_Character->StopReloadMontage(0.0f);
 	}
 
-	if (!bInterrupted)
+	if (bInterrupted)
 	{
-		Ammo = MaxAmmo;
+		return;
 	}
+
+	Ammo = MaxAmmo;
+	OnAmmoChanged.Broadcast(Ammo, MaxAmmo);
 }
 
 void UTP_WeaponComponent::PlayFireMontages()
@@ -244,7 +255,13 @@ void UTP_WeaponComponent::PlayReloadMontages()
 	{
 		if (UAnimInstance* WeaponAnim = GetAnimInstance())
 		{
-			WeaponAnim->Montage_Play(WeaponReloadMontage);
+			const float Duration = WeaponAnim->Montage_Play(WeaponReloadMontage);
+			if (Duration > 0.f)
+			{
+				FOnMontageEnded EndDelegate;
+				EndDelegate.BindUObject(this, &UTP_WeaponComponent::OnWeaponMontageEnded);
+				WeaponAnim->Montage_SetEndDelegate(EndDelegate, WeaponReloadMontage);
+			}
 		}
 	}
 	if (m_Character)
@@ -269,16 +286,6 @@ void UTP_WeaponComponent::StopReload(float BlendOutTime)
 	{
 		m_Character->StopReloadMontage(BlendOutTime);
 	}
-}
-
-void UTP_WeaponComponent::Reload()
-{
-	if (m_Character == nullptr || IsReloading() || m_Character->IsHolstered() || !WeaponReloadMontage || Ammo >= MaxAmmo)
-	{
-		return;
-	}
-
-	PlayReloadMontages();
 }
 
 void UTP_WeaponComponent::BluePortalFire()
@@ -614,11 +621,6 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FQuat& PortalRota
 
 void UTP_WeaponComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	if (UAnimInstance* AnimInstance = GetAnimInstance())
-	{
-		AnimInstance->OnMontageEnded.RemoveDynamic(this, &UTP_WeaponComponent::OnWeaponMontageEnded);
-	}
-
 	if (PlayerController)
 	{
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))

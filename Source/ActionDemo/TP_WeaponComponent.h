@@ -10,6 +10,8 @@ class AActionDemoCharacter;
 class APortal;
 class UEnhancedInputComponent;
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAmmoChanged, int32, Ammo, int32, MaxAmmo);
+
 UENUM(BlueprintType)
 enum EPortalType
 {
@@ -47,6 +49,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = Gameplay)
 	int32 Ammo = 30;
 
+	/** HUD: fire / reload finished. */
+	UPROPERTY(BlueprintAssignable, Category = Gameplay)
+	FOnAmmoChanged OnAmmoChanged;
+
 	/** Gun muzzle's offset from the characters location */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Gameplay)
 	FVector MuzzleOffset;
@@ -66,6 +72,10 @@ public:
 	/** Fire Input Action */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	class UInputAction* AimAction;
+
+	/** Reload (Digital Bool) — mapped in IMC_AR / FireMappingContext. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	class UInputAction* ReloadAction;
 
 	/** Fire Input Action */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
@@ -111,11 +121,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void Aim(const FInputActionValue& Value);
 
-	/** Play WeaponReloadMontage (+ character ReloadMontage tag-along); Fire blocked while playing. */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
-	void Reload();
+	void Reload(const FInputActionValue& Value);
 
-	/** Stop WeaponReloadMontage (+ character ReloadMontage tag-along). */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void StopReload(float BlendOutTime = 0.0f);
 

@@ -53,7 +53,6 @@ AActionDemoCharacter::AActionDemoCharacter(const FObjectInitializer& ObjectIniti
 {
 
 	DemoMyCharacterMovementComponent = Cast<UDemoMyCharacterMovementComponent>(GetCharacterMovement());
-
 	bHolstered = true;
 
 	static ConstructorHelpers::FClassFinder<AActor> WeaponClassFinder(TEXT("/Game/FirstPerson/Blueprints/BP_PickUp_Rifle"));
@@ -142,10 +141,50 @@ void AActionDemoCharacter::NotifyControllerChanged()
 	Super::NotifyControllerChanged();
 	AttachWeapon();
 	AttachGrappler();
+
+	if (IsLocallyControlled())
+	{
+		ShowHudWidget();
+	}
+	else
+	{
+		RemoveHudWidget();
+	}
+}
+
+void AActionDemoCharacter::ShowHudWidget()
+{
+	if (HudWidget || !HudWidgetClass || !IsLocallyControlled())
+	{
+		return;
+	}
+
+	APlayerController* PlayerController = Cast<APlayerController>(GetController());
+	if (!PlayerController)
+	{
+		return;
+	}
+
+	HudWidget = CreateWidget<UUserWidget>(PlayerController, HudWidgetClass);
+	if (HudWidget)
+	{
+		HudWidget->AddToViewport();
+	}
+}
+
+void AActionDemoCharacter::RemoveHudWidget()
+{
+	if (HudWidget)
+	{
+		HudWidget->RemoveFromParent();
+		HudWidget = nullptr;
+	}
 }
 
 void AActionDemoCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	RemoveHudWidget();
+
 	if (HasAuthority() && GetWorld())
 	{
 		if (UCheckpointManager* Manager = GetWorld()->GetSubsystem<UCheckpointManager>())
@@ -647,6 +686,8 @@ void AActionDemoCharacter::ApplyHolsterState()
 			SetAiming(false);
 		}
 	}
+
+	OnHolsterChanged.Broadcast(bHolstered);
 }
 
 void AActionDemoCharacter::SetAiming(bool bInAiming)
