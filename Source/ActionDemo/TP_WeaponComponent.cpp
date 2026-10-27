@@ -54,6 +54,8 @@ void UTP_WeaponComponent::BeginPlay()
 
 void UTP_WeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
 	if (m_FlattenFireTimer > 0.0f)
 	{
 		m_FlattenFireTimer -= DeltaTime;
@@ -217,33 +219,11 @@ bool UTP_WeaponComponent::IsReloading() const
 
 void UTP_WeaponComponent::RestockAmmo()
 {
-	StopReload();
 	Ammo = MaxAmmo;
 	if (m_Character)
 	{
 		m_Character->OnAmmoChanged.Broadcast(Ammo, MaxAmmo);
 	}
-}
-
-void UTP_WeaponComponent::OnWeaponMontageEnded(UAnimMontage* Montage, bool bInterrupted)
-{
-	if (!WeaponReloadMontage || Montage != WeaponReloadMontage)
-	{
-		return;
-	}
-
-	if (m_Character)
-	{
-		m_Character->StopReloadMontage(0.0f);
-	}
-
-	if (bInterrupted)
-	{
-		return;
-	}
-
-	Ammo = MaxAmmo;
-	m_Character->OnAmmoChanged.Broadcast(Ammo, MaxAmmo);
 }
 
 void UTP_WeaponComponent::PlayFireMontages()
@@ -302,13 +282,7 @@ void UTP_WeaponComponent::PlayReloadMontages()
 		{
 			if (UAnimInstance* WeaponAnim = Mesh->GetAnimInstance())
 			{
-				const float Duration = WeaponAnim->Montage_Play(WeaponReloadMontage);
-				if (Duration > 0.f)
-				{
-					FOnMontageEnded EndDelegate;
-					EndDelegate.BindUObject(this, &UTP_WeaponComponent::OnWeaponMontageEnded);
-					WeaponAnim->Montage_SetEndDelegate(EndDelegate, WeaponReloadMontage);
-				}
+				WeaponAnim->Montage_Play(WeaponReloadMontage);
 			}
 		}
 	}

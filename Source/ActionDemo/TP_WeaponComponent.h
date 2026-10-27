@@ -141,7 +141,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Weapon")
 	float GetDamage() const { return Damage; }
 
-	/** Fill magazine and notify HUD (respawn / restock). */
+	/** Fill magazine + HUD. Used by reload notify / montage end / respawn. */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void RestockAmmo();
 
@@ -200,9 +200,6 @@ private:
 	float Portal_EdgeCheckDelta = 20.0f;
 	/** Pull the portal off the wall along the surface normal to avoid Z-fighting. */
 	float Portal_SurfaceOffset = 1.0f;
-
-	UFUNCTION()
-	void OnWeaponMontageEnded(UAnimMontage* Montage, bool bInterrupted);
 
 	void PlayFireMontages();
 	void PlayReloadMontages();
