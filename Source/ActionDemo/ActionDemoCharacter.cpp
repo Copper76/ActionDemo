@@ -1124,7 +1124,7 @@ void AActionDemoCharacter::CalcCamera(float DeltaTime, struct FMinimalViewInfo& 
 
 void AActionDemoCharacter::Landed(const FHitResult& Hit)
 {
-	DemoMyCharacterMovementComponent->Safe_bFellOff = false;
+	DemoMyCharacterMovementComponent->Safe_FellOffTimer = 0.f;
 }
 
 void AActionDemoCharacter::Tick(float DeltaTime)

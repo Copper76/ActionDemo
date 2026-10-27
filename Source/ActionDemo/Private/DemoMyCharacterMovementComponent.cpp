@@ -118,7 +118,7 @@ void UDemoMyCharacterMovementComponent::OnMovementModeChanged(EMovementMode Prev
 
 	if (PreviousMovementMode == MOVE_Custom && PreviousCustomMode == CMOVE_Climb)
 	{
-		Safe_bFellOff = true;
+		Safe_FellOffTimer = Climb_FellOffCooldown;
 		if (DemoCharacterOwner)
 		{
 			DemoCharacterOwner->TryRestoreWeaponAfterParkour();
@@ -417,7 +417,7 @@ void UDemoMyCharacterMovementComponent::UpdateCharacterStateBeforeMovement(float
 	if (IsFalling()) 
 	{
 		TryWallRun();
-		TryClimb();
+		TryClimb(DeltaSeconds);
 	}
 
 	const bool IsAuthProxy = CharacterOwner->HasAuthority() && !CharacterOwner->IsLocallyControlled();
@@ -568,7 +568,7 @@ bool UDemoMyCharacterMovementComponent::FSavedMove_Demo::CanCombineWith(const FS
 		return false;
 	}
 
-	if (Saved_bFellOff != NewDemoMove->Saved_bFellOff) {
+	if (!FMath::IsNearlyEqual(Saved_FellOffTimer, NewDemoMove->Saved_FellOffTimer)) {
 		return false;
 	}
 
@@ -600,7 +600,7 @@ void UDemoMyCharacterMovementComponent::FSavedMove_Demo::Clear()
 
 	Saved_bWantsToSprint = 0;
 	Saved_bWallRunIsRight = 0;
-	Saved_bFellOff = 0;
+	Saved_FellOffTimer = 0.f;
 	Saved_bPressedFlash = 0;
 	Saved_bWantsToGrapple = 0;
 	Saved_bGrappleTargetMovable = 0;
@@ -633,7 +633,7 @@ void UDemoMyCharacterMovementComponent::FSavedMove_Demo::SetMoveFor(ACharacter* 
 
 	Saved_bWallRunIsRight = CharacterMovement->Safe_bWallRunIsRight;
 
-	Saved_bFellOff = CharacterMovement->Safe_bFellOff;
+	Saved_FellOffTimer = CharacterMovement->Safe_FellOffTimer;
 
 	Saved_bPressedFlash = CharacterMovement->Safe_bPressedFlash;
 
@@ -660,7 +660,7 @@ void UDemoMyCharacterMovementComponent::FSavedMove_Demo::PrepMoveFor(ACharacter*
 
 	CharacterMovement->Safe_bWallRunIsRight = Saved_bWallRunIsRight;
 
-	CharacterMovement->Safe_bFellOff = Saved_bFellOff;
+	CharacterMovement->Safe_FellOffTimer = Saved_FellOffTimer;
 
 	CharacterMovement->Safe_bPressedFlash = Saved_bPressedFlash;
 
@@ -1438,7 +1438,7 @@ void UDemoMyCharacterMovementComponent::PhysWallRun(float DeltaTime, int32 Itera
 #pragma endregion
 
 #pragma region Climb
-bool UDemoMyCharacterMovementComponent::TryClimb()
+bool UDemoMyCharacterMovementComponent::TryClimb(float DeltaSeconds)
 {
 	if (!IsFalling()) return false;
 	const FVector NormalisedGravity = GetNormalisedGravity();
@@ -1458,11 +1458,17 @@ bool UDemoMyCharacterMovementComponent::TryClimb()
 	}
 	if (!WallHit.IsValidBlockingHit() || WallHit.GetActor()->IsA<APortal>() || WallHit.GetComponent()->GetCollisionObjectType() != ECollisionChannel::ECC_WorldStatic)
 	{
-		Safe_bFellOff = false;
+		if (Safe_FellOffTimer > 0.f)
+		{
+			Safe_FellOffTimer = FMath::Max(0.f, Safe_FellOffTimer - DeltaSeconds);
+		}
 		return false;
 	}
 
-	if (Safe_bFellOff) return false;
+	if (Safe_FellOffTimer > 0.f)
+	{
+		return false;
+	}
 	if ((Acceleration.GetSafeNormal() | UpdatedComponent->GetForwardVector().GetSafeNormal()) <= 0.5f) return false;//Don't enter if the player is not actively moving forward
 	float CosWallSteepnessAngle = WallHit.Normal | -NormalisedGravity;
 	if (FMath::Abs(CosWallSteepnessAngle) > CosMMWSA || (Fwd | -WallHit.Normal) < CosMMAA) return false;
@@ -1516,6 +1522,7 @@ void UDemoMyCharacterMovementComponent::PhysClimb(float DeltaTime, int32 Iterati
 		if (!WallHit.IsValidBlockingHit())
 		{
 			Velocity -= FVector::DotProduct(Velocity, NormalisedGravity) * NormalisedGravity;
+			Velocity += Fwd * Climb_TopAssistImpulse;
 			SetMovementMode(MOVE_Falling);
 			StartNewPhysics(remainingTime, Iterations);
 			return;

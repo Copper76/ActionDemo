@@ -55,7 +55,6 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 		uint8 Saved_GrappleStage;
 
 		uint8 Saved_bWallRunIsRight : 1;
-		uint8 Saved_bFellOff : 1;
 
 		uint8 Saved_bHadAnimRootMotion : 1;
 
@@ -64,6 +63,7 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 		TWeakObjectPtr<UPrimitiveComponent> Saved_GrappleTarget;
 		FVector Saved_GravityDirection;
 		float Saved_ClimbTime = 0.f;
+		float Saved_FellOffTimer = 0.f;
 
 	public:
 		FSavedMove_Demo();
@@ -155,6 +155,8 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 	UPROPERTY(EditDefaultsOnly) float Climb_JumpOffForce = 300.0f;
 	UPROPERTY(EditDefaultsOnly) float Climb_FallOffForce = 200.0f;
 	UPROPERTY(EditDefaultsOnly) float Climb_GravityForce = 1000.0f;
+	UPROPERTY(EditDefaultsOnly, meta = (ClampMin = "0.0")) float Climb_FellOffCooldown = 0.25f;
+	UPROPERTY(EditDefaultsOnly, meta = (ClampMin = "0.0")) float Climb_TopAssistImpulse = 400.0f;
 
 	//Grapple
 	UPROPERTY(EditDefaultsOnly) float Grapple_MaxSpeed = 1000.0f;
@@ -239,7 +241,7 @@ public:
 	bool Safe_bWantsToGrapple;
 
 	bool Safe_bWallRunIsRight;
-	bool Safe_bFellOff;
+	float Safe_FellOffTimer = 0.f;
 
 	bool Safe_bHadAnimRootMotion;
 
@@ -351,7 +353,7 @@ private:
 
 //Climb
 private:
-	bool TryClimb();
+	bool TryClimb(float DeltaSeconds);
 	void PhysClimb(float DeltaTime, int32 Iterations);
 
 //Grapple
