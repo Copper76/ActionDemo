@@ -46,6 +46,7 @@ void UTP_WeaponComponent::BeginPlay()
 	{
 		PlayerController = Cast<APlayerController>(m_Character->GetController());
 		Ammo = MaxAmmo;
+		m_Character->OnAmmoChanged.Broadcast(Ammo, MaxAmmo);
 	}
 }
 
@@ -116,7 +117,7 @@ void UTP_WeaponComponent::Fire()
 	}
 
 	--Ammo;
-	OnAmmoChanged.Broadcast(Ammo, MaxAmmo);
+	m_Character->OnAmmoChanged.Broadcast(Ammo, MaxAmmo);
 
 	PlayFireMontages();
 	SpawnCasing();
@@ -202,7 +203,7 @@ void UTP_WeaponComponent::OnWeaponMontageEnded(UAnimMontage* Montage, bool bInte
 	}
 
 	Ammo = MaxAmmo;
-	OnAmmoChanged.Broadcast(Ammo, MaxAmmo);
+	m_Character->OnAmmoChanged.Broadcast(Ammo, MaxAmmo);
 }
 
 void UTP_WeaponComponent::PlayFireMontages()

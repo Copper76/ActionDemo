@@ -10,8 +10,6 @@ class AActionDemoCharacter;
 class APortal;
 class UEnhancedInputComponent;
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAmmoChanged, int32, Ammo, int32, MaxAmmo);
-
 UENUM(BlueprintType)
 enum EPortalType
 {
@@ -49,9 +47,9 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = Gameplay)
 	int32 Ammo = 30;
 
-	/** HUD: fire / reload finished. */
-	UPROPERTY(BlueprintAssignable, Category = Gameplay)
-	FOnAmmoChanged OnAmmoChanged;
+	/** Damage dealt per hit on ProcessWeaponFire. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Gameplay)
+	float Damage = 20.0f;
 
 	/** Gun muzzle's offset from the characters location */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Gameplay)
@@ -135,6 +133,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Weapon")
 	int32 GetMaxAmmo() const { return MaxAmmo; }
+
+	UFUNCTION(BlueprintPure, Category = "Weapon")
+	float GetDamage() const { return Damage; }
 
 	/** Make the weapon Fire an orange Portal */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")

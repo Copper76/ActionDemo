@@ -175,6 +175,16 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 	UPrimitiveComponent* Grapple_Target = nullptr;
 	bool Grapple_TargetMovable = false;
 
+	//Hit Slow
+	UPROPERTY(EditDefaultsOnly, Category = "HitSlow", meta = (ClampMin = "0.0"))
+	float HitSpeedPenaltyDuration = 1.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HitSlow", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float HitMaxSpeedModifier = 0.8f;
+
+	UPROPERTY(Replicated)
+	bool bIsHitSlow = false;
+
 private:
 	//Flash
 	UPROPERTY(EditDefaultsOnly, Category = "Flash")
@@ -185,6 +195,9 @@ private:
 
 	//Portal
 	float Portal_MaxTravelSpeed = 1000.0f;
+
+	//Hit slow
+	FTimerHandle HitSpeedPenaltyTimer;
 
 public:
 	UPROPERTY(EditDefaultsOnly) float Grapple_Range = 1250.0f;
@@ -211,6 +224,8 @@ private:
 
 public:
 	UDemoMyCharacterMovementComponent();
+
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 protected:
 	virtual void InitializeComponent() override;
@@ -323,6 +338,13 @@ private:
 private:
 	bool CanFlash() const;
 	void DoFlash();
+
+//Hit Slow
+public:
+	void ApplyHitSpeedPenalty();
+
+private:
+	void ClearHitSpeedPenalty();
 
 public:
 	UFUNCTION(BlueprintCallable) void ToggleSprint(bool SprintValue);

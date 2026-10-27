@@ -11,6 +11,10 @@
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnHolsterChanged, bool, bIsHolstered);
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAmmoChanged, int32, Ammo, int32, MaxAmmo);
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHPChanged, float, HP, float, MaxHP);
+
 class UInputComponent;
 class USkeletalMeshComponent;
 class USceneComponent;
@@ -131,9 +135,31 @@ public:
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Holstered, Category = Weapon)
 	bool bHolstered = false;
 
-	/** Fires whenever holster state is applied (local + OnRep). HUD: show/hide ammo. */
 	UPROPERTY(BlueprintAssignable, Category = Weapon)
 	FOnHolsterChanged OnHolsterChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = Gameplay)
+	FOnAmmoChanged OnAmmoChanged;
+
+	/** Owner-only replicated health. HUD: bind OnHPChanged on the local pawn. */
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_HP, Category = Health)
+	float HP = 100.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Health)
+	float MaxHP = 100.0f;
+
+	UPROPERTY(BlueprintAssignable, Category = Health)
+	FOnHPChanged OnHPChanged;
+
+	UFUNCTION(BlueprintPure, Category = Health)
+	float GetHP() const { return HP; }
+
+	UFUNCTION(BlueprintPure, Category = Health)
+	float GetMaxHP() const { return MaxHP; }
+
+	/** Authority: subtract damage. OnHPChanged fires for the local owner (ApplyDamage or OnRep). */
+	UFUNCTION(BlueprintCallable, Category = Health)
+	void ApplyDamage(float DamageAmount);
 
 	UPROPERTY(BlueprintReadOnly, Replicated, Category = Weapon)
 	bool bSuppressWeapon = false;
@@ -235,6 +261,9 @@ protected:
 
 	UFUNCTION()
 	void OnRep_Holstered();
+
+	UFUNCTION()
+	void OnRep_HP();
 
 	UFUNCTION(Server, Reliable)
 	void ServerSetHolstered(bool bInHolstered);

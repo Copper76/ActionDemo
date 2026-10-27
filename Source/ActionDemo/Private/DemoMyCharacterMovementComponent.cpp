@@ -8,6 +8,7 @@
 #include "Engine/OverlapResult.h"
 #include "GameFramework/Character.h"
 #include "CableComponent.h"
+#include "Net/UnrealNetwork.h"
 
 float MacroDuration = 5.f;
 #define POINT(x, c) DrawDebugPoint(GetWorld(), x, 10, c, !MacroDuration, MacroDuration);
@@ -528,6 +529,14 @@ float UDemoMyCharacterMovementComponent::GetJumpVelocityForAnim() const
 UDemoMyCharacterMovementComponent::UDemoMyCharacterMovementComponent() : Super()
 {
 	SetNetworkMoveDataContainer(DemoNetworkMoveDataContainer);
+	SetIsReplicatedByDefault(true);
+}
+
+void UDemoMyCharacterMovementComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME_CONDITION(UDemoMyCharacterMovementComponent, bIsHitSlow, COND_OwnerOnly);
 }
 
 void UDemoMyCharacterMovementComponent::InitializeComponent()
@@ -695,22 +704,60 @@ FSavedMovePtr UDemoMyCharacterMovementComponent::FNetworkPredictionData_Client_D
 
 float UDemoMyCharacterMovementComponent::GetMaxSpeed() const
 {
-	if (MovementMode != MOVE_Custom) return Super::GetMaxSpeed();
+	const float SpeedScale = bIsHitSlow ? HitMaxSpeedModifier : 1.0f;
+	if (MovementMode != MOVE_Custom)
+	{
+		return SpeedScale * Super::GetMaxSpeed();
+	}
 
 	switch (CustomMovementMode)
 	{
 	case CMOVE_Slide:
-		return Slide_MaxSpeed;
+		return SpeedScale * Slide_MaxSpeed;
 	case CMOVE_WallRun:
-		return WallRun_MaxSpeed;
+		return SpeedScale * WallRun_MaxSpeed;
 	case CMOVE_Climb:
-		return Climb_MaxSpeed;
+		return SpeedScale * Climb_MaxSpeed;
 	case CMOVE_Grapple:
-		return Grapple_MaxSpeed;
+		return SpeedScale * Grapple_MaxSpeed;
 	default:
 		UE_LOG(LogTemp, Fatal, TEXT("INVALID MOVEMENT MODE"));
 		return -1.0f;
 	}
+}
+
+void UDemoMyCharacterMovementComponent::ApplyHitSpeedPenalty()
+{
+	AActor* OwnerActor = GetOwner();
+	if (!OwnerActor || !OwnerActor->HasAuthority())
+	{
+		return;
+	}
+
+	bIsHitSlow = true;
+
+	if (HitSpeedPenaltyDuration <= 0.0f)
+	{
+		ClearHitSpeedPenalty();
+		return;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		FTimerManager& TimerManager = World->GetTimerManager();
+		TimerManager.ClearTimer(HitSpeedPenaltyTimer);
+		TimerManager.SetTimer(
+			HitSpeedPenaltyTimer,
+			this,
+			&UDemoMyCharacterMovementComponent::ClearHitSpeedPenalty,
+			HitSpeedPenaltyDuration,
+			false);
+	}
+}
+
+void UDemoMyCharacterMovementComponent::ClearHitSpeedPenalty()
+{
+	bIsHitSlow = false;
 }
 
 float UDemoMyCharacterMovementComponent::GetMaxBrakingDeceleration() const

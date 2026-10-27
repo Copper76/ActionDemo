@@ -47,6 +47,7 @@ void AActionDemoCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 	DOREPLIFETIME(AActionDemoCharacter, bPrevHolstered);
 	DOREPLIFETIME(AActionDemoCharacter, bGrappleCableActive);
 	DOREPLIFETIME(AActionDemoCharacter, GrappleCableEndWS);
+	DOREPLIFETIME_CONDITION(AActionDemoCharacter, HP, COND_OwnerOnly);
 }
 
 AActionDemoCharacter::AActionDemoCharacter(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer.SetDefaultSubobjectClass<UDemoMyCharacterMovementComponent>(CharacterMovementComponentName))
@@ -671,6 +672,27 @@ void AActionDemoCharacter::OnRep_Holstered()
 	ApplyHolsterState();
 }
 
+void AActionDemoCharacter::OnRep_HP()
+{
+	// Owner-only rep; HUD binds on the locally controlled pawn.
+	OnHPChanged.Broadcast(HP, MaxHP);
+}
+
+void AActionDemoCharacter::ApplyDamage(float DamageAmount)
+{
+	if (!HasAuthority() || DamageAmount <= 0.0f || HP <= 0.0f)
+	{
+		return;
+	}
+
+	HP = FMath::Clamp(HP - DamageAmount, 0.0f, MaxHP);
+
+	if (IsLocallyControlled())
+	{
+		OnHPChanged.Broadcast(HP, MaxHP);
+	}
+}
+
 void AActionDemoCharacter::ApplyHolsterState()
 {
 	if (IsLocallyControlled())
@@ -873,6 +895,20 @@ void AActionDemoCharacter::ProcessWeaponFire(FVector TraceStart, FVector TraceEn
 	}
 
 	const FVector ShotDir = (TraceEnd - TraceStart).GetSafeNormal();
+
+	if (AActionDemoCharacter* HitCharacter = Cast<AActionDemoCharacter>(BulletHit.GetActor()))
+	{
+		const float WeaponDamage = Weapon ? Weapon->GetDamage() : 0.0f;
+		if (WeaponDamage > 0.0f)
+		{
+			HitCharacter->ApplyDamage(WeaponDamage);
+		}
+		if (UDemoMyCharacterMovementComponent* HitMove = Cast<UDemoMyCharacterMovementComponent>(HitCharacter->GetCharacterMovement()))
+		{
+			HitMove->ApplyHitSpeedPenalty();
+		}
+		return;
+	}
 
 	if (HoleClass)
 	{
