@@ -63,6 +63,7 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 		FVector Saved_GrapplePivotNormal;
 		TWeakObjectPtr<UPrimitiveComponent> Saved_GrappleTarget;
 		FVector Saved_GravityDirection;
+		float Saved_ClimbTime = 0.f;
 
 	public:
 		FSavedMove_Demo();
@@ -122,6 +123,7 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 	UPROPERTY(EditDefaultsOnly) float Slide_Friction = 0.1f; 
 	UPROPERTY(EditDefaultsOnly) float Slide_SteerFactor = 0.1f;
 	UPROPERTY(EditDefaultsOnly) float Slide_MaxBrakingDeceleration = 400.0f;
+	UPROPERTY(EditDefaultsOnly, meta = (ClampMin = "0.0", ClampMax = "90.0")) float Slide_MaxFallEntryAngle = 30.0f;
 
 	//WallRun
 	UPROPERTY(EditDefaultsOnly) float WallRun_MinSpeed = 500.0f;
@@ -189,6 +191,19 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 	UPROPERTY(EditDefaultsOnly, Category = "Aim", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float AimMaxSpeedModifier = 0.9f;
 
+	UPROPERTY(EditDefaultsOnly, Category = "LandImpact")
+	UCurveFloat* LandImpactSpeedCurve = nullptr;
+
+	UPROPERTY(EditDefaultsOnly, Category = "LandImpact", meta = (ClampMin = "0.0"))
+	float HardLandMinSpeed = 800.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "LandImpact", meta = (ClampMin = "1.0"))
+	float HardLandMaxSpeed = 2000.0f;
+
+	/** Units/sec that LandImpactCurveAlpha falls toward 0 while recovering. Author Y(0) = 1. */
+	UPROPERTY(EditDefaultsOnly, Category = "LandImpact", meta = (ClampMin = "0.0"))
+	float LandImpactRecoveryRate = 3.0f;
+
 private:
 	//Flash
 	UPROPERTY(EditDefaultsOnly, Category = "Flash")
@@ -202,6 +217,14 @@ private:
 
 	//Hit slow
 	FTimerHandle HitSpeedPenaltyTimer;
+
+	FTimerHandle LandImpactPenaltyTimer;
+
+	/** Current max-speed scale from LandImpactSpeedCurve. */
+	float LandSpeedModifier = 1.0f;
+
+	/** Current curve X in [0,1]; 1 = hard impact, recovers toward 0 at LandImpactRecoveryRate. */
+	float LandImpactCurveAlpha = 0.0f;
 
 public:
 	UPROPERTY(EditDefaultsOnly) float Grapple_Range = 1250.0f;
@@ -264,6 +287,8 @@ protected:
 	virtual void UpdateCharacterStateAfterMovement(float DeltaSeconds) override;
 
 	virtual float GetMaxSpeed() const override;
+
+	virtual void ProcessLanded(const FHitResult& Hit, float remainingTime, int32 Iterations) override;
 
 	virtual float GetMaxBrakingDeceleration() const override;
 
@@ -347,6 +372,12 @@ private:
 public:
 	void ApplyHitSpeedPenalty();
 	void ClearHitSpeedPenalty();
+
+//Land Impact
+private:
+	void ApplyLandImpactPenalty();
+	void UpdateLandImpactPenalty();
+	void ClearLandImpactPenalty();
 
 public:
 	UFUNCTION(BlueprintCallable) void ToggleSprint(bool SprintValue);

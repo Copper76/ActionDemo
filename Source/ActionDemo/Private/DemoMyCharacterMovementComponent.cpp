@@ -4,6 +4,7 @@
 #include "DemoMyCharacterMovementComponent.h"
 #include "PortalTraceLibrary.h"
 #include "Components/CapsuleComponent.h"
+#include "Engine/Engine.h"
 #include "Engine/NetSerialization.h"
 #include "Engine/OverlapResult.h"
 #include "GameFramework/Character.h"
@@ -608,6 +609,7 @@ void UDemoMyCharacterMovementComponent::FSavedMove_Demo::Clear()
 	Saved_GrapplePivotNormal = FVector::ZeroVector;
 	Saved_GrappleTarget = nullptr;
 	Saved_GravityDirection = UCharacterMovementComponent::DefaultGravityDirection;
+	Saved_ClimbTime = 0.f;
 }
 
 uint8 UDemoMyCharacterMovementComponent::FSavedMove_Demo::GetCompressedFlags() const
@@ -645,6 +647,7 @@ void UDemoMyCharacterMovementComponent::FSavedMove_Demo::SetMoveFor(ACharacter* 
 	Saved_bHadAnimRootMotion = CharacterMovement->Safe_bHadAnimRootMotion;
 
 	Saved_GravityDirection = CharacterMovement->GetGravityDirection();
+	Saved_ClimbTime = CharacterMovement->ClimbTime;
 }
 
 void UDemoMyCharacterMovementComponent::FSavedMove_Demo::PrepMoveFor(ACharacter* C)
@@ -671,6 +674,7 @@ void UDemoMyCharacterMovementComponent::FSavedMove_Demo::PrepMoveFor(ACharacter*
 	CharacterMovement->Safe_bHadAnimRootMotion = Saved_bHadAnimRootMotion;
 
 	CharacterMovement->SetGravityDirection(Saved_GravityDirection);
+	CharacterMovement->ClimbTime = Saved_ClimbTime;
 }
 
 void UDemoMyCharacterMovementComponent::FCharacterNetworkMoveData_Demo::ClientFillNetworkMoveData(const FSavedMove_Character& ClientMove, ENetworkMoveType MoveType)
@@ -739,7 +743,82 @@ float UDemoMyCharacterMovementComponent::GetMaxSpeed() const
 	{
 		SpeedScale = FMath::Min(SpeedScale, AimMaxSpeedModifier);
 	}
+	if (LandSpeedModifier < 1.0f)
+	{
+		SpeedScale = FMath::Min(SpeedScale, LandSpeedModifier);
+	}
 	return SpeedScale * MaxSpeed;
+}
+
+void UDemoMyCharacterMovementComponent::ProcessLanded(const FHitResult& Hit, float remainingTime, int32 Iterations)
+{
+	ApplyLandImpactPenalty();
+	Super::ProcessLanded(Hit, remainingTime, Iterations);
+}
+
+void UDemoMyCharacterMovementComponent::ApplyLandImpactPenalty()
+{
+	if (!LandImpactSpeedCurve || HardLandMaxSpeed <= HardLandMinSpeed)
+	{
+		return;
+	}
+
+	const float DownwardSpeed = FMath::Max(0.0f, FVector::DotProduct(Velocity, GetNormalisedGravity()));
+	LandImpactCurveAlpha = FMath::GetMappedRangeValueClamped(
+		FVector2D(HardLandMinSpeed, HardLandMaxSpeed),
+		FVector2D(0.0f, 1.0f),
+		DownwardSpeed);
+
+	if (LandImpactCurveAlpha <= KINDA_SMALL_NUMBER || LandImpactRecoveryRate <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	LandSpeedModifier = FMath::Clamp(LandImpactSpeedCurve->GetFloatValue(LandImpactCurveAlpha), 0.0f, 1.0f);
+
+	if (UWorld* World = GetWorld())
+	{
+		FTimerManager& TimerManager = World->GetTimerManager();
+		TimerManager.ClearTimer(LandImpactPenaltyTimer);
+		TimerManager.SetTimer(
+			LandImpactPenaltyTimer,
+			this,
+			&UDemoMyCharacterMovementComponent::UpdateLandImpactPenalty,
+			0.016f,
+			true);
+	}
+}
+
+void UDemoMyCharacterMovementComponent::UpdateLandImpactPenalty()
+{
+	const float DeltaSeconds = GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.016f;
+
+	LandImpactCurveAlpha = FMath::FInterpConstantTo(LandImpactCurveAlpha, 0.0f, DeltaSeconds, LandImpactRecoveryRate);
+
+	if (LandImpactSpeedCurve)
+	{
+		LandSpeedModifier = FMath::Clamp(LandImpactSpeedCurve->GetFloatValue(LandImpactCurveAlpha), 0.0f, 1.0f);
+	}
+	else
+	{
+		LandSpeedModifier = 1.0f;
+	}
+
+	if (LandSpeedModifier >= 1.0f - KINDA_SMALL_NUMBER || LandImpactCurveAlpha <= KINDA_SMALL_NUMBER)
+	{
+		ClearLandImpactPenalty();
+	}
+}
+
+void UDemoMyCharacterMovementComponent::ClearLandImpactPenalty()
+{
+	LandImpactCurveAlpha = 0.0f;
+	LandSpeedModifier = 1.0f;
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(LandImpactPenaltyTimer);
+	}
 }
 
 void UDemoMyCharacterMovementComponent::ApplyHitSpeedPenalty()
@@ -807,6 +886,8 @@ bool UDemoMyCharacterMovementComponent::DoJump(bool bReplayingMoves)
 	bool bWasClimbing = IsClimbing();
 	if (Super::DoJump(bReplayingMoves))
 	{
+		ClearLandImpactPenalty();
+
 		if (bWasWallRunning)
 		{
 			FVector Start = UpdatedComponent->GetComponentLocation();
@@ -888,7 +969,21 @@ void UDemoMyCharacterMovementComponent::ExitSlide()
 
 bool UDemoMyCharacterMovementComponent::CanSlide() const
 {
-	return FVector::VectorPlaneProject(Velocity, GetNormalisedGravity()).SizeSquared() > FMath::Square(Slide_MinSpeed);
+	const FVector GravityDir = GetNormalisedGravity();
+	if (FVector::VectorPlaneProject(Velocity, GravityDir).SizeSquared() <= FMath::Square(Slide_MinSpeed))
+	{
+		return false;
+	}
+
+	const FVector VelDir = Velocity.GetSafeNormal();
+	if (VelDir.IsNearlyZero())
+	{
+		return false;
+	}
+
+	const float AngleFromDown = FMath::RadiansToDegrees(FMath::Acos(
+		FMath::Clamp(FVector::DotProduct(VelDir, GravityDir), -1.f, 1.f)));
+	return AngleFromDown >= Slide_MaxFallEntryAngle;
 }
 
 
