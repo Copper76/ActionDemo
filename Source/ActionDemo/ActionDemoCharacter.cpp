@@ -1323,18 +1323,6 @@ FCollisionQueryParams AActionDemoCharacter::GetIgnoreCharacterParams() const
 	Params.AddIgnoredActors(CharacterChildren);
 	Params.AddIgnoredActor(this);
 
-	if (Weapon)
-	{
-		Params.AddIgnoredComponent(Weapon);
-		if (AActor* WeaponActor = Weapon->GetOwner())
-		{
-			if (WeaponActor != this)
-			{
-				Params.AddIgnoredActor(WeaponActor);
-			}
-		}
-	}
-
 	return Params;
 }
 
@@ -1346,18 +1334,6 @@ FCollisionQueryParams AActionDemoCharacter::GetIgnorePortalParams(bool isBlue) c
 	GetAllChildActors(CharacterChildren);
 	Params.AddIgnoredActors(CharacterChildren);
 	Params.AddIgnoredActor(this);
-
-	if (Weapon)
-	{
-		Params.AddIgnoredComponent(Weapon);
-		if (AActor* WeaponActor = Weapon->GetOwner())
-		{
-			if (WeaponActor != this)
-			{
-				Params.AddIgnoredActor(WeaponActor);
-			}
-		}
-	}
 
 	if (isBlue)
 	{
