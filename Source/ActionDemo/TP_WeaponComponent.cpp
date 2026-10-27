@@ -169,11 +169,12 @@ void UTP_WeaponComponent::Aim(const FInputActionValue& Value)
 
 void UTP_WeaponComponent::Reload(const FInputActionValue& Value)
 {
-	if (m_Character == nullptr || IsReloading() || m_Character->IsHolstered() || !WeaponReloadMontage || Ammo >= MaxAmmo)
+	if (m_Character == nullptr || IsReloading() || m_Character->bHolstered || !WeaponReloadMontage || Ammo >= MaxAmmo)
 	{
 		return;
 	}
 
+	m_Character->TryInterruptEquipMontage();
 	PlayReloadMontages();
 }
 

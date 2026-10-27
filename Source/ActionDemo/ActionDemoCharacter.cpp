@@ -404,16 +404,6 @@ void AActionDemoCharacter::Look(const FInputActionValue& Value)
 	}
 }
 
-bool AActionDemoCharacter::IsPlayingHolsterMontage() const
-{
-	if (!HolsterMontage || !Mesh1P)
-	{
-		return false;
-	}
-	const UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance();
-	return AnimInstance && AnimInstance->Montage_IsPlaying(HolsterMontage);
-}
-
 bool AActionDemoCharacter::IsPlayingEquipMontage() const
 {
 	if (!EquipMontage || !Mesh1P)
@@ -516,7 +506,7 @@ void AActionDemoCharacter::StopReloadMontage(float BlendOutTime)
 
 bool AActionDemoCharacter::IsHolstered() const
 {
-	return bHolstered || IsPlayingHolsterMontage() || IsPlayingEquipMontage();
+	return bHolstered || IsPlayingEquipMontage();
 }
 
 void AActionDemoCharacter::SwapControl()
@@ -596,10 +586,9 @@ void AActionDemoCharacter::ServerSetHolstered_Implementation(bool bInHolstered)
 
 void AActionDemoCharacter::ForceHolsterForParkour()
 {
-	const bool bLatchPrev = bHolstered || (IsLocallyControlled() && IsPlayingHolsterMontage());
 	if (!bSuppressWeapon)
 	{
-		bPrevHolstered = bLatchPrev;
+		bPrevHolstered = bHolstered;
 		bSuppressWeapon = true;
 	}
 

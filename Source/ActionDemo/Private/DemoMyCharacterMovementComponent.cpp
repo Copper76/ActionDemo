@@ -818,7 +818,8 @@ bool UDemoMyCharacterMovementComponent::DoJump(bool bReplayingMoves)
 		}
 		else if (bWasClimbing)
 		{
-			FVector Start = UpdatedComponent->GetComponentLocation() + FVector::DownVector * CapHH();
+			const FVector GravityDir = GetNormalisedGravity();
+			FVector Start = UpdatedComponent->GetComponentLocation() + GravityDir * CapHH();
 			FVector End = Start + UpdatedComponent->GetForwardVector() * CapR() * 2;
 			FHitResult WallHit;
 			UPortalTraceLibrary::LineTraceSingleByProfile(GetWorld(), WallHit, Start, End, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams());
@@ -870,7 +871,9 @@ void UDemoMyCharacterMovementComponent::EnterSlide()
 
 void UDemoMyCharacterMovementComponent::ExitSlide()
 {
-	FQuat NewRotation = FRotationMatrix::MakeFromXZ(UpdatedComponent->GetForwardVector().GetSafeNormal2D(), -GetNormalisedGravity()).ToQuat();
+	const FVector GravityDir = GetNormalisedGravity();
+	const FVector Fwd = FVector::VectorPlaneProject(UpdatedComponent->GetForwardVector(), GravityDir).GetSafeNormal();
+	FQuat NewRotation = FRotationMatrix::MakeFromXZ(Fwd, -GravityDir).ToQuat();
 	FHitResult Hit;
 	SafeMoveUpdatedComponent(FVector::ZeroVector, NewRotation, true, Hit);
 	if (CharacterOwner->bPressedJump)
@@ -933,7 +936,8 @@ void UDemoMyCharacterMovementComponent::PhysSlide(float DeltaTime, int32 Iterati
 		SlopeForce -= FVector::DotProduct(SlopeForce, NormalisedGravity) * NormalisedGravity;
 		Velocity += SlopeForce * Slide_GravityForce * DeltaTime;
 
-		Acceleration = Acceleration.ProjectOnTo(UpdatedComponent->GetRightVector().GetSafeNormal2D()) * Slide_SteerFactor;
+		const FVector RightPlanar = FVector::VectorPlaneProject(UpdatedComponent->GetRightVector(), NormalisedGravity).GetSafeNormal();
+		Acceleration = Acceleration.ProjectOnTo(RightPlanar) * Slide_SteerFactor;
 
 		// Apply acceleration
 		CalcVelocity(timeTick, GroundFriction * Slide_Friction, false, GetMaxBrakingDeceleration());
@@ -1093,7 +1097,8 @@ void UDemoMyCharacterMovementComponent::PhysSlide(float DeltaTime, int32 Iterati
 
 
 	FHitResult Hit;
-	FQuat NewRotation = FRotationMatrix::MakeFromXZ(Velocity.GetSafeNormal2D(), -GetGravityDirection()).ToQuat();
+	const FVector VelPlanar = FVector::VectorPlaneProject(Velocity, NormalisedGravity).GetSafeNormal();
+	FQuat NewRotation = FRotationMatrix::MakeFromXZ(VelPlanar, -NormalisedGravity).ToQuat();
 	SafeMoveUpdatedComponent(FVector::ZeroVector, NewRotation, false, Hit);
 }
 #pragma endregion

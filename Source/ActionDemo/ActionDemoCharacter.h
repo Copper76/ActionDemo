@@ -246,13 +246,8 @@ protected:
 
 	void ApplyHolsterState();
 
-	bool IsPlayingHolsterMontage() const;
-
 	UFUNCTION(BlueprintPure, Category = Weapon)
 	bool IsPlayingEquipMontage() const;
-
-	/** Stop equip montage if playing. When bRequireHalfPlayed, only after >= half length. */
-	void TryInterruptEquipMontage(const float minimumPlayed = 0.0f, const float BlendOutTime = 0.15f);
 
 	/** While equip plays: stop if sprinting, or crouching past half duration. */
 	void UpdateEquipMontageInterrupts();
@@ -312,6 +307,8 @@ public:
 	virtual void CheckJumpInput(float DeltaTime) override;
 
 	void AlignMovement(const FQuat& RelativeRotation, const FQuat& ViewRotation);
+
+	void TryInterruptEquipMontage(const float minimumPlayed = 0.0f, const float BlendOutTime = 0.15f);
 
 protected:
 	// APawn interface

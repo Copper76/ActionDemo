@@ -173,10 +173,10 @@ namespace
 	// That contact pushes the body back into the entry room and, because it is the deepest,
 	// it also fills the manifold and leaves the floor with no slot. A contact in front of
 	// the plane still blocks. A contact that does not push back into the room stays.
-	bool IsPortalSurfaceRejection(const float OtherSide, const FVector& PushOnCube, const FVector& PlaneNormal)
+	bool IsPortalSurfaceRejection(const float OtherSide, const FVector& PushOnCube, const FVector& PlaneNormal, const FVector& PlaneUp)
 	{
-		// Floor/wall fillets near the throat can look wall-aligned; keep primarily upward support.
-		if (FVector::DotProduct(PushOnCube, FVector::UpVector) > 0.5f)
+		// Floor/wall fillets near the throat can look wall-aligned; keep primarily upward support (portal up).
+		if (FVector::DotProduct(PushOnCube, PlaneUp) > 0.5f)
 		{
 			return false;
 		}
@@ -555,7 +555,7 @@ private:
 				const FVector WorldNormal(Pair.GetWorldNormal(Index));
 				const FVector PushOnCube = bTrackedIs0 ? WorldNormal : -WorldNormal;
 				const float WallAligned = FVector::DotProduct(PushOnCube, Tracked->PlaneNormal);
-				const float FloorAligned = FVector::DotProduct(PushOnCube, FVector::UpVector);
+				const float FloorAligned = FVector::DotProduct(PushOnCube, Tracked->PlaneUp);
 				const bool bInAperture = Tracked->IsInAperture(Location);
 				// Behind the entry plane: ghost walls/obstacles (incl. behind-entry blockers),
 				// keep floor support. Rim pairs never reach here (RimObjects early-out).
@@ -588,7 +588,7 @@ private:
 					continue;
 				}
 				if (Tracked->bFitsAperture && bInAperture
-					&& IsPortalSurfaceRejection(OtherSide, PushOnCube, Tracked->PlaneNormal))
+					&& IsPortalSurfaceRejection(OtherSide, PushOnCube, Tracked->PlaneNormal, Tracked->PlaneUp))
 				{
 					Pair.SetContactPointDisabled(Index);
 				}
