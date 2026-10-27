@@ -1532,7 +1532,8 @@ void UDemoMyCharacterMovementComponent::PhysClimb(float DeltaTime, int32 Iterati
 		Acceleration = Acceleration.RotateAngleAxis(90.0f, -UpdatedComponent->GetRightVector());
 		//Acceleration.X = 0.0f;
 		//Acceleration.Y = 0.0f;
-		AddImpulse(NormalisedGravity * Climb_GravityForce * Climb_GravityScaleCurve->GetFloatValue(ClimbTime));
+		const float CurveScale = Climb_GravityScaleCurve ? Climb_GravityScaleCurve->GetFloatValue(ClimbTime) : 0.f;
+		Velocity += NormalisedGravity * Climb_GravityForce * CurveScale * timeTick;
 		// Apply acceleration
 		CalcVelocity(timeTick, 1.0f, false, GetMaxBrakingDeceleration());
 		Velocity = FVector::VectorPlaneProject(Velocity, WallHit.Normal);
