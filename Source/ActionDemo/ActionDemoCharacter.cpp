@@ -108,6 +108,14 @@ void AActionDemoCharacter::BeginPlay()
 
 	if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
 	{
+		// Menu leaves UI-only input on the viewport; restore game input after travel.
+		if (IsLocallyControlled())
+		{
+			FInputModeGameOnly InputMode;
+			PlayerController->SetInputMode(InputMode);
+			PlayerController->bShowMouseCursor = false;
+		}
+
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
 		{
 			Subsystem->AddMappingContext(DefaultMappingContext, 0);
@@ -1315,6 +1323,18 @@ FCollisionQueryParams AActionDemoCharacter::GetIgnoreCharacterParams() const
 	Params.AddIgnoredActors(CharacterChildren);
 	Params.AddIgnoredActor(this);
 
+	if (Weapon)
+	{
+		Params.AddIgnoredComponent(Weapon);
+		if (AActor* WeaponActor = Weapon->GetOwner())
+		{
+			if (WeaponActor != this)
+			{
+				Params.AddIgnoredActor(WeaponActor);
+			}
+		}
+	}
+
 	return Params;
 }
 
@@ -1326,6 +1346,19 @@ FCollisionQueryParams AActionDemoCharacter::GetIgnorePortalParams(bool isBlue) c
 	GetAllChildActors(CharacterChildren);
 	Params.AddIgnoredActors(CharacterChildren);
 	Params.AddIgnoredActor(this);
+
+	if (Weapon)
+	{
+		Params.AddIgnoredComponent(Weapon);
+		if (AActor* WeaponActor = Weapon->GetOwner())
+		{
+			if (WeaponActor != this)
+			{
+				Params.AddIgnoredActor(WeaponActor);
+			}
+		}
+	}
+
 	if (isBlue)
 	{
 		if (BluePortal != nullptr)

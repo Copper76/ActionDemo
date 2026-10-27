@@ -84,6 +84,13 @@ void AActionDemoController::InitPossessedPawn(APawn* InPawn)
 	// Owning client and server both need this; SetGravityDirection is not replicated.
 	MovementComponent->SetGravityDirection(-MyCharacter->GetActorUpVector());
 	SetControlRotation(MyCharacter->GetActorRotation());
+
+	if (IsLocalController())
+	{
+		FInputModeGameOnly InputMode;
+		SetInputMode(InputMode);
+		bShowMouseCursor = false;
+	}
 }
 
 FQuat AActionDemoController::GetGravityRelativeRotation(FQuat Rotation, FVector GravityDirection)
