@@ -125,6 +125,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void StopReload(float BlendOutTime = 0.0f);
 
+	/** Stop FP arms + weapon fire montages (sprint / crouch / holster interrupt). */
+	UFUNCTION(BlueprintCallable, Category = "Weapon")
+	void StopFireMontages(float BlendOutTime = 0.0f);
+
 	UFUNCTION(BlueprintPure, Category = "Weapon")
 	bool IsReloading() const;
 
@@ -165,6 +169,12 @@ public:
 
 	/** True if Actor is a portal of the opposite colour (same colour is relocating, so not a block). */
 	bool IsOtherColourPortal(const AActor* Actor, bool bIsBlue) const;
+
+	/**
+	 * Infima plays WEP montages / ejection on SK_AssaultRifle (SkeletalMesh + ABP),
+	 * not on the logic component. Prefer that mesh when present on the weapon actor.
+	 */
+	USkeletalMeshComponent* GetAnimatedWeaponMesh() const;
 
 protected:
 	virtual void BeginPlay() override;

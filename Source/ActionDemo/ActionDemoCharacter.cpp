@@ -30,6 +30,7 @@
 #include "CableComponent.h"
 #include "Animation/AnimMontage.h"
 #include "Engine/World.h"
+#include "Engine/Engine.h"
 
 //////////////////////////////////////////////////////////////////////////
 // AActionDemoCharacter
@@ -48,6 +49,7 @@ void AActionDemoCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 	DOREPLIFETIME(AActionDemoCharacter, bGrappleCableActive);
 	DOREPLIFETIME(AActionDemoCharacter, GrappleCableEndWS);
 	DOREPLIFETIME_CONDITION(AActionDemoCharacter, HP, COND_OwnerOnly);
+	DOREPLIFETIME(AActionDemoCharacter, bAiming);
 }
 
 AActionDemoCharacter::AActionDemoCharacter(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer.SetDefaultSubobjectClass<UDemoMyCharacterMovementComponent>(CharacterMovementComponentName))
@@ -434,6 +436,21 @@ void AActionDemoCharacter::PlayFireMontage()
 	}
 }
 
+void AActionDemoCharacter::StopFireMontage(float BlendOutTime)
+{
+	if (!FireMontage || !Mesh1P)
+	{
+		return;
+	}
+	if (UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance())
+	{
+		if (AnimInstance->Montage_IsPlaying(FireMontage))
+		{
+			AnimInstance->Montage_Stop(BlendOutTime, FireMontage);
+		}
+	}
+}
+
 void AActionDemoCharacter::PlayReloadMontage()
 {
 	if (!ReloadMontage || !Mesh1P)
@@ -490,41 +507,46 @@ void AActionDemoCharacter::SetHolstered(bool bInHolstered)
 	{
 		if (UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance())
 		{
-			// If canceling the other montage mid-way, start this one at the mirrored progress
-			// (e.g. equip at 70% → stow starts at 30%).
-			auto MirroredStart = [AnimInstance](UAnimMontage* Other, UAnimMontage* Next) -> float
-			{
-				if (!Other || !Next || !AnimInstance->Montage_IsPlaying(Other))
-				{
-					return 0.0f;
-				}
-				const float OtherLen = Other->GetPlayLength();
-				if (OtherLen <= KINDA_SMALL_NUMBER)
-				{
-					return 0.0f;
-				}
-				const float Alpha = FMath::Clamp(AnimInstance->Montage_GetPosition(Other) / OtherLen, 0.0f, 1.0f);
-				return (1.0f - Alpha) * Next->GetPlayLength();
-			};
+			// Infima: Blend In 0 by default; only soften when interrupting the other montage.
+			constexpr float InterruptBlend = 0.15f;
 
 			if (bHolstered)
 			{
-				// Stow / suppress cancels reload mid-play (arms + weapon).
+				// Stow / suppress cancels reload / fire mid-play (arms + weapon).
 				if (Weapon)
 				{
 					Weapon->StopReload(0.0f);
+					Weapon->StopFireMontages(0.0f);
+				}
+				else
+				{
+					StopFireMontage(0.0f);
+				}
+
+				const bool bInterruptEquip = EquipMontage && AnimInstance->Montage_IsPlaying(EquipMontage);
+				if (bInterruptEquip)
+				{
+					AnimInstance->Montage_Stop(InterruptBlend, EquipMontage);
 				}
 
 				if (HolsterMontage)
 				{
-					AnimInstance->Montage_Play(HolsterMontage, 1.0f, EMontagePlayReturnType::MontageLength,
-						MirroredStart(EquipMontage, HolsterMontage));
+					HolsterMontage->BlendIn.SetBlendTime(bInterruptEquip ? InterruptBlend : 0.0f);
+					HolsterMontage->bEnableAutoBlendOut = false;
+					AnimInstance->Montage_Play(HolsterMontage);
 				}
 			}
 			else if (EquipMontage)
 			{
-				AnimInstance->Montage_Play(EquipMontage, 1.0f, EMontagePlayReturnType::MontageLength,
-					MirroredStart(HolsterMontage, EquipMontage));
+				const bool bInterruptHolster = HolsterMontage && AnimInstance->Montage_IsPlaying(HolsterMontage);
+				if (bInterruptHolster)
+				{
+					AnimInstance->Montage_Stop(InterruptBlend, HolsterMontage);
+				}
+
+				EquipMontage->BlendIn.SetBlendTime(bInterruptHolster ? InterruptBlend : 0.0f);
+				EquipMontage->bEnableAutoBlendOut = true;
+				AnimInstance->Montage_Play(EquipMontage);
 			}
 		}
 	}
@@ -547,8 +569,11 @@ void AActionDemoCharacter::ServerSetHolstered_Implementation(bool bInHolstered)
 
 void AActionDemoCharacter::ForceHolsterForParkour()
 {
-	bSuppressWeapon = true;
-	bPrevHolstered = bHolstered;
+	if (!bSuppressWeapon)
+	{
+		bPrevHolstered = bHolstered;
+		bSuppressWeapon = true;
+	}
 	SetHolstered(true);
 }
 
@@ -629,8 +654,26 @@ void AActionDemoCharacter::AttachWeapon()
 		return;
 	}
 
-	Weapon->AttachToComponent(AttachMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Socket);
-	Weapon->SetOnlyOwnerSee(AttachMesh == Mesh1P);
+	// Infima attaches the weapon actor (SK_AssaultRifle + mag) to ik_hand_gun.
+	// Attaching only TP_WeaponComponent leaves the animated mesh behind on the actor root.
+	AActor* WeaponActor = Weapon->GetOwner();
+	const FAttachmentTransformRules Rules = FAttachmentTransformRules::SnapToTargetNotIncludingScale;
+	if (WeaponActor && WeaponActor != this)
+	{
+		WeaponActor->AttachToComponent(AttachMesh, Rules, Socket);
+	}
+	else
+	{
+		Weapon->AttachToComponent(AttachMesh, Rules, Socket);
+	}
+
+	const bool bOwnerOnly = (AttachMesh == Mesh1P);
+	Weapon->SetOnlyOwnerSee(bOwnerOnly);
+	if (USkeletalMeshComponent* AnimatedMesh = Weapon->GetAnimatedWeaponMesh())
+	{
+		AnimatedMesh->SetOnlyOwnerSee(bOwnerOnly);
+		AnimatedMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+	}
 }
 
 void AActionDemoCharacter::AttachGrappler()
@@ -833,6 +876,22 @@ void AActionDemoCharacter::ApplyHolsterState()
 
 void AActionDemoCharacter::SetAiming(bool bInAiming)
 {
+	if (bAiming == bInAiming)
+	{
+		return;
+	}
+
+	bAiming = bInAiming;
+	OnAimChanged.Broadcast(bAiming);
+
+	if (IsLocallyControlled() && !HasAuthority())
+	{
+		ServerSetAiming(bInAiming);
+	}
+}
+
+void AActionDemoCharacter::ServerSetAiming_Implementation(bool bInAiming)
+{
 	bAiming = bInAiming;
 }
 
@@ -892,7 +951,19 @@ void AActionDemoCharacter::Grapple()
 
 void AActionDemoCharacter::ToggleSprint(const FInputActionValue& Value)
 {
-	DemoMyCharacterMovementComponent->ToggleSprint(Value.Get<bool>());
+	const bool bSprint = Value.Get<bool>();
+	if (bSprint)
+	{
+		if (Weapon)
+		{
+			Weapon->StopFireMontages(0.1f);
+		}
+		else
+		{
+			StopFireMontage(0.1f);
+		}
+	}
+	DemoMyCharacterMovementComponent->ToggleSprint(bSprint);
 }
 
 void AActionDemoCharacter::ToggleCrouch(const FInputActionValue& Value)

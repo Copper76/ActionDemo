@@ -20,6 +20,8 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Components/PrimitiveComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 
 #define POINT(x, c) DrawDebugPoint(GetWorld(), x, 10, c, !5.0f, 5.0f);
@@ -111,7 +113,7 @@ void UTP_WeaponComponent::BindInput(UEnhancedInputComponent* EnhancedInputCompon
 
 void UTP_WeaponComponent::Fire()
 {
-	if (m_Character == nullptr || PlayerController == nullptr || IsReloading() || m_Character->IsHolstered() || m_Character->IsCloseToWall() || Ammo <= 0)
+	if (m_Character == nullptr || PlayerController == nullptr || IsReloading() || m_Character->IsHolstered() || m_Character->IsCloseToWall() || m_Character->IsSprinting() || Ammo <= 0)
 	{
 		return;
 	}
@@ -175,13 +177,40 @@ void UTP_WeaponComponent::Reload(const FInputActionValue& Value)
 	PlayReloadMontages();
 }
 
+USkeletalMeshComponent* UTP_WeaponComponent::GetAnimatedWeaponMesh() const
+{
+	// Infima: PlayMontage(InSkeletalMeshComponent = SK_AssaultRifle). That mesh owns AnimClass.
+	if (const AActor* WeaponActor = GetOwner())
+	{
+		TArray<USkeletalMeshComponent*> Meshes;
+		WeaponActor->GetComponents<USkeletalMeshComponent>(Meshes);
+		for (USkeletalMeshComponent* Mesh : Meshes)
+		{
+			if (Mesh && Mesh != this && Mesh->GetSkeletalMeshAsset() && Mesh->GetAnimClass())
+			{
+				return Mesh;
+			}
+		}
+		for (USkeletalMeshComponent* Mesh : Meshes)
+		{
+			if (Mesh && Mesh != this && Mesh->GetSkeletalMeshAsset())
+			{
+				return Mesh;
+			}
+		}
+	}
+
+	return const_cast<UTP_WeaponComponent*>(this);
+}
+
 bool UTP_WeaponComponent::IsReloading() const
 {
 	if (!WeaponReloadMontage)
 	{
 		return false;
 	}
-	const UAnimInstance* AnimInstance = GetAnimInstance();
+	const USkeletalMeshComponent* Mesh = GetAnimatedWeaponMesh();
+	const UAnimInstance* AnimInstance = Mesh ? Mesh->GetAnimInstance() : nullptr;
 	return AnimInstance && AnimInstance->Montage_IsPlaying(WeaponReloadMontage);
 }
 
@@ -220,9 +249,12 @@ void UTP_WeaponComponent::PlayFireMontages()
 {
 	if (WeaponFireMontage)
 	{
-		if (UAnimInstance* WeaponAnim = GetAnimInstance())
+		if (USkeletalMeshComponent* Mesh = GetAnimatedWeaponMesh())
 		{
-			WeaponAnim->Montage_Play(WeaponFireMontage);
+			if (UAnimInstance* WeaponAnim = Mesh->GetAnimInstance())
+			{
+				WeaponAnim->Montage_Play(WeaponFireMontage);
+			}
 		}
 	}
 	if (m_Character)
@@ -233,12 +265,13 @@ void UTP_WeaponComponent::PlayFireMontages()
 
 void UTP_WeaponComponent::SpawnCasing()
 {
-	if (!CasingBP || !DoesSocketExist(EjectionSocketName) || !GetWorld())
+	USkeletalMeshComponent* Mesh = GetAnimatedWeaponMesh();
+	if (!CasingBP || !Mesh || !Mesh->DoesSocketExist(EjectionSocketName) || !GetWorld())
 	{
 		return;
 	}
 
-	const FTransform SpawnTM = GetSocketTransform(EjectionSocketName, RTS_World);
+	const FTransform SpawnTM = Mesh->GetSocketTransform(EjectionSocketName, RTS_World);
 
 	FActorSpawnParameters SpawnParams;
 	SpawnParams.Owner = m_Character;
@@ -264,14 +297,17 @@ void UTP_WeaponComponent::PlayReloadMontages()
 {
 	if (WeaponReloadMontage)
 	{
-		if (UAnimInstance* WeaponAnim = GetAnimInstance())
+		if (USkeletalMeshComponent* Mesh = GetAnimatedWeaponMesh())
 		{
-			const float Duration = WeaponAnim->Montage_Play(WeaponReloadMontage);
-			if (Duration > 0.f)
+			if (UAnimInstance* WeaponAnim = Mesh->GetAnimInstance())
 			{
-				FOnMontageEnded EndDelegate;
-				EndDelegate.BindUObject(this, &UTP_WeaponComponent::OnWeaponMontageEnded);
-				WeaponAnim->Montage_SetEndDelegate(EndDelegate, WeaponReloadMontage);
+				const float Duration = WeaponAnim->Montage_Play(WeaponReloadMontage);
+				if (Duration > 0.f)
+				{
+					FOnMontageEnded EndDelegate;
+					EndDelegate.BindUObject(this, &UTP_WeaponComponent::OnWeaponMontageEnded);
+					WeaponAnim->Montage_SetEndDelegate(EndDelegate, WeaponReloadMontage);
+				}
 			}
 		}
 	}
@@ -285,17 +321,41 @@ void UTP_WeaponComponent::StopReload(float BlendOutTime)
 {
 	if (WeaponReloadMontage)
 	{
-		if (UAnimInstance* WeaponAnim = GetAnimInstance())
+		if (USkeletalMeshComponent* Mesh = GetAnimatedWeaponMesh())
 		{
-			if (WeaponAnim->Montage_IsPlaying(WeaponReloadMontage))
+			if (UAnimInstance* WeaponAnim = Mesh->GetAnimInstance())
 			{
-				WeaponAnim->Montage_Stop(BlendOutTime, WeaponReloadMontage);
+				if (WeaponAnim->Montage_IsPlaying(WeaponReloadMontage))
+				{
+					WeaponAnim->Montage_Stop(BlendOutTime, WeaponReloadMontage);
+				}
 			}
 		}
 	}
 	if (m_Character)
 	{
 		m_Character->StopReloadMontage(BlendOutTime);
+	}
+}
+
+void UTP_WeaponComponent::StopFireMontages(float BlendOutTime)
+{
+	if (WeaponFireMontage)
+	{
+		if (USkeletalMeshComponent* Mesh = GetAnimatedWeaponMesh())
+		{
+			if (UAnimInstance* WeaponAnim = Mesh->GetAnimInstance())
+			{
+				if (WeaponAnim->Montage_IsPlaying(WeaponFireMontage))
+				{
+					WeaponAnim->Montage_Stop(BlendOutTime, WeaponFireMontage);
+				}
+			}
+		}
+	}
+	if (m_Character)
+	{
+		m_Character->StopFireMontage(BlendOutTime);
 	}
 }
 

@@ -185,6 +185,10 @@ class ACTIONDEMO_API UDemoMyCharacterMovementComponent : public UCharacterMoveme
 	UPROPERTY(Replicated)
 	bool bIsHitSlow = false;
 
+	/** Max-speed scale while character IsAiming(); combined with hit slow via Min (not multiply). */
+	UPROPERTY(EditDefaultsOnly, Category = "Aim", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float AimMaxSpeedModifier = 0.9f;
+
 private:
 	//Flash
 	UPROPERTY(EditDefaultsOnly, Category = "Flash")

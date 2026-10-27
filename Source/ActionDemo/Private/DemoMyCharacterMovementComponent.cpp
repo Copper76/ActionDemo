@@ -70,7 +70,8 @@ void UDemoMyCharacterMovementComponent::OnMovementUpdated(float DeltaSeconds, co
 	if (MovementMode == MOVE_Walking)
 	{
 		// Acceleration is the networked move intent (LastInputVector is empty on server replay).
-		if (Safe_bWantsToSprint && (Acceleration.GetSafeNormal() | UpdatedComponent->GetForwardVector()) > 0.5f)
+		const bool bCharacterAiming = DemoCharacterOwner && DemoCharacterOwner->IsAiming();
+		if (!bCharacterAiming && Safe_bWantsToSprint && (Acceleration.GetSafeNormal() | UpdatedComponent->GetForwardVector()) > 0.5f)
 		{
 			MaxWalkSpeed = Sprint_MaxWalkSpeed;
 			bIsSprinting = true;
@@ -704,7 +705,16 @@ FSavedMovePtr UDemoMyCharacterMovementComponent::FNetworkPredictionData_Client_D
 
 float UDemoMyCharacterMovementComponent::GetMaxSpeed() const
 {
-	const float SpeedScale = bIsHitSlow ? HitMaxSpeedModifier : 1.0f;
+	float SpeedScale = 1.0f;
+	if (bIsHitSlow)
+	{
+		SpeedScale = FMath::Min(SpeedScale, HitMaxSpeedModifier);
+	}
+	if (DemoCharacterOwner && DemoCharacterOwner->IsAiming())
+	{
+		SpeedScale = FMath::Min(SpeedScale, AimMaxSpeedModifier);
+	}
+
 	if (MovementMode != MOVE_Custom)
 	{
 		return SpeedScale * Super::GetMaxSpeed();

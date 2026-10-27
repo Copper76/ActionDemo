@@ -11,6 +11,8 @@
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnHolsterChanged, bool, bIsHolstered);
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAimChanged, bool, bIsAiming);
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAmmoChanged, int32, Ammo, int32, MaxAmmo);
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHPChanged, float, HP, float, MaxHP);
@@ -144,6 +146,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = Weapon)
 	FOnHolsterChanged OnHolsterChanged;
 
+	UPROPERTY(BlueprintAssignable, Category = Weapon)
+	FOnAimChanged OnAimChanged;
+
 	UPROPERTY(BlueprintAssignable, Category = Gameplay)
 	FOnAmmoChanged OnAmmoChanged;
 
@@ -198,6 +203,7 @@ public:
 	TObjectPtr<UAnimMontage> ReloadMontage;
 
 	void PlayFireMontage();
+	void StopFireMontage(float BlendOutTime = 0.0f);
 	void PlayReloadMontage();
 	void StopReloadMontage(float BlendOutTime = 0.0f);
 
@@ -215,6 +221,9 @@ public:
 	bool IsAiming() const { return bAiming; }
 
 	void SetAiming(bool bInAiming);
+
+	UFUNCTION(Server, Reliable)
+	void ServerSetAiming(bool bInAiming);
 
 	inline UCableComponent* GetGrappler() { return Grappler; }
 
@@ -376,7 +385,7 @@ public:
 	UPROPERTY(Replicated)
 	FVector_NetQuantize GrappleCableEndWS = FVector::ZeroVector;
 
-	UPROPERTY(BlueprintReadOnly, Category = Weapon)
+	UPROPERTY(BlueprintReadOnly, Replicated, Category = Weapon)
 	bool bAiming = false;
 
 private:
