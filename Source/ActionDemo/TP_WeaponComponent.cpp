@@ -535,9 +535,15 @@ void UTP_WeaponComponent::TracePortalFaceHit(FHitResult& OutHit, const FVector& 
 	const FVector& PortalSurface, const FVector& LateralOffset, const FCollisionQueryParams& QueryParams) const
 {
 	OutHit = FHitResult();
-	const FVector TraceStart = PortalCentre - PortalSurface * Portal_EdgeCheckDelta;
-	const FVector TraceEnd = TraceStart + LateralOffset;
-	GetWorld()->LineTraceSingleByChannel(OutHit, TraceStart, TraceEnd, ECC_Visibility, QueryParams);
+	const FVector FaceCentre = PortalCentre - PortalSurface * Portal_EdgeCheckDelta;
+	const FVector TraceStart = FaceCentre + LateralOffset;
+	TArray<FHitResult> FaceHitResults;
+	GetWorld()->LineTraceMultiByProfile(FaceHitResults, TraceStart, FaceCentre, FName(TEXT("OverlapAll")), QueryParams);
+	if (!FaceHitResults.IsEmpty())
+	{
+		OutHit = FaceHitResults.Last();
+		OutHit.bBlockingHit = true;
+	}
 }
 
 bool UTP_WeaponComponent::TryAdjustPortalEdge(FVector& PortalCentre, const FVector& PortalSurface,
