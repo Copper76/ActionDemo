@@ -137,9 +137,9 @@ public:
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Weapon, Category = Weapon)
 	TObjectPtr<UTP_WeaponComponent> Weapon;
 
-	/** Replicated: hide gun for everyone; owning client also swaps fire mapping. */
+	/** Replicated: hide gun for everyone; owning client also swaps fire mapping. Starts holstered; spawn/respawn play Equip. */
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Holstered, Category = Weapon)
-	bool bHolstered = false;
+	bool bHolstered = true;
 
 	UPROPERTY(BlueprintAssignable, Category = Weapon)
 	FOnHolsterChanged OnHolsterChanged;

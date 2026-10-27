@@ -157,10 +157,10 @@ void UCheckpointManager::RespawnCharacter(AActionDemoCharacter* Character)
 		CharacterController->SetControlRotation(ControlRotation);
 	}
 
-	// Gravity is not replicated with CMC; sync owning client explicitly.
+	// Holstered + ammo/HP first; then client orientation + Equip (see ClientApplyRespawnOrientation).
+	Character->RestoreAfterRespawn();
+
 	Character->ClientApplyRespawnOrientation(
 		GravityDirection.IsNearlyZero() ? FVector::DownVector : GravityDirection,
 		ControlRotation);
-
-	Character->RestoreAfterRespawn();
 }

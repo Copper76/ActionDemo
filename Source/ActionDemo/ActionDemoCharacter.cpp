@@ -54,7 +54,7 @@ AActionDemoCharacter::AActionDemoCharacter(const FObjectInitializer& ObjectIniti
 {
 
 	DemoMyCharacterMovementComponent = Cast<UDemoMyCharacterMovementComponent>(GetCharacterMovement());
-	bHolstered = false;
+	bHolstered = true;
 
 	static ConstructorHelpers::FClassFinder<AActor> WeaponClassFinder(TEXT("/Game/FirstPerson/Blueprints/BP_PickUp_Rifle"));
 	if (WeaponClassFinder.Succeeded())
@@ -137,6 +137,27 @@ void AActionDemoCharacter::BeginPlay()
 	AttachGrappler();
 	BindWeaponInput();
 	ApplyHolsterState();
+
+	// Already holstered by default — play Equip into drawn.
+	if (IsLocallyControlled())
+	{
+		if (Mesh1P)
+		{
+			if (UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance())
+			{
+				if (EquipMontage)
+				{
+					AnimInstance->Montage_Play(EquipMontage);
+				}
+			}
+		}
+		bHolstered = false;
+		ApplyHolsterState();
+		if (!HasAuthority())
+		{
+			ServerSetHolstered(false);
+		}
+	}
 }
 
 void AActionDemoCharacter::NotifyControllerChanged()
@@ -726,10 +747,10 @@ void AActionDemoCharacter::RestoreAfterRespawn()
 		OnAmmoChanged.Broadcast(Weapon->Ammo, Weapon->MaxAmmo);
 	}
 
-	// Respawn default: weapon drawn (no holster / parkour suppress).
+	// Respawn: clear parkour suppress, start holstered. Equip plays in ClientApplyRespawnOrientation.
 	bSuppressWeapon = false;
 	bPrevHolstered = false;
-	bHolstered = false;
+	bHolstered = true;
 	if (Mesh1P)
 	{
 		if (UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance())
@@ -764,6 +785,28 @@ void AActionDemoCharacter::ClientApplyRespawnOrientation_Implementation(FVector 
 	if (Controller)
 	{
 		Controller->SetControlRotation(ControlRotation);
+	}
+
+	// Already holstered from RestoreAfterRespawn — play Equip into drawn.
+	if (Mesh1P)
+	{
+		if (UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance())
+		{
+			if (HolsterMontage)
+			{
+				AnimInstance->Montage_Stop(0.0f, HolsterMontage);
+			}
+			if (EquipMontage)
+			{
+				AnimInstance->Montage_Play(EquipMontage);
+			}
+		}
+	}
+	bHolstered = false;
+	ApplyHolsterState();
+	if (!HasAuthority())
+	{
+		ServerSetHolstered(false);
 	}
 }
 
@@ -839,6 +882,11 @@ void AActionDemoCharacter::AlignMovement(const FQuat& RelativeRotation, const FQ
 
 void AActionDemoCharacter::Grapple()
 {
+	if ( !bHolstered || IsPlayingHolsterMontage() || IsPlayingEquipMontage())
+	{
+		return;
+	}
+
 	DemoMyCharacterMovementComponent->Grapple();
 }
 
