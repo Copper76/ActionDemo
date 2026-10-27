@@ -104,8 +104,8 @@ void UTP_WeaponComponent::BindInput(UEnhancedInputComponent* EnhancedInputCompon
 
 	EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Aim);
 	EnhancedInputComponent->BindAction(ReloadAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Reload);
-	EnhancedInputComponent->BindAction(BluePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::BluePortalFire);
-	EnhancedInputComponent->BindAction(OrangePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::OrangePortalFire);
+	EnhancedInputComponent->BindAction(BluePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::PortalFireBlue);
+	EnhancedInputComponent->BindAction(OrangePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::PortalFireOrange);
 	EnhancedInputComponent->BindAction(ToggleARAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::ToggleAR);
 	EnhancedInputComponent->BindAction(TogglePortalAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::TogglePortal);
 	EnhancedInputComponent->BindAction(EmptyAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Empty);
@@ -359,14 +359,23 @@ void UTP_WeaponComponent::StopFireMontages(float BlendOutTime)
 	}
 }
 
-void UTP_WeaponComponent::BluePortalFire()
+void UTP_WeaponComponent::PortalFireBlue()
 {
-	if (m_Character == nullptr || m_Character->GetController() == nullptr || m_Character->IsHolstered())
+	PortalFire(true);
+}
+
+void UTP_WeaponComponent::PortalFireOrange()
+{
+	PortalFire(false);
+}
+
+void UTP_WeaponComponent::PortalFire(bool bIsBlue)
+{
+	if (m_Character == nullptr || PlayerController == nullptr || m_Character->IsHolstered() || m_Character->IsCloseToWall() || m_Character->IsSprinting())
 	{
 		return;
 	}
 
-	// Try and play the sound if specified
 	if (FireSound != nullptr)
 	{
 		UGameplayStatics::PlaySoundAtLocation(this, FireSound, m_Character->GetActorLocation());
@@ -377,19 +386,7 @@ void UTP_WeaponComponent::BluePortalFire()
 	FVector PortalCentre;
 	FQuat PortalRotation;
 	AActor* TargetSurface = nullptr;
-	if (!CheckValidLoc(PortalCentre, PortalRotation, TargetSurface, true))
-	{
-		return;
-	}
-	if (TargetSurface == nullptr)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("DIDN'T REGISTER"));
-	}
-	else
-	{
-		UE_LOG(LogTemp, Warning, TEXT("TARGET: %s"), *TargetSurface->GetName());
-	}
-	if (!PortalBP)
+	if (!CheckValidLoc(PortalCentre, PortalRotation, TargetSurface, bIsBlue) || !PortalBP)
 	{
 		return;
 	}
@@ -397,57 +394,11 @@ void UTP_WeaponComponent::BluePortalFire()
 	const FRotator PortalRotator = PortalRotation.Rotator();
 	if (m_Character->HasAuthority())
 	{
-		m_Character->PlacePortal(true, PortalCentre, PortalRotator, PortalBP);
+		m_Character->PlacePortal(bIsBlue, PortalCentre, PortalRotator, PortalBP);
 	}
 	else
 	{
-		m_Character->ServerPlacePortal(true, PortalCentre, PortalRotator, PortalBP);
-	}
-}
-
-void UTP_WeaponComponent::OrangePortalFire()
-{
-	if (m_Character == nullptr || m_Character->GetController() == nullptr || m_Character->IsHolstered())
-	{
-		return;
-	}
-
-	// Try and play the sound if specified
-	if (FireSound != nullptr)
-	{
-		UGameplayStatics::PlaySoundAtLocation(this, FireSound, m_Character->GetActorLocation());
-	}
-
-	PlayFireMontages();
-
-	FQuat PortalRotation;
-	FVector PortalCentre;
-	AActor* TargetSurface = NULL;
-	if (!CheckValidLoc(PortalCentre, PortalRotation, TargetSurface, false))
-	{
-		return;
-	}
-	if (TargetSurface == nullptr)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("DIDN'T REGISTER"));
-	}
-	else
-	{
-		UE_LOG(LogTemp, Warning, TEXT("TARGET: %s"), *TargetSurface->GetName());
-	}
-	if (!PortalBP)
-	{
-		return;
-	}
-
-	const FRotator PortalRotator = PortalRotation.Rotator();
-	if (m_Character->HasAuthority())
-	{
-		m_Character->PlacePortal(false, PortalCentre, PortalRotator, PortalBP);
-	}
-	else
-	{
-		m_Character->ServerPlacePortal(false, PortalCentre, PortalRotator, PortalBP);
+		m_Character->ServerPlacePortal(bIsBlue, PortalCentre, PortalRotator, PortalBP);
 	}
 }
 
@@ -553,133 +504,48 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FQuat& PortalRota
 
 	FVector SurfaceUp = PortalRotation.RotateVector(FVector::UpVector).GetSafeNormal();
 
-	AActor* TargetActor = PortalHit.GetActor();
+	const float HalfWidth = Portal_Width * 0.5f;
+	const float HalfHeight = Portal_Height * 0.5f;
+	const float EdgePad = 10.0f;
 
-	TArray<FHitResult> FaceHitResults;
-
-	//check if enough horizontal space
 	FHitResult LeftFaceHit;
-	FVector LeftFace = PortalCentre - PortalSurface * Portal_EdgeCheckDelta - SurfaceRight * Portal_Width;
-	GetWorld()->LineTraceMultiByProfile(FaceHitResults, LeftFace, PortalCentre - PortalSurface * Portal_EdgeCheckDelta, "OverlapAll", QueryParams);
-
-	if (!FaceHitResults.IsEmpty())
-	{
-		LeftFaceHit = FaceHitResults.Last();
-		LeftFaceHit.bBlockingHit = true;
-	}
-	FaceHitResults.Empty();
-
 	FHitResult RightFaceHit;
-	FVector RightFace = PortalCentre - PortalSurface * Portal_EdgeCheckDelta + SurfaceRight * Portal_Width;
-	GetWorld()->LineTraceMultiByProfile(FaceHitResults, RightFace, PortalCentre - PortalSurface * Portal_EdgeCheckDelta, "OverlapAll", QueryParams);
-	if (!FaceHitResults.IsEmpty())
-	{
-		RightFaceHit = FaceHitResults.Last();
-		RightFaceHit.bBlockingHit = true;
-	}
-	FaceHitResults.Empty();
-
-	if (LeftFaceHit.bBlockingHit && RightFaceHit.bBlockingHit && FVector::Dist(LeftFaceHit.ImpactPoint, RightFaceHit.ImpactPoint) < Portal_Width)
+	TracePortalFaceHit(LeftFaceHit, PortalCentre, PortalSurface, -SurfaceRight * Portal_Width, QueryParams);
+	TracePortalFaceHit(RightFaceHit, PortalCentre, PortalSurface, SurfaceRight * Portal_Width, QueryParams);
+	if (LeftFaceHit.bBlockingHit && RightFaceHit.bBlockingHit
+		&& FVector::Dist(LeftFaceHit.ImpactPoint, RightFaceHit.ImpactPoint) < Portal_Width)
 	{
 		return false;
 	}
 
-	//check if enough vertical space
 	FHitResult TopFaceHit;
-	FVector TopFace = PortalCentre - PortalSurface * Portal_EdgeCheckDelta + SurfaceUp * Portal_Height;
-	GetWorld()->LineTraceMultiByProfile(FaceHitResults, TopFace, PortalCentre - PortalSurface * Portal_EdgeCheckDelta, "OverlapAll", QueryParams);
-	if (!FaceHitResults.IsEmpty())
-	{
-		TopFaceHit = FaceHitResults.Last();
-		TopFaceHit.bBlockingHit = true;
-	}
-	FaceHitResults.Empty();
-
 	FHitResult BottomFaceHit;
-	FVector BottomFace = PortalCentre - PortalSurface * Portal_EdgeCheckDelta - SurfaceUp * Portal_Height;
-	GetWorld()->LineTraceMultiByProfile(FaceHitResults, BottomFace, PortalCentre - PortalSurface * Portal_EdgeCheckDelta, "OverlapAll", QueryParams);
-	if (!FaceHitResults.IsEmpty())
-	{
-		BottomFaceHit = FaceHitResults.Last();
-		BottomFaceHit.bBlockingHit = true;
-	}
-	FaceHitResults.Empty();
-
-	if (TopFaceHit.bBlockingHit && BottomFaceHit.bBlockingHit && FVector::Dist(TopFaceHit.ImpactPoint, BottomFaceHit.ImpactPoint) < Portal_Height)
+	TracePortalFaceHit(TopFaceHit, PortalCentre, PortalSurface, SurfaceUp * Portal_Height, QueryParams);
+	TracePortalFaceHit(BottomFaceHit, PortalCentre, PortalSurface, -SurfaceUp * Portal_Height, QueryParams);
+	if (TopFaceHit.bBlockingHit && BottomFaceHit.bBlockingHit
+		&& FVector::Dist(TopFaceHit.ImpactPoint, BottomFaceHit.ImpactPoint) < Portal_Height)
 	{
 		return false;
 	}
 
-	FHitResult EdgeHit;
-
-	FVector RightEdge = PortalCentre + SurfaceRight * (Portal_Width / 2 + 10.0f);
-	GetWorld()->LineTraceSingleByChannel(EdgeHit, RightEdge + PortalSurface * Portal_EdgeCheckDelta, RightEdge - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
-	if (!EdgeHit.IsValidBlockingHit())
-	{
-		PortalCentre += FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::LeftVector), PortalSurface).GetSafeNormal() * (RightFaceHit.Distance - Portal_Width / 2);
-	}
-	else if (IsOtherColourPortal(EdgeHit.GetActor(), isBlue))
-	{
-		return false;
-	}
-
-	FVector LeftEdge = PortalCentre - SurfaceRight * (Portal_Width / 2 + 10.0f);
-	GetWorld()->LineTraceSingleByChannel(EdgeHit, LeftEdge + PortalSurface * Portal_EdgeCheckDelta, LeftEdge - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
-	if (!EdgeHit.IsValidBlockingHit())
-	{
-		PortalCentre += FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::RightVector), PortalSurface).GetSafeNormal() * (LeftFaceHit.Distance - Portal_Width / 2);
-	}
-	else if (IsOtherColourPortal(EdgeHit.GetActor(), isBlue))
+	if (!TryAdjustPortalEdge(PortalCentre, PortalSurface, SurfaceRight * (HalfWidth + EdgePad),
+			FVector::LeftVector, RightFaceHit, HalfWidth, isBlue, QueryParams)
+		|| !TryAdjustPortalEdge(PortalCentre, PortalSurface, -SurfaceRight * (HalfWidth + EdgePad),
+			FVector::RightVector, LeftFaceHit, HalfWidth, isBlue, QueryParams)
+		|| !TryAdjustPortalEdge(PortalCentre, PortalSurface, SurfaceUp * (HalfHeight + EdgePad),
+			FVector::DownVector, TopFaceHit, HalfHeight, isBlue, QueryParams)
+		|| !TryAdjustPortalEdge(PortalCentre, PortalSurface, -SurfaceUp * (HalfHeight + EdgePad),
+			FVector::UpVector, BottomFaceHit, HalfHeight, isBlue, QueryParams))
 	{
 		return false;
 	}
 
-	FVector UpEdge = PortalCentre + SurfaceUp * (Portal_Height / 2 + 10.0f);
-	GetWorld()->LineTraceSingleByChannel(EdgeHit, UpEdge + PortalSurface * Portal_EdgeCheckDelta, UpEdge - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
-	if (!EdgeHit.IsValidBlockingHit())
-	{
-		PortalCentre += FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::DownVector), PortalSurface).GetSafeNormal() * (TopFaceHit.Distance - Portal_Height / 2);
-	}
-	else if (IsOtherColourPortal(EdgeHit.GetActor(), isBlue))
-	{
-		return false;
-	}
-
-	FVector DownEdge = PortalCentre - SurfaceUp * (Portal_Height / 2.0f + 10.0f);
-	GetWorld()->LineTraceSingleByChannel(EdgeHit, DownEdge + PortalSurface * Portal_EdgeCheckDelta, DownEdge - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
-	if (!EdgeHit.IsValidBlockingHit())
-	{
-		PortalCentre += FVector::VectorPlaneProject(PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(FVector::UpVector), PortalSurface).GetSafeNormal() * (BottomFaceHit.Distance - Portal_Height / 2);
-	}
-	else if (IsOtherColourPortal(EdgeHit.GetActor(), isBlue))
-	{
-		return false;
-	}
-
-	FVector TopRightCorner = PortalCentre + SurfaceUp * (Portal_Height / 2 + 10.0f) + SurfaceRight * (Portal_Width/2 + 10.0f);
-	GetWorld()->LineTraceSingleByChannel(EdgeHit, TopRightCorner + PortalSurface * Portal_EdgeCheckDelta, TopRightCorner - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
-	if (EdgeHit.IsValidBlockingHit() && IsOtherColourPortal(EdgeHit.GetActor(), isBlue))
-	{
-		return false;
-	}
-
-	FVector BottomRightCorner = PortalCentre - SurfaceUp * (Portal_Height / 2 + 10.0f) + SurfaceRight * (Portal_Width / 2 + 10.0f);
-	GetWorld()->LineTraceSingleByChannel(EdgeHit, BottomRightCorner + PortalSurface * Portal_EdgeCheckDelta, BottomRightCorner - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
-	if (EdgeHit.IsValidBlockingHit() && IsOtherColourPortal(EdgeHit.GetActor(), isBlue))
-	{
-		return false;
-	}
-
-	FVector TopLeftCorner = PortalCentre + SurfaceUp * (Portal_Height / 2 + 10.0f) - SurfaceRight * (Portal_Width / 2 + 10.0f);
-	GetWorld()->LineTraceSingleByChannel(EdgeHit, TopLeftCorner + PortalSurface * Portal_EdgeCheckDelta, TopLeftCorner - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
-	if (EdgeHit.IsValidBlockingHit() && IsOtherColourPortal(EdgeHit.GetActor(), isBlue))
-	{
-		return false;
-	}
-
-	FVector BottomLeftCorner = PortalCentre - SurfaceUp * (Portal_Height / 2 + 10.0f) - SurfaceRight * (Portal_Width / 2 + 10.0f);
-	GetWorld()->LineTraceSingleByChannel(EdgeHit, BottomLeftCorner + PortalSurface * Portal_EdgeCheckDelta, BottomLeftCorner - PortalSurface * Portal_EdgeCheckDelta, ECC_Visibility, QueryParams);
-	if (EdgeHit.IsValidBlockingHit() && IsOtherColourPortal(EdgeHit.GetActor(), isBlue))
+	const FVector CornerR = SurfaceRight * (HalfWidth + EdgePad);
+	const FVector CornerU = SurfaceUp * (HalfHeight + EdgePad);
+	if (IsPortalCornerBlocked(PortalCentre, PortalSurface, CornerU + CornerR, isBlue, QueryParams)
+		|| IsPortalCornerBlocked(PortalCentre, PortalSurface, -CornerU + CornerR, isBlue, QueryParams)
+		|| IsPortalCornerBlocked(PortalCentre, PortalSurface, CornerU - CornerR, isBlue, QueryParams)
+		|| IsPortalCornerBlocked(PortalCentre, PortalSurface, -CornerU - CornerR, isBlue, QueryParams))
 	{
 		return false;
 	}
@@ -688,6 +554,50 @@ bool UTP_WeaponComponent::CheckValidLoc(FVector& PortalCentre, FQuat& PortalRota
 	PortalCentre += PortalNormal * Portal_SurfaceOffset;
 
 	return true;
+}
+
+void UTP_WeaponComponent::TracePortalFaceHit(FHitResult& OutHit, const FVector& PortalCentre,
+	const FVector& PortalSurface, const FVector& LateralOffset, const FCollisionQueryParams& QueryParams) const
+{
+	OutHit = FHitResult();
+	const FVector TraceStart = PortalCentre - PortalSurface * Portal_EdgeCheckDelta;
+	const FVector TraceEnd = TraceStart + LateralOffset;
+	GetWorld()->LineTraceSingleByChannel(OutHit, TraceStart, TraceEnd, ECC_Visibility, QueryParams);
+}
+
+bool UTP_WeaponComponent::TryAdjustPortalEdge(FVector& PortalCentre, const FVector& PortalSurface,
+	const FVector& EdgeOffset, const FVector& NudgeCamLocalDir, const FHitResult& FaceHit, float HalfExtent,
+	bool bIsBlue, const FCollisionQueryParams& QueryParams) const
+{
+	const FVector EdgePos = PortalCentre + EdgeOffset;
+	FHitResult EdgeHit;
+	GetWorld()->LineTraceSingleByChannel(EdgeHit,
+		EdgePos + PortalSurface * Portal_EdgeCheckDelta,
+		EdgePos - PortalSurface * Portal_EdgeCheckDelta,
+		ECC_Visibility, QueryParams);
+
+	if (!EdgeHit.IsValidBlockingHit())
+	{
+		const FVector NudgeDir = FVector::VectorPlaneProject(
+			PlayerController->PlayerCameraManager->GetCameraRotation().RotateVector(NudgeCamLocalDir),
+			PortalSurface).GetSafeNormal();
+		PortalCentre += NudgeDir * (FaceHit.Distance - HalfExtent);
+		return true;
+	}
+
+	return !IsOtherColourPortal(EdgeHit.GetActor(), bIsBlue);
+}
+
+bool UTP_WeaponComponent::IsPortalCornerBlocked(const FVector& PortalCentre, const FVector& PortalSurface,
+	const FVector& CornerOffset, bool bIsBlue, const FCollisionQueryParams& QueryParams) const
+{
+	const FVector CornerPos = PortalCentre + CornerOffset;
+	FHitResult EdgeHit;
+	GetWorld()->LineTraceSingleByChannel(EdgeHit,
+		CornerPos + PortalSurface * Portal_EdgeCheckDelta,
+		CornerPos - PortalSurface * Portal_EdgeCheckDelta,
+		ECC_Visibility, QueryParams);
+	return EdgeHit.IsValidBlockingHit() && IsOtherColourPortal(EdgeHit.GetActor(), bIsBlue);
 }
 
 void UTP_WeaponComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)

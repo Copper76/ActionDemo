@@ -218,7 +218,7 @@ public:
 	FRotator GetAnimLookRotation() const;
 
 	UFUNCTION(BlueprintPure, Category = Weapon)
-	bool IsAiming() const { return bAiming; }
+	bool IsAiming() const { return bAiming && !IsHolstered(); }
 
 	void SetAiming(bool bInAiming);
 
@@ -250,6 +250,12 @@ protected:
 
 	UFUNCTION(BlueprintPure, Category = Weapon)
 	bool IsPlayingEquipMontage() const;
+
+	/** Stop equip montage if playing. When bRequireHalfPlayed, only after >= half length. */
+	void TryInterruptEquipMontage(const float minimumPlayed = 0.0f, const float BlendOutTime = 0.15f);
+
+	/** While equip plays: stop if sprinting, or crouching past half duration. */
+	void UpdateEquipMontageInterrupts();
 
 	void UpdateCloseToWall();
 

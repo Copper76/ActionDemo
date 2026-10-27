@@ -145,13 +145,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void RestockAmmo();
 
-	/** Make the weapon Fire an orange Portal */
+	/** Place a portal; bIsBlue true = blue, false = orange. */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
-	void OrangePortalFire();
+	void PortalFire(bool bIsBlue);
 
-	/** Make the weapon Fire a blue Portal */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
-	void BluePortalFire();
+	void PortalFireBlue();
+
+	UFUNCTION(BlueprintCallable, Category = "Weapon")
+	void PortalFireOrange();
 
 	/** Make the weapon Fire a Projectile */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
@@ -205,6 +207,19 @@ private:
 	void PlayFireMontages();
 	void PlayReloadMontages();
 	void SpawnCasing();
+
+	/** Blocking face probe from portal centre outward along LateralOffset. */
+	void TracePortalFaceHit(FHitResult& OutHit, const FVector& PortalCentre, const FVector& PortalSurface,
+		const FVector& LateralOffset, const FCollisionQueryParams& QueryParams) const;
+
+	/** Nudge PortalCentre if the edge has no wall; fail if another colour portal is there. */
+	bool TryAdjustPortalEdge(FVector& PortalCentre, const FVector& PortalSurface, const FVector& EdgeOffset,
+		const FVector& NudgeCamLocalDir, const FHitResult& FaceHit, float HalfExtent, bool bIsBlue,
+		const FCollisionQueryParams& QueryParams) const;
+
+	/** Fail if a corner sits on the opposite-colour portal. */
+	bool IsPortalCornerBlocked(const FVector& PortalCentre, const FVector& PortalSurface,
+		const FVector& CornerOffset, bool bIsBlue, const FCollisionQueryParams& QueryParams) const;
 
 	//Assault Rifle
 	float HipFireSpread = 3.0f;

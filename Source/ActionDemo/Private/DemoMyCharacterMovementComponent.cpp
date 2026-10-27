@@ -402,7 +402,7 @@ void UDemoMyCharacterMovementComponent::UpdateCharacterStateBeforeMovement(float
 
 	if (MovementMode == MOVE_Walking && bWantsToCrouch)
 	{
-		if (Velocity.SizeSquared() > pow(Slide_MinSpeed, 2))
+		if (CanSlide())
 		{
 			EnterSlide();
 		}
@@ -857,9 +857,11 @@ void UDemoMyCharacterMovementComponent::AlignMovement(const FQuat& RelativeRotat
 void UDemoMyCharacterMovementComponent::EnterSlide()
 {
 	bWantsToCrouch = true;
-	Velocity += Velocity.GetSafeNormal2D() * Slide_EnterImpulse;
+	const FVector PlanarDir = FVector::VectorPlaneProject(Velocity, GetNormalisedGravity()).GetSafeNormal();
+	Velocity += PlanarDir * Slide_EnterImpulse;
 	SetMovementMode(MOVE_Custom, CMOVE_Slide);
 }
+
 void UDemoMyCharacterMovementComponent::ExitSlide()
 {
 	FQuat NewRotation = FRotationMatrix::MakeFromXZ(UpdatedComponent->GetForwardVector().GetSafeNormal2D(), -GetNormalisedGravity()).ToQuat();
@@ -874,9 +876,10 @@ void UDemoMyCharacterMovementComponent::ExitSlide()
 		SetMovementMode(MOVE_Walking);
 	}
 }
+
 bool UDemoMyCharacterMovementComponent::CanSlide() const
 {
-	return Velocity.SizeSquared() > pow(Slide_MinSpeed, 2);
+	return FVector::VectorPlaneProject(Velocity, GetNormalisedGravity()).SizeSquared() > FMath::Square(Slide_MinSpeed);
 }
 
 

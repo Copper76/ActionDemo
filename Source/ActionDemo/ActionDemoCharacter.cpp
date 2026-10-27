@@ -424,6 +424,42 @@ bool AActionDemoCharacter::IsPlayingEquipMontage() const
 	return AnimInstance && AnimInstance->Montage_IsPlaying(EquipMontage);
 }
 
+void AActionDemoCharacter::TryInterruptEquipMontage(const float minimumPlayed, const float BlendOutTime)
+{
+	if (!EquipMontage || !Mesh1P)
+	{
+		return;
+	}
+
+	UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance();
+	if (!AnimInstance || !AnimInstance->Montage_IsPlaying(EquipMontage))
+	{
+		return;
+	}
+
+	const float Length = EquipMontage->GetPlayLength();
+	if (Length <= 0.0f || AnimInstance->Montage_GetPosition(EquipMontage) < Length * minimumPlayed)
+	{
+		return;
+	}
+
+	AnimInstance->Montage_Stop(BlendOutTime, EquipMontage);
+}
+
+void AActionDemoCharacter::UpdateEquipMontageInterrupts()
+{
+	if (!IsPlayingEquipMontage())
+	{
+		return;
+	}
+
+	if (IsSprinting() || bIsCrouched || bAiming)
+	{
+		TryInterruptEquipMontage(0.5f, 0.1f);
+		return;
+	}
+}
+
 void AActionDemoCharacter::PlayFireMontage()
 {
 	if (!FireMontage || !Mesh1P)
@@ -507,9 +543,6 @@ void AActionDemoCharacter::SetHolstered(bool bInHolstered)
 	{
 		if (UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance())
 		{
-			// Infima: Blend In 0 by default; only soften when interrupting the other montage.
-			constexpr float InterruptBlend = 0.15f;
-
 			if (bHolstered)
 			{
 				// Stow / suppress cancels reload / fire mid-play (arms + weapon).
@@ -523,29 +556,13 @@ void AActionDemoCharacter::SetHolstered(bool bInHolstered)
 					StopFireMontage(0.0f);
 				}
 
-				const bool bInterruptEquip = EquipMontage && AnimInstance->Montage_IsPlaying(EquipMontage);
-				if (bInterruptEquip)
-				{
-					AnimInstance->Montage_Stop(InterruptBlend, EquipMontage);
-				}
-
 				if (HolsterMontage)
 				{
-					HolsterMontage->BlendIn.SetBlendTime(bInterruptEquip ? InterruptBlend : 0.0f);
-					HolsterMontage->bEnableAutoBlendOut = false;
 					AnimInstance->Montage_Play(HolsterMontage);
 				}
 			}
 			else if (EquipMontage)
 			{
-				const bool bInterruptHolster = HolsterMontage && AnimInstance->Montage_IsPlaying(HolsterMontage);
-				if (bInterruptHolster)
-				{
-					AnimInstance->Montage_Stop(InterruptBlend, HolsterMontage);
-				}
-
-				EquipMontage->BlendIn.SetBlendTime(bInterruptHolster ? InterruptBlend : 0.0f);
-				EquipMontage->bEnableAutoBlendOut = true;
 				AnimInstance->Montage_Play(EquipMontage);
 			}
 		}
@@ -571,7 +588,7 @@ void AActionDemoCharacter::ForceHolsterForParkour()
 {
 	if (!bSuppressWeapon)
 	{
-		bPrevHolstered = bHolstered;
+		bPrevHolstered = bHolstered || IsPlayingHolsterMontage();
 		bSuppressWeapon = true;
 	}
 	SetHolstered(true);
@@ -1032,6 +1049,7 @@ void AActionDemoCharacter::Tick(float DeltaTime)
 	if (IsLocallyControlled())
 	{
 		UpdateCloseToWall();
+		UpdateEquipMontageInterrupts();
 
 		if (GetActorLocation().Z < KillZ)
 		{
