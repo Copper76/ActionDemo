@@ -289,6 +289,12 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerSetHolstered(bool bInHolstered);
 
+	UFUNCTION(Server, Reliable)
+	void ServerForceHolsterForParkour(bool bClientPrevHolstered);
+
+	UFUNCTION(Server, Reliable)
+	void ServerRestoreWeaponAfterParkour();
+
 	virtual bool CanJumpInternal_Implementation() const override;
 
 	void OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;

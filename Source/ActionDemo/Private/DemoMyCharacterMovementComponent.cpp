@@ -705,6 +705,31 @@ FSavedMovePtr UDemoMyCharacterMovementComponent::FNetworkPredictionData_Client_D
 
 float UDemoMyCharacterMovementComponent::GetMaxSpeed() const
 {
+	if (MovementMode == MOVE_Custom)
+	{
+		switch (CustomMovementMode)
+		{
+		case CMOVE_Slide:
+			return Slide_MaxSpeed;
+		case CMOVE_WallRun:
+			return WallRun_MaxSpeed;
+		case CMOVE_Climb:
+			return Climb_MaxSpeed;
+		case CMOVE_Grapple:
+			return Grapple_MaxSpeed;
+		default:
+			UE_LOG(LogTemp, Fatal, TEXT("INVALID MOVEMENT MODE"));
+			return -1.0f;
+		}
+	}
+
+	const float MaxSpeed = Super::GetMaxSpeed();
+
+	if (MovementMode != MOVE_Walking)
+	{
+		return MaxSpeed;
+	}
+
 	float SpeedScale = 1.0f;
 	if (bIsHitSlow)
 	{
@@ -714,26 +739,7 @@ float UDemoMyCharacterMovementComponent::GetMaxSpeed() const
 	{
 		SpeedScale = FMath::Min(SpeedScale, AimMaxSpeedModifier);
 	}
-
-	if (MovementMode != MOVE_Custom)
-	{
-		return SpeedScale * Super::GetMaxSpeed();
-	}
-
-	switch (CustomMovementMode)
-	{
-	case CMOVE_Slide:
-		return SpeedScale * Slide_MaxSpeed;
-	case CMOVE_WallRun:
-		return SpeedScale * WallRun_MaxSpeed;
-	case CMOVE_Climb:
-		return SpeedScale * Climb_MaxSpeed;
-	case CMOVE_Grapple:
-		return SpeedScale * Grapple_MaxSpeed;
-	default:
-		UE_LOG(LogTemp, Fatal, TEXT("INVALID MOVEMENT MODE"));
-		return -1.0f;
-	}
+	return SpeedScale * MaxSpeed;
 }
 
 void UDemoMyCharacterMovementComponent::ApplyHitSpeedPenalty()

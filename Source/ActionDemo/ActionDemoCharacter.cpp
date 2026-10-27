@@ -531,6 +531,12 @@ void AActionDemoCharacter::SwapControl()
 
 void AActionDemoCharacter::SetHolstered(bool bInHolstered)
 {
+	// While parkour suppress is active, only Force/Restore (and their server RPCs) own bHolstered.
+	if (bSuppressWeapon)
+	{
+		return;
+	}
+
 	if (bHolstered == bInHolstered)
 	{
 		return;
@@ -576,6 +582,10 @@ void AActionDemoCharacter::SetHolstered(bool bInHolstered)
 
 void AActionDemoCharacter::ServerSetHolstered_Implementation(bool bInHolstered)
 {
+	if (bSuppressWeapon)
+	{
+		return;
+	}
 	if (bHolstered == bInHolstered)
 	{
 		return;
@@ -586,12 +596,60 @@ void AActionDemoCharacter::ServerSetHolstered_Implementation(bool bInHolstered)
 
 void AActionDemoCharacter::ForceHolsterForParkour()
 {
+	const bool bLatchPrev = bHolstered || (IsLocallyControlled() && IsPlayingHolsterMontage());
 	if (!bSuppressWeapon)
 	{
-		bPrevHolstered = bHolstered || IsPlayingHolsterMontage();
+		bPrevHolstered = bLatchPrev;
 		bSuppressWeapon = true;
 	}
-	SetHolstered(true);
+
+	// Apply stow without going through SetHolstered -> ServerSetHolstered (that race
+	// was flipping server bHolstered true before authority latched prev=drawn).
+	if (!bHolstered)
+	{
+		bHolstered = true;
+		ApplyHolsterState();
+
+		if (IsLocallyControlled() && Mesh1P)
+		{
+			if (UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance())
+			{
+				if (Weapon)
+				{
+					Weapon->StopReload(0.0f);
+					Weapon->StopFireMontages(0.0f);
+				}
+				else
+				{
+					StopFireMontage(0.0f);
+				}
+				if (HolsterMontage)
+				{
+					AnimInstance->Montage_Play(HolsterMontage);
+				}
+			}
+		}
+	}
+
+	if (IsLocallyControlled() && !HasAuthority())
+	{
+		ServerForceHolsterForParkour(bPrevHolstered);
+	}
+}
+
+void AActionDemoCharacter::ServerForceHolsterForParkour_Implementation(bool bClientPrevHolstered)
+{
+	if (!bSuppressWeapon)
+	{
+		bPrevHolstered = bClientPrevHolstered;
+		bSuppressWeapon = true;
+	}
+
+	if (!bHolstered)
+	{
+		bHolstered = true;
+		ApplyHolsterState();
+	}
 }
 
 void AActionDemoCharacter::TryRestoreWeaponAfterParkour()
@@ -601,8 +659,53 @@ void AActionDemoCharacter::TryRestoreWeaponAfterParkour()
 		return;
 	}
 
+	if (HasAuthority() || IsLocallyControlled())
+	{
+		bSuppressWeapon = false;
+		if (bHolstered != bPrevHolstered)
+		{
+			bHolstered = bPrevHolstered;
+			ApplyHolsterState();
+			if (IsLocallyControlled() && Mesh1P)
+			{
+				if (UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance())
+				{
+					if (bHolstered)
+					{
+						if (HolsterMontage)
+						{
+							AnimInstance->Montage_Play(HolsterMontage);
+						}
+					}
+					else if (EquipMontage)
+					{
+						AnimInstance->Montage_Play(EquipMontage);
+					}
+				}
+			}
+		}
+	}
+
+	if (!HasAuthority() && IsLocallyControlled())
+	{
+		ServerRestoreWeaponAfterParkour();
+	}
+}
+
+void AActionDemoCharacter::ServerRestoreWeaponAfterParkour_Implementation()
+{
+	if (!bSuppressWeapon)
+	{
+		return;
+	}
+
+	const bool bRestoreHolstered = bPrevHolstered;
 	bSuppressWeapon = false;
-	SetHolstered(bPrevHolstered);
+	if (bHolstered != bRestoreHolstered)
+	{
+		bHolstered = bRestoreHolstered;
+		ApplyHolsterState();
+	}
 }
 
 void AActionDemoCharacter::SpawnWeapon()
@@ -958,11 +1061,6 @@ void AActionDemoCharacter::AlignMovement(const FQuat& RelativeRotation, const FQ
 
 void AActionDemoCharacter::Grapple()
 {
-	if ( !bHolstered || IsPlayingHolsterMontage() || IsPlayingEquipMontage())
-	{
-		return;
-	}
-
 	DemoMyCharacterMovementComponent->Grapple();
 }
 
