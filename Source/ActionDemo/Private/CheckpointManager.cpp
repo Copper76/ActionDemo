@@ -2,7 +2,9 @@
 
 #include "ActionDemo/ActionDemoCharacter.h"
 #include "Checkpoint.h"
+#include "DemoMyCharacterMovementComponent.h"
 #include "Engine/World.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 
 bool UCheckpointManager::ShouldCreateSubsystem(UObject* Outer) const
@@ -38,7 +40,15 @@ void UCheckpointManager::OnWorldBeginPlay(UWorld& InWorld)
 	{
 		if (ACheckpoint* Checkpoint = Cast<ACheckpoint>(Actor))
 		{
-			CheckpointMap.Add(Checkpoint->GetCheckpointIndex(), Checkpoint->GetActorTransform());
+			FCheckpointRespawnData Data;
+			Data.Transform = Checkpoint->GetActorTransform();
+			// Use actor up (not GetGravityDirection) so this works even if Actor BeginPlay hasn't run yet.
+			Data.GravityDirection = -Checkpoint->GetActorUpVector().GetSafeNormal();
+			if (Data.GravityDirection.IsNearlyZero())
+			{
+				Data.GravityDirection = FVector::DownVector;
+			}
+			CheckpointMap.Add(Checkpoint->GetCheckpointIndex(), Data);
 		}
 	}
 }
@@ -53,6 +63,15 @@ void UCheckpointManager::RegisterCharacter(AActionDemoCharacter* Character)
 	FCharacterCheckpointState& State = CharacterStates.FindOrAdd(Character);
 	State.CheckpointIndex = 0;
 	State.SpawnTransform = Character->GetActorTransform();
+
+	if (const UCharacterMovementComponent* Move = Character->GetCharacterMovement())
+	{
+		State.SpawnGravityDirection = Move->GetGravityDirection().GetSafeNormal();
+	}
+	else
+	{
+		State.SpawnGravityDirection = FVector::DownVector;
+	}
 }
 
 void UCheckpointManager::UnregisterCharacter(AActionDemoCharacter* Character)
@@ -76,22 +95,27 @@ void UCheckpointManager::SetCharacterCheckpoint(AActionDemoCharacter* Character,
 	State.CheckpointIndex = FMath::Max(State.CheckpointIndex, CheckpointIndex);
 }
 
-FTransform UCheckpointManager::GetRespawnTransform(AActionDemoCharacter* Character) const
+FCheckpointRespawnData UCheckpointManager::GetRespawnData(AActionDemoCharacter* Character) const
 {
 	const FCharacterCheckpointState* State = CharacterStates.Find(Character);
 	const int32 Index = State ? State->CheckpointIndex : 0;
 
-	if (const FTransform* CheckpointTransform = CheckpointMap.Find(Index))
+	if (const FCheckpointRespawnData* CheckpointData = CheckpointMap.Find(Index))
 	{
-		return *CheckpointTransform;
+		return *CheckpointData;
 	}
 
+	FCheckpointRespawnData Fallback;
 	if (State)
 	{
-		return State->SpawnTransform;
+		Fallback.Transform = State->SpawnTransform;
+		Fallback.GravityDirection = State->SpawnGravityDirection;
+		return Fallback;
 	}
 
-	return Character ? Character->GetActorTransform() : FTransform::Identity;
+	Fallback.Transform = Character ? Character->GetActorTransform() : FTransform::Identity;
+	Fallback.GravityDirection = FVector::DownVector;
+	return Fallback;
 }
 
 void UCheckpointManager::RespawnCharacter(AActionDemoCharacter* Character)
@@ -101,12 +125,19 @@ void UCheckpointManager::RespawnCharacter(AActionDemoCharacter* Character)
 		return;
 	}
 
-	const FTransform RespawnTransform = GetRespawnTransform(Character);
+	Character->PushGrappleCableVisual(false, Character->GetActorLocation());
 
-	if (AController* CharacterController = Character->GetController())
+	if (UDemoMyCharacterMovementComponent* Move = Cast<UDemoMyCharacterMovementComponent>(Character->GetCharacterMovement()))
 	{
-		CharacterController->SetControlRotation(RespawnTransform.GetRotation().Rotator());
+		Move->SetMovementMode(MOVE_Falling);
+		Move->StopMovementImmediately();
+		Move->ClearHitSpeedPenalty();
 	}
+
+	const FCheckpointRespawnData RespawnData = GetRespawnData(Character);
+	const FTransform& RespawnTransform = RespawnData.Transform;
+	const FVector GravityDirection = RespawnData.GravityDirection.GetSafeNormal();
+	const FRotator ControlRotation = RespawnTransform.GetRotation().Rotator();
 
 	Character->SetActorLocationAndRotation(
 		RespawnTransform.GetLocation(),
@@ -114,4 +145,22 @@ void UCheckpointManager::RespawnCharacter(AActionDemoCharacter* Character)
 		false,
 		nullptr,
 		ETeleportType::ResetPhysics);
+
+	if (UDemoMyCharacterMovementComponent* Move = Cast<UDemoMyCharacterMovementComponent>(Character->GetCharacterMovement()))
+	{
+		Move->SetGravityDirection(GravityDirection.IsNearlyZero() ? FVector::DownVector : GravityDirection);
+		Move->bJustTeleported = true;
+	}
+
+	if (AController* CharacterController = Character->GetController())
+	{
+		CharacterController->SetControlRotation(ControlRotation);
+	}
+
+	// Gravity is not replicated with CMC; sync owning client explicitly.
+	Character->ClientApplyRespawnOrientation(
+		GravityDirection.IsNearlyZero() ? FVector::DownVector : GravityDirection,
+		ControlRotation);
+
+	Character->RestoreAfterRespawn();
 }

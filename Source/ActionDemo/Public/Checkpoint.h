@@ -21,9 +21,16 @@ protected:
     void OnBeginOverlap(AActor* OverlappedActor, AActor* OtherActor);
 
 public:
-    inline int32 GetCheckpointIndex() { return CheckpointIndex; }
+    inline int32 GetCheckpointIndex() const { return CheckpointIndex; }
+
+	/** Gravity when respawning here (defaults to -ActorUp). */
+	inline FVector GetGravityDirection() const { return GravityDirection; }
 
 private:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Checkpoint", meta=(AllowPrivateAccess))
     int32 CheckpointIndex = 0;
+
+	/** World-space gravity direction at this checkpoint. Auto-filled from -ActorUp in BeginPlay if left as Down. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Checkpoint", meta = (AllowPrivateAccess))
+	FVector GravityDirection = FVector::DownVector;
 };

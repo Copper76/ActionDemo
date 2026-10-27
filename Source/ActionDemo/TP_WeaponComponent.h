@@ -137,6 +137,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Weapon")
 	float GetDamage() const { return Damage; }
 
+	/** Fill magazine and notify HUD (respawn / restock). */
+	UFUNCTION(BlueprintCallable, Category = "Weapon")
+	void RestockAmmo();
+
 	/** Make the weapon Fire an orange Portal */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void OrangePortalFire();

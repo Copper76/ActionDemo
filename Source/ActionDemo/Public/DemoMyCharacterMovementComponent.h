@@ -342,8 +342,6 @@ private:
 //Hit Slow
 public:
 	void ApplyHitSpeedPenalty();
-
-private:
 	void ClearHitSpeedPenalty();
 
 public:

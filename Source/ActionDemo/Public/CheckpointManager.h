@@ -6,10 +6,17 @@
 
 class AActionDemoCharacter;
 
+struct FCheckpointRespawnData
+{
+	FTransform Transform = FTransform::Identity;
+	FVector GravityDirection = FVector::DownVector;
+};
+
 struct FCharacterCheckpointState
 {
 	int32 CheckpointIndex = 0;
 	FTransform SpawnTransform = FTransform::Identity;
+	FVector SpawnGravityDirection = FVector::DownVector;
 };
 
 /**
@@ -30,15 +37,15 @@ public:
 
 	void SetCharacterCheckpoint(AActionDemoCharacter* Character, int32 CheckpointIndex);
 
-	/** Teleport the character to their last reached checkpoint (authority only). */
+	/** Authority: clear movement, teleport, restore gravity/orientation, HP/ammo. */
 	void RespawnCharacter(AActionDemoCharacter* Character);
 
 private:
 	bool IsAuthorityWorld() const;
-	FTransform GetRespawnTransform(AActionDemoCharacter* Character) const;
+	FCheckpointRespawnData GetRespawnData(AActionDemoCharacter* Character) const;
 
-	/** Level-placed checkpoint index → transform. */
-	TMap<int32, FTransform> CheckpointMap;
+	/** Level-placed checkpoint index → transform + gravity. */
+	TMap<int32, FCheckpointRespawnData> CheckpointMap;
 
 	TMap<TObjectPtr<AActionDemoCharacter>, FCharacterCheckpointState> CharacterStates;
 };

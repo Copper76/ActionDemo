@@ -93,6 +93,12 @@ private:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	float CrouchSpeed = 12.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Health, meta = (AllowPrivateAccess = "true"))
+	float MaxHP = 100.0f;
+
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_HP, Category = Health, meta = (AllowPrivateAccess = "true"))
+	float HP = 100.0f;
 	
 public:
 	AActionDemoCharacter(const FObjectInitializer& ObjectInitializer);
@@ -141,13 +147,6 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = Gameplay)
 	FOnAmmoChanged OnAmmoChanged;
 
-	/** Owner-only replicated health. HUD: bind OnHPChanged on the local pawn. */
-	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_HP, Category = Health)
-	float HP = 100.0f;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Health)
-	float MaxHP = 100.0f;
-
 	UPROPERTY(BlueprintAssignable, Category = Health)
 	FOnHPChanged OnHPChanged;
 
@@ -160,6 +159,13 @@ public:
 	/** Authority: subtract damage. OnHPChanged fires for the local owner (ApplyDamage or OnRep). */
 	UFUNCTION(BlueprintCallable, Category = Health)
 	void ApplyDamage(float DamageAmount);
+
+	void Die();
+
+	void RestoreAfterRespawn();
+
+	UFUNCTION(Client, Reliable)
+	void ClientApplyRespawnOrientation(FVector GravityDirection, FRotator ControlRotation);
 
 	UPROPERTY(BlueprintReadOnly, Replicated, Category = Weapon)
 	bool bSuppressWeapon = false;

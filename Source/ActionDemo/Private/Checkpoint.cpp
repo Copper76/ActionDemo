@@ -7,6 +7,8 @@ void ACheckpoint::BeginPlay()
 {
 	Super::BeginPlay();
 
+	GravityDirection = GravityDirection.GetSafeNormal();
+
 	OnActorBeginOverlap.AddDynamic(this, &ACheckpoint::OnBeginOverlap);
 }
 

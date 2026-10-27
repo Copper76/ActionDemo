@@ -691,6 +691,80 @@ void AActionDemoCharacter::ApplyDamage(float DamageAmount)
 	{
 		OnHPChanged.Broadcast(HP, MaxHP);
 	}
+
+	if (HP <= 0.0f)
+	{
+		Die();
+	}
+}
+
+void AActionDemoCharacter::Die()
+{
+	if (!HasAuthority() || !GetWorld())
+	{
+		return;
+	}
+
+	if (UCheckpointManager* Manager = GetWorld()->GetSubsystem<UCheckpointManager>())
+	{
+		Manager->RespawnCharacter(this);
+	}
+}
+
+void AActionDemoCharacter::RestoreAfterRespawn()
+{
+	HP = MaxHP;
+	if (IsLocallyControlled())
+	{
+		OnHPChanged.Broadcast(HP, MaxHP);
+	}
+
+	if (Weapon)
+	{
+		Weapon->StopReload();
+		Weapon->Ammo = Weapon->MaxAmmo;
+		OnAmmoChanged.Broadcast(Weapon->Ammo, Weapon->MaxAmmo);
+	}
+
+	// Respawn default: weapon drawn (no holster / parkour suppress).
+	bSuppressWeapon = false;
+	bPrevHolstered = false;
+	bHolstered = false;
+	if (Mesh1P)
+	{
+		if (UAnimInstance* AnimInstance = Mesh1P->GetAnimInstance())
+		{
+			if (HolsterMontage)
+			{
+				AnimInstance->Montage_Stop(0.0f, HolsterMontage);
+			}
+			if (EquipMontage)
+			{
+				AnimInstance->Montage_Stop(0.0f, EquipMontage);
+			}
+		}
+	}
+	ApplyHolsterState();
+
+	bCheckpointRespawnPending = false;
+}
+
+void AActionDemoCharacter::ClientApplyRespawnOrientation_Implementation(FVector GravityDirection, FRotator ControlRotation)
+{
+	if (UDemoMyCharacterMovementComponent* Move = DemoMyCharacterMovementComponent
+		? DemoMyCharacterMovementComponent
+		: Cast<UDemoMyCharacterMovementComponent>(GetCharacterMovement()))
+	{
+		const FVector Gravity = GravityDirection.GetSafeNormal();
+		Move->SetGravityDirection(Gravity.IsNearlyZero() ? FVector::DownVector : Gravity);
+		Move->StopMovementImmediately();
+		Move->bJustTeleported = true;
+	}
+
+	if (Controller)
+	{
+		Controller->SetControlRotation(ControlRotation);
+	}
 }
 
 void AActionDemoCharacter::ApplyHolsterState()
@@ -1002,12 +1076,6 @@ void AActionDemoCharacter::RequestReturnToLastCheckpoint()
 
 void AActionDemoCharacter::ServerRequestReturnToCheckpoint_Implementation()
 {
-	PushGrappleCableVisual(false, GetActorLocation());
-	if (DemoMyCharacterMovementComponent)
-	{
-		DemoMyCharacterMovementComponent->SetMovementMode(EMovementMode::MOVE_Falling);
-	}
-
 	if (UCheckpointManager* Manager = GetWorld()->GetSubsystem<UCheckpointManager>())
 	{
 		Manager->RespawnCharacter(this);

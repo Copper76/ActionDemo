@@ -185,6 +185,16 @@ bool UTP_WeaponComponent::IsReloading() const
 	return AnimInstance && AnimInstance->Montage_IsPlaying(WeaponReloadMontage);
 }
 
+void UTP_WeaponComponent::RestockAmmo()
+{
+	StopReload();
+	Ammo = MaxAmmo;
+	if (m_Character)
+	{
+		m_Character->OnAmmoChanged.Broadcast(Ammo, MaxAmmo);
+	}
+}
+
 void UTP_WeaponComponent::OnWeaponMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 {
 	if (!WeaponReloadMontage || Montage != WeaponReloadMontage)
