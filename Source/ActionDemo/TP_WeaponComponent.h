@@ -10,12 +10,16 @@ class AActionDemoCharacter;
 class APortal;
 class UEnhancedInputComponent;
 
-UENUM(BlueprintType)
-enum EPortalType
+USTRUCT(BlueprintType)
+struct FWeaponSpreadRange
 {
-	PORTAL_ENTER,
-	PORTAL_EXIT,
-	PORTAL_NONE
+	GENERATED_BODY()
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Recoil")
+	float MinSpread = 2.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Recoil")
+	float MaxSpread = 5.0f;
 };
 
 UCLASS(Blueprintable, BlueprintType, ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
@@ -24,7 +28,6 @@ class ACTIONDEMO_API UTP_WeaponComponent : public USkeletalMeshComponent
 	GENERATED_BODY()
 
 public:
-
 	/** Projectile class to spawn */
 	UPROPERTY(EditDefaultsOnly, Category = Projectile)
 	TSubclassOf<class AActionDemoProjectile> ProjectileClass;
@@ -98,7 +101,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
 	TSubclassOf<AActor> BulletBP;
 
-	/** Shell casing spawned at EjectionSocketName on rifle Fire (not portal). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Default, meta = (AllowPrivateAccess = "true"))
 	TSubclassOf<AActor> CasingBP;
 
@@ -172,11 +174,12 @@ public:
 	/** True if Actor is a portal of the opposite colour (same colour is relocating, so not a block). */
 	bool IsOtherColourPortal(const AActor* Actor, bool bIsBlue) const;
 
-	/**
-	 * Infima plays WEP montages / ejection on SK_AssaultRifle (SkeletalMesh + ABP),
-	 * not on the logic component. Prefer that mesh when present on the weapon actor.
-	 */
 	USkeletalMeshComponent* GetAnimatedWeaponMesh() const;
+
+	inline FVector2D GetRecoilOffsetDelta() const { return RecoilOffsetDelta; }
+
+	UFUNCTION(BlueprintCallable, Category = "Weapon")
+	inline float GetCurrentSpread() const { return CurrentSpread; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -186,6 +189,9 @@ protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+
+private:
+	void ResetBulletInSequence();
 
 private:
 	/** Owning character (weapon actor owned by the pawn). */
@@ -218,12 +224,62 @@ private:
 	bool IsPortalCornerBlocked(const FVector& PortalCentre, const FVector& PortalSurface,
 		const FVector& CornerOffset, bool bIsBlue, const FCollisionQueryParams& QueryParams) const;
 
-	//Assault Rifle
-	float HipFireSpread = 3.0f;
-	float FireRange = 100000.0f;
+	//Recoil
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = AR, meta = (AllowPrivateAccess = "true"))
+	float RateOfFire = 900.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = AR, meta = (AllowPrivateAccess = "true"))
+	float RecoilSpeed = 10.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = AR, meta = (AllowPrivateAccess = "true"))
+	float RecoilRecoverySpeed = 100.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = AR, meta = (AllowPrivateAccess = "true"))
 	float BulletVertKick = 0.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = AR, meta = (AllowPrivateAccess = "true"))
 	float BulletSideKick = 0.3f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = AR, meta = (AllowPrivateAccess = "true"))
+	float MaxVerticalOffset = 45.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = AR, meta = (AllowPrivateAccess = "true"))
+	UCurveFloat* BulletKickCurve;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = AR, meta = (AllowPrivateAccess = "true"))
+	float HipfireKickModifier = 0.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = AR, meta = (AllowPrivateAccess = "true"))
+	FWeaponSpreadRange IdleHipfireSpread;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = AR, meta = (AllowPrivateAccess = "true"))
+	FWeaponSpreadRange WalkingHipfireSpread;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = AR, meta = (AllowPrivateAccess = "true"))
+	FWeaponSpreadRange IdleCrouchedHipfireSpread;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = AR, meta = (AllowPrivateAccess = "true"))
+	FWeaponSpreadRange CrouchingHipfireSpread;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = AR, meta = (AllowPrivateAccess = "true"))
+	FWeaponSpreadRange TacticalHipfireSpread;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = AR, meta = (AllowPrivateAccess = "true"))
+	FWeaponSpreadRange AirHipfireSpread;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = AR, meta = (AllowPrivateAccess = "true"))
+	UCurveFloat* HipfireSpreadCurve;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = AR, meta = (AllowPrivateAccess = "true"))
 	float BulletForce = 1000.0f;
+
+	float FireRange = 100000.0f;
+	int BulletInSequence = 0;
+	FVector2D RecoilOffsetDelta;
+	FVector2D CurrentRecoilOffset;
+	FVector2D TargetRecoilOffset;
+	float CurrentSpread;
+	float TargetSpread;
 
 	//Flatten
 	float m_FlattenRange = 10000.0f;

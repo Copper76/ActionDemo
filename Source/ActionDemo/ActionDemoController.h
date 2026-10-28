@@ -7,6 +7,7 @@
 #include "ActionDemoController.generated.h"
 
 class UCharacterMovementComponent;
+class AActionDemoCharacter;
 
 /**
  *
@@ -38,4 +39,6 @@ private:
 
 private:
 	TWeakObjectPtr<UCharacterMovementComponent> MovementComponent;
+
+	AActionDemoCharacter* DemoCharacter;
 };

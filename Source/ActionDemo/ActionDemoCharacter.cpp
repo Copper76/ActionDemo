@@ -1001,6 +1001,11 @@ void AActionDemoCharacter::SetAiming(bool bInAiming)
 	bAiming = bInAiming;
 	OnAimChanged.Broadcast(bAiming);
 
+	if (bAiming && Weapon)
+	{
+		Weapon->StopReload();
+	}
+
 	if (IsLocallyControlled() && !HasAuthority())
 	{
 		ServerSetAiming(bInAiming);
@@ -1258,6 +1263,38 @@ void AActionDemoCharacter::PushGrappleCableVisual(bool bActive, const FVector& E
 	{
 		bGrappleCableActive = bActive;
 		GrappleCableEndWS = EndWorldLocation;
+	}
+}
+
+FVector2D AActionDemoCharacter::GetRecoilOffsetDelta() const
+{
+	return Weapon ? Weapon->GetRecoilOffsetDelta() : FVector2D::ZeroVector;
+}
+
+ECharacterMovementType AActionDemoCharacter::GetCharacterMovementType() const
+{
+	switch (DemoMyCharacterMovementComponent->MovementMode)
+	{
+	case EMovementMode::MOVE_Falling:
+		return ECharacterMovementType::Air;
+	case EMovementMode::MOVE_Walking:
+		if (DemoMyCharacterMovementComponent->Velocity.IsNearlyZero())
+		{
+			return bIsCrouched ? ECharacterMovementType::IdleCrouched : ECharacterMovementType::Idle;
+		}
+		if (DemoMyCharacterMovementComponent->IsSprintingForAnim())
+		{
+			return ECharacterMovementType::Other;
+		}
+		return bIsCrouched ? ECharacterMovementType::Crouched : ECharacterMovementType::Walking;
+	case EMovementMode::MOVE_Custom:
+		if (DemoMyCharacterMovementComponent->CustomMovementMode == ECustomMovementMode::CMOVE_Slide || DemoMyCharacterMovementComponent->CustomMovementMode == ECustomMovementMode::CMOVE_WallRun)
+		{
+			return ECharacterMovementType::Tactical;
+		}
+		return ECharacterMovementType::Other;
+	default:
+		return ECharacterMovementType::Other;
 	}
 }
 

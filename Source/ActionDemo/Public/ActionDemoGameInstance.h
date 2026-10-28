@@ -28,7 +28,7 @@ public:
 
 	/** LAN sessions (OnlineSubsystemNull). Turn off when using Steam/EOS for internet play. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Menu")
-	bool bUseLAN = true;
+	bool bUseLAN = false;
 
 	UPROPERTY(BlueprintAssignable, Category = "Menu")
 	FOnSessionMessage OnSessionMessage;

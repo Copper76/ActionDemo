@@ -28,23 +28,27 @@ void AActionDemoController::UpdateRotation(float DeltaTime)
 
 	ViewRotation = GetGravityWorldRotation(ViewRotation, GravityDirection);
 
-	if (AActionDemoCharacter* const PC = Cast<AActionDemoCharacter>(GetPawnOrSpectator()))
+	if (DemoCharacter)
 	{
-		const FQuat LeanQ(FVector::XAxisVector, FMath::DegreesToRadians(PC->GetCurrentRoll()));
+		const FQuat LeanQ(FVector::XAxisVector, FMath::DegreesToRadians(DemoCharacter->GetCurrentRoll()));
 
 		ViewRotation += LeanQ.Rotator();
+
+		const FVector2D RecoilDelta = DemoCharacter->GetRecoilOffsetDelta();
+
+		ViewRotation += FRotator(RecoilDelta.Y, RecoilDelta.X, 0.0f);
 	}
 
 	SetControlRotation(ViewRotation);
 
-	if (AActionDemoCharacter* const PC = Cast<AActionDemoCharacter>(GetPawnOrSpectator()))
+	if (DemoCharacter)
 	{
 		const FVector Up = -GravityDirection;
 		const FVector Fwd = FVector::VectorPlaneProject(ViewRotation.Vector(), Up).GetSafeNormal();
 
 		if (Fwd.IsNearlyZero()) return;
 		
-		PC->SetActorRotation(FRotationMatrix::MakeFromXZ(Fwd, Up).ToQuat());
+		DemoCharacter->SetActorRotation(FRotationMatrix::MakeFromXZ(Fwd, Up).ToQuat());
 	}
 }
 
@@ -68,22 +72,22 @@ void AActionDemoController::AcknowledgePossession(APawn* P)
 
 void AActionDemoController::InitPossessedPawn(APawn* InPawn)
 {
-	AActionDemoCharacter* MyCharacter = Cast<AActionDemoCharacter>(InPawn);
-	if (!MyCharacter)
+	DemoCharacter = Cast<AActionDemoCharacter>(InPawn);
+	if (!DemoCharacter)
 	{
 		MovementComponent.Reset();
 		return;
 	}
 
-	MovementComponent = Cast<UCharacterMovementComponent>(MyCharacter->GetMovementComponent());
+	MovementComponent = Cast<UCharacterMovementComponent>(DemoCharacter->GetMovementComponent());
 	if (!MovementComponent.IsValid())
 	{
 		return;
 	}
 
 	// Owning client and server both need this; SetGravityDirection is not replicated.
-	MovementComponent->SetGravityDirection(-MyCharacter->GetActorUpVector());
-	SetControlRotation(MyCharacter->GetActorRotation());
+	MovementComponent->SetGravityDirection(-DemoCharacter->GetActorUpVector());
+	SetControlRotation(DemoCharacter->GetActorRotation());
 
 	if (IsLocalController())
 	{

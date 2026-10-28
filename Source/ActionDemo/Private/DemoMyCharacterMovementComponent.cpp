@@ -75,11 +75,19 @@ void UDemoMyCharacterMovementComponent::OnMovementUpdated(float DeltaSeconds, co
 		if (!bCharacterAiming && Safe_bWantsToSprint && (Acceleration.GetSafeNormal() | UpdatedComponent->GetForwardVector()) > 0.5f)
 		{
 			MaxWalkSpeed = Sprint_MaxWalkSpeed;
+			if (bIsSprinting == false)
+			{
+				DemoCharacterOwner->OnSprintChanged.Broadcast(true);
+			}
 			bIsSprinting = true;
 		}
 		else
 		{
 			MaxWalkSpeed = Walk_MaxWalkSpeed;
+			if (bIsSprinting == true)
+			{
+				DemoCharacterOwner->OnSprintChanged.Broadcast(false);
+			}
 			bIsSprinting = false;
 		}
 	}
@@ -93,6 +101,10 @@ void UDemoMyCharacterMovementComponent::OnMovementModeChanged(EMovementMode Prev
 
 	if (PreviousMovementMode == MOVE_Walking)
 	{
+		if (bIsSprinting == true)
+		{
+			DemoCharacterOwner->OnSprintChanged.Broadcast(false);
+		}
 		bIsSprinting = false;
 	}
 

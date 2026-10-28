@@ -13,6 +13,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnHolsterChanged, bool, bIsHolstere
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAimChanged, bool, bIsAiming);
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnSprintChanged, bool, bIsSprinting);
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAmmoChanged, int32, Ammo, int32, MaxAmmo);
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHPChanged, float, HP, float, MaxHP);
@@ -32,6 +34,18 @@ class UMaterialInterface;
 class UCableComponent;
 class UTP_WeaponComponent;
 class UUserWidget;
+
+UENUM(BlueprintType)
+enum ECharacterMovementType
+{
+	Idle,
+	Walking,
+	IdleCrouched,
+	Crouched,
+	Air,
+	Tactical,
+	Other
+};
 
 UCLASS(config=Game)
 class AActionDemoCharacter : public ACharacter
@@ -148,6 +162,9 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = Weapon)
 	FOnAimChanged OnAimChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = Weapon)
+	FOnSprintChanged OnSprintChanged;
 
 	UPROPERTY(BlueprintAssignable, Category = Gameplay)
 	FOnAmmoChanged OnAmmoChanged;
@@ -361,6 +378,10 @@ public:
 
 	/** CMC pushes cable tip; authority replicates for simulated proxies. */
 	void PushGrappleCableVisual(bool bActive, const FVector& EndWorldLocation);
+
+	FVector2D GetRecoilOffsetDelta() const;
+
+	ECharacterMovementType GetCharacterMovementType() const;
 
 protected:
 	//Tilt

@@ -50,11 +50,58 @@ void UTP_WeaponComponent::BeginPlay()
 		Ammo = MaxAmmo;
 		m_Character->OnAmmoChanged.Broadcast(Ammo, MaxAmmo);
 	}
+	CurrentSpread = IdleHipfireSpread.MinSpread;
 }
 
 void UTP_WeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	const float InterpSpeed = BulletInSequence > 0 ? RecoilSpeed : RecoilRecoverySpeed;
+
+	if (!(TargetRecoilOffset - CurrentRecoilOffset).IsNearlyZero())
+	{
+		FVector2D PrevRecoilOffset = CurrentRecoilOffset;
+
+		CurrentRecoilOffset = FMath::Vector2DInterpTo(CurrentRecoilOffset, TargetRecoilOffset, DeltaTime, InterpSpeed);
+		RecoilOffsetDelta = CurrentRecoilOffset - PrevRecoilOffset;
+	}
+	else
+	{
+		RecoilOffsetDelta = FVector2D::ZeroVector;
+	}
+
+	if (m_Character)
+	{
+		const float Alpha = HipfireSpreadCurve ? HipfireSpreadCurve->GetFloatValue(BulletInSequence) : 0.0f;
+
+		switch (m_Character->GetCharacterMovementType())
+		{
+		case ECharacterMovementType::Idle:
+			TargetSpread = FMath::Lerp(IdleHipfireSpread.MinSpread, IdleHipfireSpread.MaxSpread, Alpha);
+			break;
+		case ECharacterMovementType::Walking:
+			TargetSpread = FMath::Lerp(WalkingHipfireSpread.MinSpread, WalkingHipfireSpread.MaxSpread, Alpha);
+			break;
+		case ECharacterMovementType::IdleCrouched:
+			TargetSpread = FMath::Lerp(IdleCrouchedHipfireSpread.MinSpread, IdleCrouchedHipfireSpread.MaxSpread, Alpha);
+			break;
+		case ECharacterMovementType::Crouched:
+			TargetSpread = FMath::Lerp(CrouchingHipfireSpread.MinSpread, CrouchingHipfireSpread.MaxSpread, Alpha);
+			break;
+		case ECharacterMovementType::Tactical:
+			TargetSpread = FMath::Lerp(TacticalHipfireSpread.MinSpread, TacticalHipfireSpread.MaxSpread, Alpha);
+			break;
+		case ECharacterMovementType::Air:
+			TargetSpread = FMath::Lerp(AirHipfireSpread.MinSpread, AirHipfireSpread.MaxSpread, Alpha);
+			break;
+		case ECharacterMovementType::Other:
+			TargetSpread = AirHipfireSpread.MaxSpread;
+			break;
+		}
+	}
+	
+	CurrentSpread = FMath::FInterpTo(CurrentSpread, TargetSpread, DeltaTime, InterpSpeed);
 
 	if (m_FlattenFireTimer > 0.0f)
 	{
@@ -63,6 +110,44 @@ void UTP_WeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FA
 	else
 	{
 		m_FlattenFireTimer = 0.0f;
+	}
+}
+
+void UTP_WeaponComponent::ResetBulletInSequence()
+{
+	BulletInSequence = 0;
+	TargetRecoilOffset = FVector2D::ZeroVector;
+
+	if (m_Character)
+	{
+		switch (m_Character->GetCharacterMovementType())
+		{
+		case ECharacterMovementType::Idle:
+			TargetSpread = IdleHipfireSpread.MinSpread;
+			break;
+		case ECharacterMovementType::Walking:
+			TargetSpread = WalkingHipfireSpread.MinSpread;
+			break;
+		case ECharacterMovementType::IdleCrouched:
+			TargetSpread = IdleCrouchedHipfireSpread.MinSpread;
+			break;
+		case ECharacterMovementType::Crouched:
+			TargetSpread = CrouchingHipfireSpread.MinSpread;
+			break;
+		case ECharacterMovementType::Tactical:
+			TargetSpread = TacticalHipfireSpread.MinSpread;
+			break;
+		case ECharacterMovementType::Air:
+			TargetSpread = AirHipfireSpread.MinSpread;
+			break;
+		case ECharacterMovementType::Other:
+			TargetSpread = AirHipfireSpread.MaxSpread;
+			break;
+		}
+	}
+	else
+	{
+		TargetSpread = IdleHipfireSpread.MinSpread;
 	}
 }
 
@@ -101,8 +186,10 @@ void UTP_WeaponComponent::BindInput(UEnhancedInputComponent* EnhancedInputCompon
 	EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Fire);
 	UInputTriggerPulse* FirePulse = NewObject<UInputTriggerPulse>(this, TEXT("TriggerImpulse"));
 	FirePulse->bTriggerOnStart = true;
-	FirePulse->Interval = 0.1f;
+	FirePulse->Interval = 60.0f / RateOfFire;
 	FireAction->Triggers.Add(FirePulse);
+	EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Canceled, this, &UTP_WeaponComponent::ResetBulletInSequence);
+	EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Completed, this, &UTP_WeaponComponent::ResetBulletInSequence);
 
 	EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Aim);
 	EnhancedInputComponent->BindAction(ReloadAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Reload);
@@ -129,18 +216,22 @@ void UTP_WeaponComponent::Fire()
 	FVector Start = PlayerController->PlayerCameraManager->GetCameraLocation();
 	FRotator Fwd = PlayerController->PlayerCameraManager->GetCameraRotation();
 
-	if (m_Character->IsAiming())
+	FVector2D BulletKick = FVector2D(FMath::RandRange(-BulletSideKick, BulletSideKick), BulletVertKick);
+
+	if (BulletKickCurve)
 	{
-		m_Character->AddControllerYawInput(FMath::RandRange(-BulletSideKick, BulletSideKick));
-		if (Fwd.Pitch < 45.0f)
-		{
-			m_Character->AddControllerPitchInput(-BulletVertKick);
-		}
+		BulletKick *= BulletKickCurve->GetFloatValue(BulletInSequence++);
 	}
-	else
+
+	if (!m_Character->IsAiming())
 	{
-		Fwd = (Fwd + FRotator(FMath::FRandRange(-HipFireSpread, HipFireSpread), FMath::FRandRange(-HipFireSpread, HipFireSpread), 0.0f));
+		Fwd = (Fwd + FRotator(FMath::FRandRange(-CurrentSpread, CurrentSpread), FMath::FRandRange(-CurrentSpread, CurrentSpread), 0.0f));
+
+		BulletKick *= HipfireKickModifier;
 	}
+
+	TargetRecoilOffset += BulletKick;
+	TargetRecoilOffset.Y = FMath::Min(TargetRecoilOffset.Y, MaxVerticalOffset);
 
 	const FVector End = Start + Fwd.Vector() * FireRange;
 	if (m_Character->HasAuthority())
