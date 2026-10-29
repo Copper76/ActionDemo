@@ -494,6 +494,7 @@ void UDemoMyCharacterMovementComponent::PhysCustom(float DeltaTime, int32 Iterat
 		#if WITH_EDITOR
 		UE_LOG(LogTemp, Fatal, TEXT("INVALID MOVEMENT MODE"));
 		#endif
+		break;
 	}
 }
 
@@ -1224,82 +1225,82 @@ void UDemoMyCharacterMovementComponent::PhysSlide(float DeltaTime, int32 Iterati
 bool UDemoMyCharacterMovementComponent::TryMantle()
 {
 	return false;
-	if (!IsMovementMode(MOVE_Walking) && !IsMovementMode(MOVE_Falling)) return false;
+	//if (!IsMovementMode(MOVE_Walking) && !IsMovementMode(MOVE_Falling)) return false;
 
-	const FVector NormalisedGravity = GetNormalisedGravity();
+	//const FVector NormalisedGravity = GetNormalisedGravity();
 
-	FVector BaseLoc = UpdatedComponent->GetComponentLocation() + NormalisedGravity * CapHH();
-	FVector Fwd = FVector::VectorPlaneProject(UpdatedComponent->GetForwardVector(), -NormalisedGravity).GetSafeNormal();
-	float MaxHeight = CapHH() + Mantle_ReachHeight;
-	float CosMMWSA = FMath::Cos(FMath::DegreesToRadians(Mantle_MinWallSteepnessAngle));
-	float CosMMSA = FMath::Cos(FMath::DegreesToRadians(Mantle_MaxSurfaceAngle));
-	float CosMMAA = FMath::Cos(FMath::DegreesToRadians(Mantle_MaxAlignmentAngle));
+	//FVector BaseLoc = UpdatedComponent->GetComponentLocation() + NormalisedGravity * CapHH();
+	//FVector Fwd = FVector::VectorPlaneProject(UpdatedComponent->GetForwardVector(), -NormalisedGravity).GetSafeNormal();
+	//float MaxHeight = CapHH() + Mantle_ReachHeight;
+	//float CosMMWSA = FMath::Cos(FMath::DegreesToRadians(Mantle_MinWallSteepnessAngle));
+	//float CosMMSA = FMath::Cos(FMath::DegreesToRadians(Mantle_MaxSurfaceAngle));
+	//float CosMMAA = FMath::Cos(FMath::DegreesToRadians(Mantle_MaxAlignmentAngle));
 
-	FHitResult FrontHit;
-	float CheckDistance = FMath::Clamp(Velocity | Fwd, CapR() + 30.0f, Mantle_MaxDistance);
-	FVector FrontStart = BaseLoc - NormalisedGravity * (MaxStepHeight - 1);
-	for (int i = 0; i < 6; i++)
-	{
-		if (UPortalTraceLibrary::LineTraceSingleByProfile(GetWorld(), FrontHit, FrontStart, FrontStart + Fwd * CheckDistance, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) break;
-		FrontStart -= NormalisedGravity * (2.0f * CapHH() - (MaxStepHeight - 1)) / 5;
-	}
-	if (!FrontHit.IsValidBlockingHit()) return false;
-	float CosWallSteepnessAngle = FrontHit.Normal | -NormalisedGravity;
-	if (FMath::Abs(CosWallSteepnessAngle) > CosMMWSA || (Fwd | -FrontHit.Normal) < CosMMAA) return false;
+	//FHitResult FrontHit;
+	//float CheckDistance = FMath::Clamp(Velocity | Fwd, CapR() + 30.0f, Mantle_MaxDistance);
+	//FVector FrontStart = BaseLoc - NormalisedGravity * (MaxStepHeight - 1);
+	//for (int i = 0; i < 6; i++)
+	//{
+	//	if (UPortalTraceLibrary::LineTraceSingleByProfile(GetWorld(), FrontHit, FrontStart, FrontStart + Fwd * CheckDistance, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) break;
+	//	FrontStart -= NormalisedGravity * (2.0f * CapHH() - (MaxStepHeight - 1)) / 5;
+	//}
+	//if (!FrontHit.IsValidBlockingHit()) return false;
+	//float CosWallSteepnessAngle = FrontHit.Normal | -NormalisedGravity;
+	//if (FMath::Abs(CosWallSteepnessAngle) > CosMMWSA || (Fwd | -FrontHit.Normal) < CosMMAA) return false;
 
-	TArray<FHitResult> HeightHits;
-	FHitResult SurfaceHit;
-	FVector WallUp = FVector::VectorPlaneProject(-NormalisedGravity, FrontHit.Normal).GetSafeNormal();
-	float WallCos = -NormalisedGravity | FrontHit.Normal;
-	float WallSin = FMath::Sqrt(1 - WallCos * WallCos);
-	FVector TraceStart = FrontHit.Location + Fwd + WallUp * (MaxHeight - (MaxStepHeight - 1)) / WallSin;
+	//TArray<FHitResult> HeightHits;
+	//FHitResult SurfaceHit;
+	//FVector WallUp = FVector::VectorPlaneProject(-NormalisedGravity, FrontHit.Normal).GetSafeNormal();
+	//float WallCos = -NormalisedGravity | FrontHit.Normal;
+	//float WallSin = FMath::Sqrt(1 - WallCos * WallCos);
+	//FVector TraceStart = FrontHit.Location + Fwd + WallUp * (MaxHeight - (MaxStepHeight - 1)) / WallSin;
 
-	if (!UPortalTraceLibrary::LineTraceMultiByProfile(GetWorld(), HeightHits, TraceStart, FrontHit.Location + Fwd, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) return false;
+	//if (!UPortalTraceLibrary::LineTraceMultiByProfile(GetWorld(), HeightHits, TraceStart, FrontHit.Location + Fwd, "BlockAll", DemoCharacterOwner->GetIgnoreCharacterParams())) return false;
 
-	for (const FHitResult& Hit : HeightHits)
-	{
-		if (Hit.IsValidBlockingHit())
-		{
-			SurfaceHit = Hit;
-			break;
-		}
-	}
-	if (!SurfaceHit.IsValidBlockingHit() || (SurfaceHit.Normal | -NormalisedGravity) < CosMMSA) return false;
-	float Height = (SurfaceHit.Location - BaseLoc) | -NormalisedGravity;
-	if (Height > MaxHeight) return false;
+	//for (const FHitResult& Hit : HeightHits)
+	//{
+	//	if (Hit.IsValidBlockingHit())
+	//	{
+	//		SurfaceHit = Hit;
+	//		break;
+	//	}
+	//}
+	//if (!SurfaceHit.IsValidBlockingHit() || (SurfaceHit.Normal | -NormalisedGravity) < CosMMSA) return false;
+	//float Height = (SurfaceHit.Location - BaseLoc) | -NormalisedGravity;
+	//if (Height > MaxHeight) return false;
 
-	float SurfaceCos = -NormalisedGravity | SurfaceHit.Normal;
-	float SurfaceSin = FMath::Sqrt(1 - SurfaceCos * SurfaceCos);
-	FVector ClearCapLoc = SurfaceHit.Location + Fwd * CapR() - NormalisedGravity * (CapHH() + 1 + CapR() * 2 * SurfaceSin);
-	FCollisionShape CapShape = FCollisionShape::MakeCapsule(CapR(), CapHH());
-	FCollisionShape CrouchedCapShape = FCollisionShape::MakeCapsule(CapR(), GetCrouchedHalfHeight());
-	if (GetWorld()->OverlapAnyTestByProfile(ClearCapLoc, FQuat::Identity, "BlockAll", CapShape, DemoCharacterOwner->GetIgnoreCharacterParams()))
-	{
-		if (!GetWorld()->OverlapAnyTestByProfile(ClearCapLoc, FQuat::Identity, "BlockAll", CrouchedCapShape, DemoCharacterOwner->GetIgnoreCharacterParams()))
-		{
-			bWantsToCrouch = true;
-		}
-		else
-		{
-			return false;
-		}
-	}
+	//float SurfaceCos = -NormalisedGravity | SurfaceHit.Normal;
+	//float SurfaceSin = FMath::Sqrt(1 - SurfaceCos * SurfaceCos);
+	//FVector ClearCapLoc = SurfaceHit.Location + Fwd * CapR() - NormalisedGravity * (CapHH() + 1 + CapR() * 2 * SurfaceSin);
+	//FCollisionShape CapShape = FCollisionShape::MakeCapsule(CapR(), CapHH());
+	//FCollisionShape CrouchedCapShape = FCollisionShape::MakeCapsule(CapR(), GetCrouchedHalfHeight());
+	//if (GetWorld()->OverlapAnyTestByProfile(ClearCapLoc, FQuat::Identity, "BlockAll", CapShape, DemoCharacterOwner->GetIgnoreCharacterParams()))
+	//{
+	//	if (!GetWorld()->OverlapAnyTestByProfile(ClearCapLoc, FQuat::Identity, "BlockAll", CrouchedCapShape, DemoCharacterOwner->GetIgnoreCharacterParams()))
+	//	{
+	//		bWantsToCrouch = true;
+	//	}
+	//	else
+	//	{
+	//		return false;
+	//	}
+	//}
 
-	const float UpSpeed = Velocity | -NormalisedGravity;
-	const float MontageSpeed = FMath::GetMappedRangeValueClamped(FVector2D(-500, 750), FVector2D(0.9f, 1.2f), UpSpeed);
-	const FVector MantleStart = GetMantleStartLocation(FrontHit, SurfaceHit);
+	//const float UpSpeed = Velocity | -NormalisedGravity;
+	//const float MontageSpeed = FMath::GetMappedRangeValueClamped(FVector2D(-500, 750), FVector2D(0.9f, 1.2f), UpSpeed);
+	//const FVector MantleStart = GetMantleStartLocation(FrontHit, SurfaceHit);
 
-	Velocity = FVector::ZeroVector;
-	SetMovementMode(MOVE_Flying);
-	UpdatedComponent->SetWorldLocation(MantleStart, false, nullptr, ETeleportType::TeleportPhysics);
-	bJustTeleported = true;
+	//Velocity = FVector::ZeroVector;
+	//SetMovementMode(MOVE_Flying);
+	//UpdatedComponent->SetWorldLocation(MantleStart, false, nullptr, ETeleportType::TeleportPhysics);
+	//bJustTeleported = true;
 
-	if (IsValid(Mantle_Montage))
-	{
-		CharacterOwner->PlayAnimMontage(Mantle_Montage, MontageSpeed);
-	}
+	//if (IsValid(Mantle_Montage))
+	//{
+	//	CharacterOwner->PlayAnimMontage(Mantle_Montage, MontageSpeed);
+	//}
 
-	return true;
+	//return true;
 }
 
 FVector UDemoMyCharacterMovementComponent::GetMantleStartLocation(FHitResult FrontHit, FHitResult SurfaceHit) const
