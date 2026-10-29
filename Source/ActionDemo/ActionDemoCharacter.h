@@ -48,7 +48,7 @@ enum ECharacterMovementType
 };
 
 UCLASS(config=Game)
-class AActionDemoCharacter : public ACharacter
+class ACTIONDEMO_API AActionDemoCharacter : public ACharacter
 {
 	GENERATED_BODY()
 

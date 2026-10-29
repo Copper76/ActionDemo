@@ -9,7 +9,7 @@ public class ActionDemoEditor : ModuleRules
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"ActionDemo", "Core", "CoreUObject", "Engine", "InputCore"
+			"ActionDemo", "Core", "CoreUObject", "Engine", "InputCore", "PhysicsCore"
 		});
 	}
 }
