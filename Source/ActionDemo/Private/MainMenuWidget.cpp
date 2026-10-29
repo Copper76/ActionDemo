@@ -5,6 +5,7 @@
 #include "ActionDemoGameInstance.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Button.h"
+#include "Components/CheckBox.h"
 #include "Components/EditableTextBox.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
@@ -14,6 +15,7 @@
 #include "Components/Border.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
+#include "HAL/PlatformApplicationMisc.h"
 
 namespace
 {
@@ -86,12 +88,40 @@ void UMainMenuWidget::BuildLayout()
 	CreateRemoteButton = MakeButton(WidgetTree, TEXT("Create Remote Room"));
 	AddRow(CreateRemoteButton);
 
+	UHorizontalBox* ModeRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("ModeRow"));
+	LANModeCheckBox = WidgetTree->ConstructWidget<UCheckBox>(UCheckBox::StaticClass(), TEXT("LANModeCheckBox"));
+	if (UHorizontalBoxSlot* CheckSlot = ModeRow->AddChildToHorizontalBox(LANModeCheckBox))
+	{
+		CheckSlot->SetPadding(FMargin(0.f, 0.f, 8.f, 0.f));
+		CheckSlot->SetVerticalAlignment(VAlign_Center);
+	}
+	UTextBlock* ModeLabel = MakeLabel(WidgetTree, TEXT("LAN test mode (no Steam)"), 16, FLinearColor(0.75f, 0.8f, 0.85f));
+	if (UHorizontalBoxSlot* LabelSlot = ModeRow->AddChildToHorizontalBox(ModeLabel))
+	{
+		LabelSlot->SetVerticalAlignment(VAlign_Center);
+	}
+	AddRow(ModeRow);
+
+	UHorizontalBox* CodeRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("CodeRow"));
 	RoomCodeText = MakeLabel(WidgetTree, TEXT("Room code: —"), 16, FLinearColor(0.8f, 0.85f, 0.55f));
-	AddRow(RoomCodeText);
+	if (UHorizontalBoxSlot* CodeSlot = CodeRow->AddChildToHorizontalBox(RoomCodeText))
+	{
+		CodeSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		CodeSlot->SetPadding(FMargin(0.f, 0.f, 12.f, 0.f));
+		CodeSlot->SetVerticalAlignment(VAlign_Center);
+	}
+	CopyRoomCodeButton = MakeButton(WidgetTree, TEXT("Copy"));
+	if (UHorizontalBoxSlot* CopySlot = CodeRow->AddChildToHorizontalBox(CopyRoomCodeButton))
+	{
+		CopySlot->SetSize(FSlateChildSize(ESlateSizeRule::Automatic));
+		CopySlot->SetVerticalAlignment(VAlign_Center);
+	}
+	AddRow(CodeRow);
 
 	UHorizontalBox* JoinRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("JoinRow"));
 	RoomCodeInput = WidgetTree->ConstructWidget<UEditableTextBox>(UEditableTextBox::StaticClass(), TEXT("RoomCodeInput"));
 	RoomCodeInput->SetHintText(FText::FromString(TEXT("Enter room code")));
+	RoomCodeInput->SetForegroundColor(FLinearColor::Black);
 	if (UHorizontalBoxSlot* InputSlot = JoinRow->AddChildToHorizontalBox(RoomCodeInput))
 	{
 		InputSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
@@ -127,11 +157,21 @@ void UMainMenuWidget::NativeConstruct()
 	{
 		JoinRemoteButton->OnClicked.AddDynamic(this, &UMainMenuWidget::OnJoinRemoteClicked);
 	}
+	if (CopyRoomCodeButton)
+	{
+		CopyRoomCodeButton->OnClicked.AddDynamic(this, &UMainMenuWidget::OnCopyRoomCodeClicked);
+	}
 
 	if (UActionDemoGameInstance* GI = GetGameInstance<UActionDemoGameInstance>())
 	{
+		if (LANModeCheckBox)
+		{
+			LANModeCheckBox->SetIsChecked(GI->IsUsingLAN());
+			LANModeCheckBox->OnCheckStateChanged.AddDynamic(this, &UMainMenuWidget::OnLANModeChanged);
+		}
 		GI->OnSessionMessage.AddDynamic(this, &UMainMenuWidget::HandleSessionMessage);
 		GI->OnRoomCodeReady.AddDynamic(this, &UMainMenuWidget::HandleRoomCodeReady);
+		HandleRoomCodeReady(true, GI->GetCurrentRoomCode());
 	}
 }
 
@@ -141,6 +181,10 @@ void UMainMenuWidget::NativeDestruct()
 	{
 		GI->OnSessionMessage.RemoveDynamic(this, &UMainMenuWidget::HandleSessionMessage);
 		GI->OnRoomCodeReady.RemoveDynamic(this, &UMainMenuWidget::HandleRoomCodeReady);
+	}
+	if (LANModeCheckBox)
+	{
+		LANModeCheckBox->OnCheckStateChanged.RemoveDynamic(this, &UMainMenuWidget::OnLANModeChanged);
 	}
 	Super::NativeDestruct();
 }
@@ -179,6 +223,30 @@ void UMainMenuWidget::OnJoinRemoteClicked()
 	if (UActionDemoGameInstance* GI = GetGameInstance<UActionDemoGameInstance>())
 	{
 		GI->JoinRemoteSession(RoomCodeInput->GetText().ToString());
+	}
+}
+
+void UMainMenuWidget::OnCopyRoomCodeClicked()
+{
+	if (const UActionDemoGameInstance* GI = GetGameInstance<UActionDemoGameInstance>())
+	{
+		const FString RoomCode = GI->GetCurrentRoomCode();
+		if (!RoomCode.IsEmpty())
+		{
+			FPlatformApplicationMisc::ClipboardCopy(*RoomCode);
+			SetStatus(FString::Printf(TEXT("Room code %s copied."), *RoomCode));
+		}
+	}
+}
+
+void UMainMenuWidget::OnLANModeChanged(bool bIsChecked)
+{
+	if (UActionDemoGameInstance* GI = GetGameInstance<UActionDemoGameInstance>())
+	{
+		if (!GI->SetUseLAN(bIsChecked) && LANModeCheckBox)
+		{
+			LANModeCheckBox->SetIsChecked(GI->IsUsingLAN());
+		}
 	}
 }
 

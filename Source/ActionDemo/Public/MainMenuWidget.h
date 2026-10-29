@@ -7,6 +7,7 @@
 #include "MainMenuWidget.generated.h"
 
 class UButton;
+class UCheckBox;
 class UEditableTextBox;
 class UTextBlock;
 class UVerticalBox;
@@ -37,6 +38,12 @@ private:
 	void OnJoinRemoteClicked();
 
 	UFUNCTION()
+	void OnCopyRoomCodeClicked();
+
+	UFUNCTION()
+	void OnLANModeChanged(bool bIsChecked);
+
+	UFUNCTION()
 	void HandleSessionMessage(const FString& Message);
 
 	UFUNCTION()
@@ -61,5 +68,11 @@ private:
 	TObjectPtr<UButton> JoinRemoteButton;
 
 	UPROPERTY()
+	TObjectPtr<UButton> CopyRoomCodeButton;
+
+	UPROPERTY()
 	TObjectPtr<UEditableTextBox> RoomCodeInput;
+
+	UPROPERTY()
+	TObjectPtr<UCheckBox> LANModeCheckBox;
 };

@@ -26,9 +26,9 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Menu", meta = (ClampMin = "2", ClampMax = "16"))
 	int32 MaxSessionPlayers = 4;
 
-	/** LAN sessions (OnlineSubsystemNull). Turn off when using Steam/EOS for internet play. */
+	/** Use LAN discovery instead of the configured internet service. Leave off for Steam rooms. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Menu")
-	bool bUseLAN = false;
+	bool bUseLAN = true;
 
 	UPROPERTY(BlueprintAssignable, Category = "Menu")
 	FOnSessionMessage OnSessionMessage;
@@ -50,6 +50,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Menu")
 	FString GetCurrentRoomCode() const { return CurrentRoomCode; }
 
+	/** Select LAN/PIE testing (Null + IP driver) or internet play (Steam). */
+	UFUNCTION(BlueprintCallable, Category = "Menu")
+	bool SetUseLAN(bool bEnableLAN);
+
+	UFUNCTION(BlueprintPure, Category = "Menu")
+	bool IsUsingLAN() const { return bUseLAN; }
+
 	UFUNCTION(BlueprintCallable, Category = "Menu")
 	void DestroyCurrentSession();
 
@@ -62,6 +69,8 @@ private:
 	void TryShowMainMenu(UWorld* World);
 	void BroadcastMessage(const FString& Message);
 	FString GenerateRoomCode() const;
+	void EnsureRoomCode();
+	void ApplyNetworkDriver() const;
 	FString GetTravelMapAssetName() const;
 	IOnlineSessionPtr GetSessionInterface() const;
 
@@ -72,6 +81,7 @@ private:
 
 	FString CurrentRoomCode;
 	FString PendingJoinCode;
+	bool bCreateAfterDestroy = false;
 
 	TSharedPtr<FOnlineSessionSearch> SessionSearch;
 

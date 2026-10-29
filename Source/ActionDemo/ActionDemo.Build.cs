@@ -10,7 +10,7 @@ public class ActionDemo : ModuleRules
 
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "HeadMountedDisplay", "EnhancedInput", "CableComponent", "UMG", "OnlineSubsystem", "OnlineSubsystemUtils" });
 
-		PrivateDependencyModuleNames.AddRange(new string[] { "CableComponent", "Slate", "SlateCore" });
+		PrivateDependencyModuleNames.AddRange(new string[] { "ApplicationCore", "CableComponent", "Slate", "SlateCore" });
 
 		SetupModulePhysicsSupport(Target);
     }

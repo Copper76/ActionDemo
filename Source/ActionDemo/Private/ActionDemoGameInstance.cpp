@@ -5,10 +5,13 @@
 #include "MainMenuGameMode.h"
 #include "MainMenuWidget.h"
 #include "Engine/LocalPlayer.h"
+#include "Engine/Engine.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/PackageName.h"
 #include "OnlineSubsystem.h"
 #include "OnlineSessionSettings.h"
+#include "Online/OnlineSessionNames.h"
+#include "OnlineSubsystemUtils.h"
 #include "GameFramework/PlayerController.h"
 
 namespace ActionDemoSession
@@ -24,6 +27,8 @@ UActionDemoGameInstance::UActionDemoGameInstance()
 void UActionDemoGameInstance::Init()
 {
 	Super::Init();
+	EnsureRoomCode();
+	ApplyNetworkDriver();
 
 	CreateSessionCompleteDelegate = FOnCreateSessionCompleteDelegate::CreateUObject(this, &UActionDemoGameInstance::OnCreateSessionComplete);
 	FindSessionsCompleteDelegate = FOnFindSessionsCompleteDelegate::CreateUObject(this, &UActionDemoGameInstance::OnFindSessionsComplete);
@@ -111,6 +116,14 @@ FString UActionDemoGameInstance::GenerateRoomCode() const
 	return Code;
 }
 
+void UActionDemoGameInstance::EnsureRoomCode()
+{
+	if (CurrentRoomCode.IsEmpty())
+	{
+		CurrentRoomCode = GenerateRoomCode();
+	}
+}
+
 FString UActionDemoGameInstance::GetTravelMapAssetName() const
 {
 	if (!TravelMap.IsValid())
@@ -124,11 +137,56 @@ FString UActionDemoGameInstance::GetTravelMapAssetName() const
 
 IOnlineSessionPtr UActionDemoGameInstance::GetSessionInterface() const
 {
-	if (const IOnlineSubsystem* OnlineSub = IOnlineSubsystem::Get())
+	const FName ServiceName = bUseLAN ? FName(TEXT("NULL")) : FName(TEXT("STEAM"));
+	// The world-aware lookup gives each PIE instance its own Null subsystem,
+	// while packaged games still resolve the normal named provider.
+	if (const IOnlineSubsystem* OnlineSub = Online::GetSubsystem(GetWorld(), ServiceName))
 	{
 		return OnlineSub->GetSessionInterface();
 	}
 	return nullptr;
+}
+
+void UActionDemoGameInstance::ApplyNetworkDriver() const
+{
+	if (!GEngine)
+	{
+		return;
+	}
+
+	for (FNetDriverDefinition& Definition : GEngine->NetDriverDefinitions)
+	{
+		if (Definition.DefName == NAME_GameNetDriver)
+		{
+			Definition.DriverClassName = bUseLAN
+				? FName(TEXT("/Script/OnlineSubsystemUtils.IpNetDriver"))
+				: FName(TEXT("/Script/OnlineSubsystemSteam.SteamNetDriver"));
+			Definition.DriverClassNameFallback = FName(TEXT("/Script/OnlineSubsystemUtils.IpNetDriver"));
+			break;
+		}
+	}
+}
+
+bool UActionDemoGameInstance::SetUseLAN(bool bEnableLAN)
+{
+	if (bUseLAN == bEnableLAN)
+	{
+		return true;
+	}
+
+	if (IOnlineSessionPtr CurrentSessions = GetSessionInterface();
+		CurrentSessions.IsValid() && CurrentSessions->GetNamedSession(NAME_GameSession))
+	{
+		BroadcastMessage(TEXT("Leave the current room before changing network mode."));
+		return false;
+	}
+
+	bUseLAN = bEnableLAN;
+	ApplyNetworkDriver();
+	BroadcastMessage(bUseLAN
+		? TEXT("LAN test mode enabled. Steam is not required.")
+		: TEXT("Internet mode enabled. Steam must be running."));
+	return true;
 }
 
 void UActionDemoGameInstance::PlaySinglePlayer()
@@ -151,10 +209,14 @@ void UActionDemoGameInstance::CreateRemoteSession()
 
 	if (Sessions->GetNamedSession(NAME_GameSession))
 	{
+		bCreateAfterDestroy = true;
+		BroadcastMessage(TEXT("Closing the previous room..."));
 		DestroyCurrentSession();
+		return;
 	}
 
-	CurrentRoomCode = GenerateRoomCode();
+	// The code shown on the menu is the code advertised by this room.
+	EnsureRoomCode();
 
 	CreateSessionCompleteHandle = Sessions->AddOnCreateSessionCompleteDelegate_Handle(CreateSessionCompleteDelegate);
 
@@ -166,7 +228,7 @@ void UActionDemoGameInstance::CreateRemoteSession()
 	Settings->bAllowJoinViaPresence = true;
 	Settings->bShouldAdvertise = true;
 	Settings->bUsesPresence = !bUseLAN;
-	Settings->bUseLobbiesIfAvailable = false;
+	Settings->bUseLobbiesIfAvailable = !bUseLAN;
 	Settings->Set(ActionDemoSession::RoomCodeSetting, CurrentRoomCode, EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
 
 	BroadcastMessage(FString::Printf(TEXT("Creating room %s..."), *CurrentRoomCode));
@@ -178,7 +240,6 @@ void UActionDemoGameInstance::CreateRemoteSession()
 		Sessions->ClearOnCreateSessionCompleteDelegate_Handle(CreateSessionCompleteHandle);
 		BroadcastMessage(TEXT("Failed to start CreateSession."));
 		OnRoomCodeReady.Broadcast(false, FString());
-		CurrentRoomCode.Reset();
 	}
 }
 
@@ -203,7 +264,14 @@ void UActionDemoGameInstance::JoinRemoteSession(const FString& RoomCode)
 
 	SessionSearch = MakeShared<FOnlineSessionSearch>();
 	SessionSearch->bIsLanQuery = bUseLAN;
-	SessionSearch->MaxSearchResults = 50;
+	SessionSearch->MaxSearchResults = 100;
+	if (!bUseLAN)
+	{
+		// Online services can apply this on the server (Steam translates it to a
+		// lobby filter), avoiding a scan of unrelated public rooms.
+		SessionSearch->QuerySettings.Set(ActionDemoSession::RoomCodeSetting, PendingJoinCode, EOnlineComparisonOp::Equals);
+		SessionSearch->QuerySettings.Set(SEARCH_PRESENCE, true, EOnlineComparisonOp::Equals);
+	}
 
 	BroadcastMessage(FString::Printf(TEXT("Searching for room %s..."), *PendingJoinCode));
 
@@ -240,7 +308,6 @@ void UActionDemoGameInstance::OnCreateSessionComplete(FName SessionName, bool bW
 	{
 		BroadcastMessage(TEXT("Create session failed."));
 		OnRoomCodeReady.Broadcast(false, FString());
-		CurrentRoomCode.Reset();
 		return;
 	}
 
@@ -350,4 +417,12 @@ void UActionDemoGameInstance::OnDestroySessionComplete(FName SessionName, bool b
 		Sessions->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionCompleteHandle);
 	}
 	CurrentRoomCode.Reset();
+	EnsureRoomCode();
+	OnRoomCodeReady.Broadcast(true, CurrentRoomCode);
+
+	if (bCreateAfterDestroy)
+	{
+		bCreateAfterDestroy = false;
+		CreateRemoteSession();
+	}
 }
