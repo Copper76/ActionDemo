@@ -17,6 +17,9 @@
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
 #include "HAL/PlatformApplicationMisc.h"
+#include "Engine/Engine.h"
+#include "GameFramework/GameUserSettings.h"
+#include "Kismet/KismetSystemLibrary.h"
 
 namespace
 {
@@ -126,6 +129,20 @@ void UMainMenuWidget::BuildLayout()
 	}
 	AddRow(ModeRow);
 
+	UHorizontalBox* FullscreenRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("FullscreenRow"));
+	FullscreenCheckBox = WidgetTree->ConstructWidget<UCheckBox>(UCheckBox::StaticClass(), TEXT("FullscreenCheckBox"));
+	if (UHorizontalBoxSlot* CheckSlot = FullscreenRow->AddChildToHorizontalBox(FullscreenCheckBox))
+	{
+		CheckSlot->SetPadding(FMargin(0.f, 0.f, 8.f, 0.f));
+		CheckSlot->SetVerticalAlignment(VAlign_Center);
+	}
+	UTextBlock* FullscreenLabel = MakeLabel(WidgetTree, TEXT("Fullscreen"), 16, FLinearColor(0.75f, 0.8f, 0.85f));
+	if (UHorizontalBoxSlot* LabelSlot = FullscreenRow->AddChildToHorizontalBox(FullscreenLabel))
+	{
+		LabelSlot->SetVerticalAlignment(VAlign_Center);
+	}
+	AddRow(FullscreenRow);
+
 	UHorizontalBox* CodeRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("CodeRow"));
 	RoomCodeText = MakeLabel(WidgetTree, TEXT("Room code: —"), 16, FLinearColor(0.8f, 0.85f, 0.55f));
 	if (UHorizontalBoxSlot* CodeSlot = CodeRow->AddChildToHorizontalBox(RoomCodeText))
@@ -167,7 +184,10 @@ void UMainMenuWidget::BuildLayout()
 	AddRow(JoinRow, 20.f);
 
 	StatusText = MakeLabel(WidgetTree, TEXT("Ready."), 14, FLinearColor(0.55f, 0.75f, 0.95f));
-	AddRow(StatusText, 0.f);
+	AddRow(StatusText, 18.f);
+
+	QuitGameButton = MakeButton(WidgetTree, TEXT("Quit Game"));
+	AddRow(QuitGameButton, 0.f);
 }
 
 void UMainMenuWidget::NativeConstruct()
@@ -189,6 +209,18 @@ void UMainMenuWidget::NativeConstruct()
 	if (CopyRoomCodeButton)
 	{
 		CopyRoomCodeButton->OnClicked.AddDynamic(this, &UMainMenuWidget::OnCopyRoomCodeClicked);
+	}
+	if (FullscreenCheckBox)
+	{
+		if (const UGameUserSettings* UserSettings = GEngine ? GEngine->GetGameUserSettings() : nullptr)
+		{
+			FullscreenCheckBox->SetIsChecked(UserSettings->GetFullscreenMode() != EWindowMode::Windowed);
+		}
+		FullscreenCheckBox->OnCheckStateChanged.AddDynamic(this, &UMainMenuWidget::OnFullscreenChanged);
+	}
+	if (QuitGameButton)
+	{
+		QuitGameButton->OnClicked.AddDynamic(this, &UMainMenuWidget::OnQuitGameClicked);
 	}
 
 	if (UActionDemoGameInstance* GI = GetGameInstance<UActionDemoGameInstance>())
@@ -227,6 +259,10 @@ void UMainMenuWidget::NativeDestruct()
 	if (MapSelector)
 	{
 		MapSelector->OnSelectionChanged.RemoveDynamic(this, &UMainMenuWidget::OnMapSelectionChanged);
+	}
+	if (FullscreenCheckBox)
+	{
+		FullscreenCheckBox->OnCheckStateChanged.RemoveDynamic(this, &UMainMenuWidget::OnFullscreenChanged);
 	}
 	Super::NativeDestruct();
 }
@@ -290,6 +326,22 @@ void UMainMenuWidget::OnLANModeChanged(bool bIsChecked)
 			LANModeCheckBox->SetIsChecked(GI->IsUsingLAN());
 		}
 	}
+}
+
+void UMainMenuWidget::OnFullscreenChanged(bool bIsChecked)
+{
+	if (UGameUserSettings* UserSettings = GEngine ? GEngine->GetGameUserSettings() : nullptr)
+	{
+		UserSettings->SetFullscreenMode(bIsChecked ? EWindowMode::WindowedFullscreen : EWindowMode::Windowed);
+		UserSettings->ApplySettings(false);
+		UserSettings->SaveSettings();
+		SetStatus(bIsChecked ? TEXT("Fullscreen enabled.") : TEXT("Windowed mode enabled."));
+	}
+}
+
+void UMainMenuWidget::OnQuitGameClicked()
+{
+	UKismetSystemLibrary::QuitGame(this, GetOwningPlayer(), EQuitPreference::Quit, false);
 }
 
 void UMainMenuWidget::OnMapSelectionChanged(FString SelectedItem, ESelectInfo::Type SelectionType)

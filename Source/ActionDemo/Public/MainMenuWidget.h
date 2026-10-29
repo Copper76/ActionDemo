@@ -45,6 +45,12 @@ private:
 	void OnLANModeChanged(bool bIsChecked);
 
 	UFUNCTION()
+	void OnFullscreenChanged(bool bIsChecked);
+
+	UFUNCTION()
+	void OnQuitGameClicked();
+
+	UFUNCTION()
 	void OnMapSelectionChanged(FString SelectedItem, ESelectInfo::Type SelectionType);
 
 	UFUNCTION()
@@ -79,6 +85,12 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UCheckBox> LANModeCheckBox;
+
+	UPROPERTY()
+	TObjectPtr<UCheckBox> FullscreenCheckBox;
+
+	UPROPERTY()
+	TObjectPtr<UButton> QuitGameButton;
 
 	UPROPERTY()
 	TObjectPtr<UComboBoxString> MapSelector;
