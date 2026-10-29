@@ -37,6 +37,10 @@
 			"SupportedTargetPlatforms": [
 				"Win64"
 			]
+		},
+		{
+			"Name": "WmfMedia",
+			"Enabled": false
 		}
 	],
 	"TargetPlatforms": [
