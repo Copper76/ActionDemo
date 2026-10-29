@@ -2,6 +2,7 @@
 
 #include "ActionDemoGameInstance.h"
 
+#include "ActionDemoMenuSettings.h"
 #include "MainMenuGameMode.h"
 #include "MainMenuWidget.h"
 #include "Engine/LocalPlayer.h"
@@ -21,7 +22,10 @@ namespace ActionDemoSession
 
 UActionDemoGameInstance::UActionDemoGameInstance()
 {
-	TravelMap = FSoftObjectPath(TEXT("/Game/FirstPerson/Maps/Level_1.Level_1"));
+	const UActionDemoMenuSettings* MenuSettings = GetDefault<UActionDemoMenuSettings>();
+	TravelMap = MenuSettings && !MenuSettings->DefaultMap.IsNull()
+		? MenuSettings->DefaultMap.ToSoftObjectPath()
+		: FSoftObjectPath(TEXT("/Game/FirstPerson/Maps/Level_1.Level_1"));
 }
 
 void UActionDemoGameInstance::Init()
@@ -36,6 +40,10 @@ void UActionDemoGameInstance::Init()
 	DestroySessionCompleteDelegate = FOnDestroySessionCompleteDelegate::CreateUObject(this, &UActionDemoGameInstance::OnDestroySessionComplete);
 
 	PostLoadMapHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &UActionDemoGameInstance::OnPostLoadMap);
+	if (GEngine)
+	{
+		NetworkFailureHandle = GEngine->OnNetworkFailure().AddUObject(this, &UActionDemoGameInstance::OnNetworkFailure);
+	}
 }
 
 void UActionDemoGameInstance::Shutdown()
@@ -45,6 +53,11 @@ void UActionDemoGameInstance::Shutdown()
 		FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(PostLoadMapHandle);
 		PostLoadMapHandle.Reset();
 	}
+	if (GEngine && NetworkFailureHandle.IsValid())
+	{
+		GEngine->OnNetworkFailure().Remove(NetworkFailureHandle);
+		NetworkFailureHandle.Reset();
+	}
 	DestroyCurrentSession();
 	Super::Shutdown();
 }
@@ -52,6 +65,25 @@ void UActionDemoGameInstance::Shutdown()
 void UActionDemoGameInstance::OnPostLoadMap(UWorld* LoadedWorld)
 {
 	TryShowMainMenu(LoadedWorld);
+}
+
+void UActionDemoGameInstance::OnNetworkFailure(UWorld* FailedWorld, UNetDriver* NetDriver,
+	ENetworkFailure::Type FailureType, const FString& ErrorString)
+{
+	if (!FailedWorld || FailedWorld != GetWorld())
+	{
+		return;
+	}
+
+	const FString MapName = UWorld::RemovePIEPrefix(FailedWorld->GetMapName());
+	if (MapName.Contains(TEXT("Entry")) || MapName.Contains(TEXT("MainMenu")))
+	{
+		BroadcastMessage(FString::Printf(TEXT("Connection failed: %s"), *ErrorString));
+		return;
+	}
+
+	BroadcastMessage(TEXT("The host left. Returning to the main menu..."));
+	ReturnToMainMenu();
 }
 
 void UActionDemoGameInstance::TryShowMainMenu(UWorld* World)
@@ -135,6 +167,48 @@ FString UActionDemoGameInstance::GetTravelMapAssetName() const
 	return PackageName.IsEmpty() ? TEXT("/Game/FirstPerson/Maps/Level_1") : PackageName;
 }
 
+TArray<FString> UActionDemoGameInstance::GetAvailableMapPackageNames() const
+{
+	TArray<FString> Result;
+	const UActionDemoMenuSettings* MenuSettings = GetDefault<UActionDemoMenuSettings>();
+	if (!MenuSettings)
+	{
+		return Result;
+	}
+
+	for (const TSoftObjectPtr<UWorld>& Map : MenuSettings->AvailableMaps)
+	{
+		const FString PackageName = FPackageName::ObjectPathToPackageName(Map.ToSoftObjectPath().GetAssetPathString());
+		if (!PackageName.IsEmpty())
+		{
+			Result.AddUnique(PackageName);
+		}
+	}
+	return Result;
+}
+
+bool UActionDemoGameInstance::SelectTravelMap(const FString& MapPackageName)
+{
+	const UActionDemoMenuSettings* MenuSettings = GetDefault<UActionDemoMenuSettings>();
+	if (!MenuSettings)
+	{
+		return false;
+	}
+
+	for (const TSoftObjectPtr<UWorld>& Map : MenuSettings->AvailableMaps)
+	{
+		const FSoftObjectPath MapPath = Map.ToSoftObjectPath();
+		if (FPackageName::ObjectPathToPackageName(MapPath.GetAssetPathString()).Equals(MapPackageName, ESearchCase::IgnoreCase))
+		{
+			TravelMap = MapPath;
+			BroadcastMessage(FString::Printf(TEXT("Map selected: %s"), *FPackageName::GetShortName(MapPackageName)));
+			return true;
+		}
+	}
+	BroadcastMessage(TEXT("That map is not available."));
+	return false;
+}
+
 IOnlineSessionPtr UActionDemoGameInstance::GetSessionInterface() const
 {
 	const FName ServiceName = bUseLAN ? FName(TEXT("NULL")) : FName(TEXT("STEAM"));
@@ -195,6 +269,24 @@ void UActionDemoGameInstance::PlaySinglePlayer()
 	CurrentRoomCode.Reset();
 	BroadcastMessage(TEXT("Starting single player..."));
 	UGameplayStatics::OpenLevel(this, FName(*GetTravelMapAssetName()));
+}
+
+void UActionDemoGameInstance::ReturnToMainMenu()
+{
+	if (UWorld* World = GetWorld())
+	{
+		UGameplayStatics::SetGamePaused(World, false);
+	}
+
+	if (IOnlineSessionPtr Sessions = GetSessionInterface();
+		Sessions.IsValid() && Sessions->GetNamedSession(NAME_GameSession))
+	{
+		bReturnToMenuAfterDestroy = true;
+		DestroyCurrentSession();
+		return;
+	}
+
+	UGameplayStatics::OpenLevel(this, FName(TEXT("/Engine/Maps/Entry")));
 }
 
 void UActionDemoGameInstance::CreateRemoteSession()
@@ -419,6 +511,13 @@ void UActionDemoGameInstance::OnDestroySessionComplete(FName SessionName, bool b
 	CurrentRoomCode.Reset();
 	EnsureRoomCode();
 	OnRoomCodeReady.Broadcast(true, CurrentRoomCode);
+
+	if (bReturnToMenuAfterDestroy)
+	{
+		bReturnToMenuAfterDestroy = false;
+		UGameplayStatics::OpenLevel(this, FName(TEXT("/Engine/Maps/Entry")));
+		return;
+	}
 
 	if (bCreateAfterDestroy)
 	{

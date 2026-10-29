@@ -5,6 +5,54 @@
 #include "GameFramework/CharacterMovementComponent.h"
 
 #include "ActionDemoCharacter.h"
+#include "ActionDemoGameInstance.h"
+#include "PauseMenuWidget.h"
+
+void AActionDemoController::TogglePauseMenu()
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	if (PauseMenuWidget)
+	{
+		ResumeFromPauseMenu();
+		return;
+	}
+
+	PauseMenuWidget = CreateWidget<UPauseMenuWidget>(this, UPauseMenuWidget::StaticClass());
+	if (PauseMenuWidget)
+	{
+		PauseMenuWidget->AddToViewport(100);
+		FInputModeGameAndUI InputMode;
+		InputMode.SetWidgetToFocus(PauseMenuWidget->TakeWidget());
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		SetInputMode(InputMode);
+		bShowMouseCursor = true;
+	}
+}
+
+void AActionDemoController::ResumeFromPauseMenu()
+{
+	if (PauseMenuWidget)
+	{
+		PauseMenuWidget->RemoveFromParent();
+		PauseMenuWidget = nullptr;
+	}
+	FInputModeGameOnly InputMode;
+	SetInputMode(InputMode);
+	bShowMouseCursor = false;
+}
+
+void AActionDemoController::ReturnToMainMenuFromPause()
+{
+	ResumeFromPauseMenu();
+	if (UActionDemoGameInstance* GI = GetGameInstance<UActionDemoGameInstance>())
+	{
+		GI->ReturnToMainMenu();
+	}
+}
 
 void AActionDemoController::UpdateRotation(float DeltaTime)
 {

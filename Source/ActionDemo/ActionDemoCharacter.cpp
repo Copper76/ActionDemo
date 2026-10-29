@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "ActionDemoCharacter.h"
+#include "ActionDemoController.h"
 #include "ActionDemoProjectile.h"
 #include "Animation/AnimInstance.h"
 #include "Camera/CameraComponent.h"
@@ -341,9 +342,19 @@ void AActionDemoCharacter::SetupPlayerInputComponent(class UInputComponent* Play
 
 		//Grapple
 		EnhancedInputComponent->BindAction(GrappleAction, ETriggerEvent::Triggered, this, &AActionDemoCharacter::Grapple);
+
+		// Pause menu
+		EnhancedInputComponent->BindAction(PauseAction, ETriggerEvent::Triggered, this, &AActionDemoCharacter::TogglePauseMenu);
 	}
 }
 
+void AActionDemoCharacter::TogglePauseMenu(const FInputActionValue& Value)
+{
+	if (AActionDemoController* DemoController = Cast<AActionDemoController>(Controller))
+	{
+		DemoController->TogglePauseMenu();
+	}
+}
 
 void AActionDemoCharacter::Move(const FInputActionValue& Value)
 {
@@ -519,11 +530,6 @@ bool AActionDemoCharacter::IsHolstered() const
 
 void AActionDemoCharacter::SwapControl()
 {
-	if (bSuppressWeapon)
-	{
-		return;
-	}
-
 	SetHolstered(!bHolstered);
 }
 

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/GameInstance.h"
+#include "Net/Core/Connection/NetEnums.h"
 #include "Interfaces/OnlineSessionInterface.h"
 #include "ActionDemoGameInstance.generated.h"
 
@@ -58,6 +59,18 @@ public:
 	bool IsUsingLAN() const { return bUseLAN; }
 
 	UFUNCTION(BlueprintCallable, Category = "Menu")
+	bool SelectTravelMap(const FString& MapPackageName);
+
+	UFUNCTION(BlueprintPure, Category = "Menu")
+	TArray<FString> GetAvailableMapPackageNames() const;
+
+	UFUNCTION(BlueprintPure, Category = "Menu")
+	FString GetSelectedMapPackageName() const { return GetTravelMapAssetName(); }
+
+	UFUNCTION(BlueprintCallable, Category = "Menu")
+	void ReturnToMainMenu();
+
+	UFUNCTION(BlueprintCallable, Category = "Menu")
 	void DestroyCurrentSession();
 
 protected:
@@ -66,6 +79,7 @@ protected:
 
 private:
 	void OnPostLoadMap(UWorld* LoadedWorld);
+	void OnNetworkFailure(UWorld* FailedWorld, class UNetDriver* NetDriver, ENetworkFailure::Type FailureType, const FString& ErrorString);
 	void TryShowMainMenu(UWorld* World);
 	void BroadcastMessage(const FString& Message);
 	FString GenerateRoomCode() const;
@@ -82,6 +96,7 @@ private:
 	FString CurrentRoomCode;
 	FString PendingJoinCode;
 	bool bCreateAfterDestroy = false;
+	bool bReturnToMenuAfterDestroy = false;
 
 	TSharedPtr<FOnlineSessionSearch> SessionSearch;
 
@@ -95,6 +110,7 @@ private:
 	FDelegateHandle JoinSessionCompleteHandle;
 	FDelegateHandle DestroySessionCompleteHandle;
 	FDelegateHandle PostLoadMapHandle;
+	FDelegateHandle NetworkFailureHandle;
 
 	UPROPERTY()
 	TObjectPtr<class UMainMenuWidget> FallbackMenuWidget;

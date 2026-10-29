@@ -8,6 +8,7 @@
 
 class UCharacterMovementComponent;
 class AActionDemoCharacter;
+class UPauseMenuWidget;
 
 /**
  *
@@ -19,6 +20,9 @@ class AActionDemoController : public APlayerController
 
 public:
 	virtual void UpdateRotation(float DeltaTime) override;
+	void TogglePauseMenu();
+	void ResumeFromPauseMenu();
+	void ReturnToMainMenuFromPause();
 
 protected:
 	virtual void OnPossess(APawn* InPawn) override;
@@ -41,4 +45,7 @@ private:
 	TWeakObjectPtr<UCharacterMovementComponent> MovementComponent;
 
 	AActionDemoCharacter* DemoCharacter;
+
+	UPROPERTY()
+	TObjectPtr<UPauseMenuWidget> PauseMenuWidget;
 };

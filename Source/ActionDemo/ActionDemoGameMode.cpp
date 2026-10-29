@@ -2,6 +2,8 @@
 
 #include "ActionDemoGameMode.h"
 #include "ActionDemoCharacter.h"
+#include "EngineUtils.h"
+#include "GameFramework/PlayerStart.h"
 #include "UObject/ConstructorHelpers.h"
 
 AActionDemoGameMode::AActionDemoGameMode()
@@ -12,8 +14,42 @@ AActionDemoGameMode::AActionDemoGameMode()
 	DefaultPawnClass = PlayerPawnClassFinder.Class;
 }
 
+void AActionDemoGameMode::PostLogin(APlayerController* NewPlayer)
+{
+	PlayerSpawnIndices.FindOrAdd(NewPlayer) = NextSpawnIndex++;
+	Super::PostLogin(NewPlayer);
+}
+
+void AActionDemoGameMode::Logout(AController* Exiting)
+{
+	PlayerSpawnIndices.Remove(Exiting);
+	Super::Logout(Exiting);
+}
+
+AActor* AActionDemoGameMode::ChoosePlayerStart_Implementation(AController* Player)
+{
+	const int32* SpawnIndex = PlayerSpawnIndices.Find(Player);
+	if (SpawnIndex)
+	{
+		const FName RequiredTag(*FString::FromInt(*SpawnIndex));
+		for (TActorIterator<APlayerStart> It(GetWorld()); It; ++It)
+		{
+			if (It->PlayerStartTag == RequiredTag)
+			{
+				return *It;
+			}
+		}
+	}
+
+	return Super::ChoosePlayerStart_Implementation(Player);
+}
+
 APawn* AActionDemoGameMode::SpawnDefaultPawnFor_Implementation(AController* NewPlayer, AActor* StartSpot)
 {
+	if (!StartSpot)
+	{
+		return Super::SpawnDefaultPawnFor_Implementation(NewPlayer, StartSpot);
+	}
 	FRotator StartRotation = StartSpot->GetActorRotation();
 	FVector StartLocation = StartSpot->GetActorLocation();
 

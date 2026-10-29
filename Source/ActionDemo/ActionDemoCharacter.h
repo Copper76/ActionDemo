@@ -76,6 +76,10 @@ private:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess = "true"))
 	class UInputMappingContext* DefaultMappingContext;
 
+	/** Runtime Enhanced Input action mapped to Escape for the pause menu. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess = "true"))
+	class UInputAction* PauseAction;
+
 	/** Jump Input Action */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess = "true"))
 	class UInputAction* JumpAction;
@@ -254,6 +258,8 @@ protected:
 	void ToggleSprint(const FInputActionValue& Value);
 
 	void ToggleCrouch(const FInputActionValue& Value);
+
+	void TogglePauseMenu(const FInputActionValue& Value);
 
 	void Grapple();
 

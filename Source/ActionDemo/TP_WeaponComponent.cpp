@@ -481,6 +481,11 @@ void UTP_WeaponComponent::ToggleAR()
 			Subsystem->AddMappingContext(PortalMappingContext, 0);
 		}
 	}
+
+	if (m_Character)
+	{
+		m_Character->SetHolstered(false);
+	}
 }
 
 void UTP_WeaponComponent::TogglePortal()
@@ -494,6 +499,11 @@ void UTP_WeaponComponent::TogglePortal()
 			Subsystem->AddMappingContext(FireMappingContext, 0);
 			Subsystem->AddMappingContext(PortalMappingContext, 1);
 		}
+	}
+
+	if (m_Character)
+	{
+		m_Character->SetHolstered(false);
 	}
 }
 

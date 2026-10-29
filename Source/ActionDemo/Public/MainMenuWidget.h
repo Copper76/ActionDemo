@@ -8,6 +8,7 @@
 
 class UButton;
 class UCheckBox;
+class UComboBoxString;
 class UEditableTextBox;
 class UTextBlock;
 class UVerticalBox;
@@ -44,6 +45,9 @@ private:
 	void OnLANModeChanged(bool bIsChecked);
 
 	UFUNCTION()
+	void OnMapSelectionChanged(FString SelectedItem, ESelectInfo::Type SelectionType);
+
+	UFUNCTION()
 	void HandleSessionMessage(const FString& Message);
 
 	UFUNCTION()
@@ -75,4 +79,7 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UCheckBox> LANModeCheckBox;
+
+	UPROPERTY()
+	TObjectPtr<UComboBoxString> MapSelector;
 };

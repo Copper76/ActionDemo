@@ -6,6 +6,7 @@
 #include "Blueprint/WidgetTree.h"
 #include "Components/Button.h"
 #include "Components/CheckBox.h"
+#include "Components/ComboBoxString.h"
 #include "Components/EditableTextBox.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
@@ -88,6 +89,29 @@ void UMainMenuWidget::BuildLayout()
 	CreateRemoteButton = MakeButton(WidgetTree, TEXT("Create Remote Room"));
 	AddRow(CreateRemoteButton);
 
+	UHorizontalBox* MapRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("MapRow"));
+	UTextBlock* MapLabel = MakeLabel(WidgetTree, TEXT("Map"), 16, FLinearColor(0.75f, 0.8f, 0.85f));
+	if (UHorizontalBoxSlot* MapLabelSlot = MapRow->AddChildToHorizontalBox(MapLabel))
+	{
+		MapLabelSlot->SetPadding(FMargin(0.f, 0.f, 12.f, 0.f));
+		MapLabelSlot->SetVerticalAlignment(VAlign_Center);
+	}
+	MapSelector = WidgetTree->ConstructWidget<UComboBoxString>(UComboBoxString::StaticClass(), TEXT("MapSelector"));
+	const FSlateColor MapTextColor(FLinearColor::White);
+	// ForegroundColor is construction-only and has no public runtime setter in UComboBoxString.
+	PRAGMA_DISABLE_DEPRECATION_WARNINGS
+	MapSelector->ForegroundColor = MapTextColor;
+	PRAGMA_ENABLE_DEPRECATION_WARNINGS
+	FTableRowStyle MapItemStyle = MapSelector->GetItemStyle();
+	MapItemStyle.SetTextColor(MapTextColor);
+	MapItemStyle.SetSelectedTextColor(MapTextColor);
+	MapSelector->SetItemStyle(MapItemStyle);
+	if (UHorizontalBoxSlot* MapSelectorSlot = MapRow->AddChildToHorizontalBox(MapSelector))
+	{
+		MapSelectorSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+	}
+	AddRow(MapRow);
+
 	UHorizontalBox* ModeRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("ModeRow"));
 	LANModeCheckBox = WidgetTree->ConstructWidget<UCheckBox>(UCheckBox::StaticClass(), TEXT("LANModeCheckBox"));
 	if (UHorizontalBoxSlot* CheckSlot = ModeRow->AddChildToHorizontalBox(LANModeCheckBox))
@@ -121,7 +145,12 @@ void UMainMenuWidget::BuildLayout()
 	UHorizontalBox* JoinRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("JoinRow"));
 	RoomCodeInput = WidgetTree->ConstructWidget<UEditableTextBox>(UEditableTextBox::StaticClass(), TEXT("RoomCodeInput"));
 	RoomCodeInput->SetHintText(FText::FromString(TEXT("Enter room code")));
-	RoomCodeInput->SetForegroundColor(FLinearColor::Black);
+	const FSlateColor InputTextColor(FLinearColor::Black);
+	RoomCodeInput->WidgetStyle.SetForegroundColor(InputTextColor);
+	RoomCodeInput->WidgetStyle.SetFocusedForegroundColor(InputTextColor);
+	RoomCodeInput->WidgetStyle.SetReadOnlyForegroundColor(InputTextColor);
+	// EditableTextBox's nested TextStyle takes precedence over ForegroundColor.
+	RoomCodeInput->WidgetStyle.TextStyle.SetColorAndOpacity(InputTextColor);
 	if (UHorizontalBoxSlot* InputSlot = JoinRow->AddChildToHorizontalBox(RoomCodeInput))
 	{
 		InputSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
@@ -164,6 +193,15 @@ void UMainMenuWidget::NativeConstruct()
 
 	if (UActionDemoGameInstance* GI = GetGameInstance<UActionDemoGameInstance>())
 	{
+		if (MapSelector)
+		{
+			for (const FString& MapPackageName : GI->GetAvailableMapPackageNames())
+			{
+				MapSelector->AddOption(MapPackageName);
+			}
+			MapSelector->SetSelectedOption(GI->GetSelectedMapPackageName());
+			MapSelector->OnSelectionChanged.AddDynamic(this, &UMainMenuWidget::OnMapSelectionChanged);
+		}
 		if (LANModeCheckBox)
 		{
 			LANModeCheckBox->SetIsChecked(GI->IsUsingLAN());
@@ -185,6 +223,10 @@ void UMainMenuWidget::NativeDestruct()
 	if (LANModeCheckBox)
 	{
 		LANModeCheckBox->OnCheckStateChanged.RemoveDynamic(this, &UMainMenuWidget::OnLANModeChanged);
+	}
+	if (MapSelector)
+	{
+		MapSelector->OnSelectionChanged.RemoveDynamic(this, &UMainMenuWidget::OnMapSelectionChanged);
 	}
 	Super::NativeDestruct();
 }
@@ -247,6 +289,14 @@ void UMainMenuWidget::OnLANModeChanged(bool bIsChecked)
 		{
 			LANModeCheckBox->SetIsChecked(GI->IsUsingLAN());
 		}
+	}
+}
+
+void UMainMenuWidget::OnMapSelectionChanged(FString SelectedItem, ESelectInfo::Type SelectionType)
+{
+	if (UActionDemoGameInstance* GI = GetGameInstance<UActionDemoGameInstance>())
+	{
+		GI->SelectTravelMap(SelectedItem);
 	}
 }
 
