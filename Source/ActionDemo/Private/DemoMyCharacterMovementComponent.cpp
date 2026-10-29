@@ -491,7 +491,9 @@ void UDemoMyCharacterMovementComponent::PhysCustom(float DeltaTime, int32 Iterat
 		PhysGrapple(DeltaTime, Iterations);
 		break;
 	default:
+		#if WITH_EDITOR
 		UE_LOG(LogTemp, Fatal, TEXT("INVALID MOVEMENT MODE"));
+		#endif
 	}
 }
 
@@ -734,7 +736,9 @@ float UDemoMyCharacterMovementComponent::GetMaxSpeed() const
 		case CMOVE_Grapple:
 			return Grapple_MaxSpeed;
 		default:
+			#if WITH_EDITOR
 			UE_LOG(LogTemp, Fatal, TEXT("INVALID MOVEMENT MODE"));
+			#endif
 			return -1.0f;
 		}
 	}
@@ -882,7 +886,9 @@ float UDemoMyCharacterMovementComponent::GetMaxBrakingDeceleration() const
 	case CMOVE_Grapple:
 		return 0.0f;
 	default:
+		#if WITH_EDITOR
 		UE_LOG(LogTemp, Fatal, TEXT("INVALID MOVEMENT MODE"));
+		#endif
 		return -1.0f;
 	}
 }
@@ -925,10 +931,14 @@ bool UDemoMyCharacterMovementComponent::DoJump(bool bReplayingMoves)
 
 void UDemoMyCharacterMovementComponent::AlignMovement(const FQuat& RelativeRotation, const FQuat& ViewRotation)
 {
+	#if WITH_EDITOR
 	UE_LOG(LogTemp, Warning, TEXT("PRE-VELOCITY: %s"), *Velocity.ToString());
+	#endif
 	Velocity = RelativeRotation.RotateVector(Velocity).GetClampedToMaxSize(Portal_MaxTravelSpeed);
 	Acceleration = RelativeRotation.RotateVector(Acceleration);
+	#if WITH_EDITOR
 	UE_LOG(LogTemp, Warning, TEXT("After-VELOCITY: %s"), *Velocity.ToString());
+	#endif
 
 	// View up is "up" as seen through the portal. Gravity is the opposite, snapped to the strongest world axis.
 	const FVector GravityHint = -ViewRotation.GetUpVector();

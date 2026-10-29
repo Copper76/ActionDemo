@@ -476,7 +476,9 @@ void UTP_WeaponComponent::ToggleAR()
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
 		{
 			// Set the priority of the mapping to 1, so that it overrides the Jump action with the Fire action when using touch input
+			#if WITH_EDITOR
 			UE_LOG(LogTemp, Warning, TEXT("TOGGLING TO 1"));
+			#endif
 			Subsystem->AddMappingContext(FireMappingContext, 1);
 			Subsystem->AddMappingContext(PortalMappingContext, 0);
 		}
@@ -495,7 +497,9 @@ void UTP_WeaponComponent::TogglePortal()
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
 		{
 			// Set the priority of the mapping to 1, so that it overrides the Jump action with the Fire action when using touch input
+			#if WITH_EDITOR
 			UE_LOG(LogTemp, Warning, TEXT("TOGGLING TO 2"));
+			#endif
 			Subsystem->AddMappingContext(FireMappingContext, 0);
 			Subsystem->AddMappingContext(PortalMappingContext, 1);
 		}

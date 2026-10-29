@@ -129,7 +129,9 @@ void UActionDemoGameInstance::TryShowMainMenu(UWorld* World)
 
 void UActionDemoGameInstance::BroadcastMessage(const FString& Message)
 {
+	#if WITH_EDITOR
 	UE_LOG(LogTemp, Log, TEXT("Session: %s"), *Message);
+	#endif
 	OnSessionMessage.Broadcast(Message);
 }
 
