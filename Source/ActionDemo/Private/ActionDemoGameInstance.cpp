@@ -288,7 +288,7 @@ void UActionDemoGameInstance::ReturnToMainMenu()
 		return;
 	}
 
-	UGameplayStatics::OpenLevel(this, FName(TEXT("/Engine/Maps/Entry")));
+	UGameplayStatics::OpenLevel(this, FName(TEXT("/Game/FirstPerson/Maps/Entry")));
 }
 
 void UActionDemoGameInstance::CreateRemoteSession()
@@ -517,7 +517,7 @@ void UActionDemoGameInstance::OnDestroySessionComplete(FName SessionName, bool b
 	if (bReturnToMenuAfterDestroy)
 	{
 		bReturnToMenuAfterDestroy = false;
-		UGameplayStatics::OpenLevel(this, FName(TEXT("/Engine/Maps/Entry")));
+		UGameplayStatics::OpenLevel(this, FName(TEXT("/Game/FirstPerson/Maps/Entry")));
 		return;
 	}
 
