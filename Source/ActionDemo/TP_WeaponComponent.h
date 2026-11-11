@@ -70,6 +70,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	class UInputAction* FireAction;
 
+	/** Prevent repeated binding from duplicating the runtime action and pulse. */
+	UPROPERTY(Transient)
+	bool bHasRuntimeFireInput = false;
+
 	/** Fire Input Action */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	class UInputAction* AimAction;

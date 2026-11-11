@@ -10,6 +10,9 @@
 #include "Kismet/GameplayStatics.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "InputAction.h"
+#include "InputMappingContext.h"
+#include "InputTriggers.h"
 #include "Engine/DecalActor.h"
 #include "Components/DecalComponent.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -177,6 +180,36 @@ void UTP_WeaponComponent::BindInput(UEnhancedInputComponent* EnhancedInputCompon
 		return;
 	}
 
+	if (!FireAction || !FireMappingContext)
+	{
+		return;
+	}
+
+	if (!bHasRuntimeFireInput)
+	{
+		// Packaged input assets may be in DisregardForGC. Never attach runtime
+		// weapon-owned objects to those shared assets.
+		const UInputAction* SharedFireAction = FireAction;
+		FireMappingContext = DuplicateObject<UInputMappingContext>(FireMappingContext, this);
+		FireAction = DuplicateObject<UInputAction>(FireAction, this);
+		for (int32 Index = 0; Index < FireMappingContext->GetMappings().Num(); ++Index)
+		{
+			FEnhancedActionKeyMapping& Mapping = FireMappingContext->GetMapping(Index);
+			if (Mapping.Action == SharedFireAction)
+			{
+				Mapping.Action = FireAction;
+			}
+		}
+		for (UInputTrigger* Trigger : FireAction->Triggers)
+		{
+			if (UInputTriggerPulse* FirePulse = Cast<UInputTriggerPulse>(Trigger))
+			{
+				FirePulse->Interval = 60.0f / FMath::Max(RateOfFire, 1.0f);
+			}
+		}
+		bHasRuntimeFireInput = true;
+	}
+
 	if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
 	{
 		Subsystem->AddMappingContext(FireMappingContext, 1);
@@ -184,10 +217,6 @@ void UTP_WeaponComponent::BindInput(UEnhancedInputComponent* EnhancedInputCompon
 	}
 
 	EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Triggered, this, &UTP_WeaponComponent::Fire);
-	UInputTriggerPulse* FirePulse = NewObject<UInputTriggerPulse>(this, TEXT("TriggerImpulse"));
-	FirePulse->bTriggerOnStart = true;
-	FirePulse->Interval = 60.0f / RateOfFire;
-	FireAction->Triggers.Add(FirePulse);
 	EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Canceled, this, &UTP_WeaponComponent::ResetBulletInSequence);
 	EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Completed, this, &UTP_WeaponComponent::ResetBulletInSequence);
 
