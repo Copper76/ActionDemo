@@ -43,7 +43,11 @@ This project is a demo project using Unreal Engine. The project is a practice pr
 - PRESS E to toggle map(not implemented yet)
 
 ## Tools
-- Unreal 5.2
+- Unreal 5.8
+
+## Special Thanks
+- [Infima Games](https://infimagames.gumroad.com/l/fps-tutorial-source-files) for their FPS gun model and animation
+- [Voxel Vision](https://www.fab.com/listings/481ef75b-892b-424f-a213-f1cc058c9c19?lang=en) for their Third Person animations
 
 ## Necessary Software
 - [Epic Games Launcher, Unreal Engine 5.2](https://www.unrealengine.com/en-US/blog)
