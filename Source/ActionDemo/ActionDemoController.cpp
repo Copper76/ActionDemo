@@ -74,6 +74,13 @@ void AActionDemoController::UpdateRotation(float DeltaTime)
 		ViewRotation.Roll = 0.f;
 	}
 
+	if (DemoCharacter)
+	{
+		// Apply recoil in the same gravity-relative frame as look input.
+		const FVector2D RecoilDelta = DemoCharacter->GetRecoilOffsetDelta();
+		ViewRotation += FRotator(RecoilDelta.Y, RecoilDelta.X, 0.0f);
+	}
+
 	ViewRotation = GetGravityWorldRotation(ViewRotation, GravityDirection);
 
 	if (DemoCharacter)
@@ -82,9 +89,6 @@ void AActionDemoController::UpdateRotation(float DeltaTime)
 
 		ViewRotation += LeanQ.Rotator();
 
-		const FVector2D RecoilDelta = DemoCharacter->GetRecoilOffsetDelta();
-
-		ViewRotation += FRotator(RecoilDelta.Y, RecoilDelta.X, 0.0f);
 	}
 
 	SetControlRotation(ViewRotation);
