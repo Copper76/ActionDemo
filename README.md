@@ -17,12 +17,12 @@ This project is a demo project using Unreal Engine. The project is a practice pr
 - [X] Assault Rifle
 - [X] Teleporting objects through portal
 - [X] Allow movement to be gravity ignorant
-- [ ] Make gun animation idle
-- [ ] Make gun animation move
-- [ ] Make gun animation fire
-- [ ] Make gun animation sprint
+- [X] Make gun animation idle
+- [X] Make gun animation move
+- [X] Make gun animation fire
+- [X] Make gun animation sprint
 - [ ] Make mantle and other movement animations
-- [ ] Make gun recoil properly
+- [X] Make gun recoil properly
 - [X] Make portal work with all orientation
 - [X] Rework the logic of portal so it feels better and can fire through
 - [X] Make functions work with network
@@ -35,19 +35,24 @@ This project is a demo project using Unreal Engine. The project is a practice pr
 - Sprint into wall at an angle to wallrun
 - Go into wall with upwards momentum to climb
 - LMB without gun to grapple
+- E any time to grapple
 - RMB without gun to flash forward
+- Side Mouse Button any time to flash forward
 - PRESS L-CTRL while grappling to cancel grapple
-- B to swap weapon when the gun is collected
-- LMB with gun to fire blue portal
-- RMB with gun to fire orange portal
-- PRESS E to toggle map(not implemented yet)
+- B to toggle holster
+- 1/2 to toggle between AR and portal gun
+- LMB with gun to fire
+- RMB with gun to ADS
+- R with gun to reload
+- LMB with portal gun to fire blue portal
+- RMB with portal gun to fire orange portal
 
 ## Tools
-- Unreal 5.8
+- Unreal 5.4
 
 ## Special Thanks
 - [Infima Games](https://infimagames.gumroad.com/l/fps-tutorial-source-files) for their FPS gun model and animation
-- [Voxel Vision](https://www.fab.com/listings/481ef75b-892b-424f-a213-f1cc058c9c19?lang=en) for their Third Person animations
+- [Voxel Vision](https://www.fab.com/listings/481ef75b-892b-424f-a213-f1cc058c9c19?lang=en) for their third person animations
 
 ## Necessary Software
 - [Epic Games Launcher, Unreal Engine 5.2](https://www.unrealengine.com/en-US/blog)
